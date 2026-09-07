@@ -1905,15 +1905,15 @@ export default function UserChatScreen() {
                 {selectedChat?.title || ''}
               </AppHeaderTitle>
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', gap: 8, marginTop: 2 }}>
-                {(selectedChat.type === 'user_direct' || selectedChat.type === 'direct') ? (
-                  <ClientsButton itemType="user_chat" itemId={selectedChat.id} compact allowCreate />
-                ) : null}
                 <Text style={dynamicStyles.headerSubtitle}>
                   {selectedChat.participants.length} participant{selectedChat.participants.length !== 1 ? 's' : ''}
                 </Text>
                 {isConnected && otherUserOnline && (
                   <Text style={{ fontSize: 10, color: colors.textSecondary }}>• Connected</Text>
                 )}
+                {(selectedChat.type === 'user_direct' || selectedChat.type === 'direct') ? (
+                  <ClientsButton itemType="user_chat" itemId={selectedChat.id} compact allowCreate />
+                ) : null}
               </View>
             </TouchableOpacity>
           ) : (

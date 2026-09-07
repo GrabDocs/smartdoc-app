@@ -706,7 +706,7 @@ function DashboardScreen() {
       { key: 'notes', title: 'Notes', icon: 'create-outline', color: '#5AC8FA', action: 'notes' },
       { key: 'bookmarks', title: 'Bookmarks', icon: 'bookmark', color: '#FF9500', action: 'bookmarks' },
       { key: 'chat', title: 'Secure Messaging', icon: 'chatbubbles', color: '#FF2D55', action: 'chat' },
-      { key: 'email-sync', title: 'Email Sync', icon: 'mail-outline', color: '#007AFF', action: 'email-sync' },
+      { key: 'email-sync', title: 'Email Replies', subtitle: 'Draft reply with AI', icon: 'mail-outline', color: '#007AFF', action: 'email-sync' },
       { key: 'analytics', title: 'Financials', icon: 'analytics', color: '#FF9500', action: 'analytics' },
     ],
     [reachInMeeting]
@@ -724,10 +724,11 @@ function DashboardScreen() {
   }, [recentAppKeys, appByKey]);
 
   const moreApps = useMemo(() => {
-    const recentSet = new Set(recentApps.map((a) => a.key));
+    // Quick-action tiles — omit from Apps to avoid duplicating the grid above.
+    // Recent is shortcuts only; do not remove those apps from this list.
     const coreKeys = new Set(['upload', 'chatgd', 'analytics', 'email-sync']);
-    return ALL_APPS.filter((a) => !recentSet.has(a.key) && !coreKeys.has(a.key));
-  }, [ALL_APPS, recentApps]);
+    return ALL_APPS.filter((a) => !coreKeys.has(a.key));
+  }, [ALL_APPS]);
 
   const hasPendingAttention = attentionItems.some(
     (i) =>
@@ -1223,8 +1224,8 @@ function DashboardScreen() {
         </View>
 
         {/* Apps */}
-        <View style={dynamicStyles.section}>
-          <Text style={dynamicStyles.sectionTitle}>Apps</Text>
+        <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
+          <Text style={[dynamicStyles.sectionTitle, { marginBottom: 10 }]}>Apps</Text>
           <View style={dynamicStyles.quickActionsContainer}>
             {moreApps.map((app) => (
               <QuickActionCard
