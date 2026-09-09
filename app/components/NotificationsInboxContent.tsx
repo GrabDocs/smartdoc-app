@@ -256,7 +256,19 @@ export function NotificationsInboxContent({
     (notificationId: number, outcome: 'accepted' | 'rejected', afterRemove?: () => void) => {
       setActionState((prev) => ({ ...prev, [notificationId]: outcome }));
       setNotifications((prev) =>
-        prev.map((n2) => (n2.id === notificationId ? { ...n2, read: true } : n2))
+        prev.map((n2) =>
+          n2.id === notificationId
+            ? {
+                ...n2,
+                read: true,
+                metadata: {
+                  ...(n2.metadata || {}),
+                  has_actions: false,
+                  action_status: outcome,
+                },
+              }
+            : n2
+        )
       );
       setUnreadCount((c) => Math.max(0, c - 1));
       onListMutated?.();
@@ -326,27 +338,44 @@ export function NotificationsInboxContent({
     [actionState, finalizeSuccessfulAction]
   );
 
-  const isDraftOrFileInvite = (n: AppNotification) =>
-    (n.type === 'draft_invite' ||
+  const isDraftOrFileInvite = (n: AppNotification) => {
+    const isInvite =
+      n.type === 'draft_invite' ||
       n.type === 'file_invite' ||
       n.type === 'file_received' ||
       n.type === 'file_share' ||
       n.metadata?.action_type === 'draft_invite' ||
       n.metadata?.action_type === 'file_invite' ||
-      n.metadata?.action_type === 'file_share') &&
-    n.metadata?.share_id != null;
+      n.metadata?.action_type === 'file_share';
+    if (!isInvite || n.metadata?.share_id == null) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    // Hide after accept/reject clears has_actions; keep showing for actionable invites.
+    return Boolean(n.metadata?.has_actions);
+  };
 
-  const isWorkspaceInvitation = (n: AppNotification) =>
-    (n.type === 'workspace_invite' ||
+  const isWorkspaceInvitation = (n: AppNotification) => {
+    const isInvite =
+      n.type === 'workspace_invite' ||
       n.type === 'workspace_invitation' ||
       n.metadata?.action_type === 'workspace_invite' ||
-      n.metadata?.action_type === 'workspace_invitation') &&
-    n.metadata?.invitation_id != null;
+      n.metadata?.action_type === 'workspace_invitation';
+    if (!isInvite || n.metadata?.invitation_id == null) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    return Boolean(n.metadata?.has_actions);
+  };
 
-  const isJoinRequest = (n: AppNotification) =>
-    (n.type === 'join_request' || n.metadata?.action_type === 'join_request') &&
-    n.metadata?.video_call_id != null &&
-    n.metadata?.join_request_id != null;
+  const isJoinRequest = (n: AppNotification) => {
+    const isJoin =
+      (n.type === 'join_request' || n.metadata?.action_type === 'join_request') &&
+      n.metadata?.video_call_id != null &&
+      n.metadata?.join_request_id != null;
+    if (!isJoin) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    return Boolean(n.metadata?.has_actions);
+  };
 
   const handleAcceptWorkspaceInvitation = useCallback(
     async (n: AppNotification) => {

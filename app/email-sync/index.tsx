@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AppBackButton from '../../components/AppBackButton';
+import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { GoogleLogo } from '../../components/GoogleLogo';
 import { MicrosoftLogo } from '../../components/MicrosoftLogo';
@@ -33,9 +35,9 @@ import {
     type EmailThread,
     type ThreadAttention,
 } from '../../services/emailSyncApi';
+import { formatRemainingCountdown } from '../../utils/timeFormatting';
 import { AttachmentNamesRow } from './_components/AttachmentNamesRow';
 import { confirmCloseMailboxThread } from './_components/confirmCloseThread';
-import { EmailSyncTopTabs, type EmailSyncTab } from './_components/EmailSyncTopTabs';
 import { formatEmailWhen, threadStatusDotColor } from './_components/emailFormat';
 import { openEmailInboxOAuth } from './_components/emailOAuth';
 import {
@@ -44,21 +46,20 @@ import {
     emailSyncCacheSetPending,
     emailSyncCacheSetReplies,
     emailSyncCacheSetWorkspace,
+    emailSyncClearUndo,
     emailSyncConsumeOAuthRefresh,
     emailSyncPeekOAuthRefresh,
     useEmailSyncUndo,
-    emailSyncClearUndo,
 } from './_components/emailSyncCache';
+import { EmailSyncTopTabs, type EmailSyncTab } from './_components/EmailSyncTopTabs';
 import { EmailImportsPane } from './imports';
 import { EmailSetupPane } from './mailbox';
-import AppBackButton from '../../components/AppBackButton';
-import AppHeaderTitle from '../../components/AppHeaderTitle';
-import { formatRemainingCountdown } from '../../utils/timeFormatting';
 
 const FILTERS: { id: ThreadAttention; label: string }[] = [
   { id: 'pending', label: 'To reply' },
   { id: 'candidates', label: 'Review' },
   { id: 'drafts', label: 'Drafts' },
+  { id: 'sent', label: 'Sent' },
   { id: 'dismissed', label: 'Dismissed' },
 ];
 
@@ -531,7 +532,13 @@ export default function EmailInboxScreen() {
                   : item.subject || '(no subject)'}
               </Text>
               <Text style={styles.when}>
-                {formatEmailWhen(filter === 'dismissed' ? item.dismissed_at || item.last_message_at : item.last_message_at)}
+                {formatEmailWhen(
+                  filter === 'dismissed'
+                    ? item.dismissed_at || item.last_message_at
+                    : filter === 'sent'
+                      ? item.last_outbound_at || item.last_message_at
+                      : item.last_message_at,
+                )}
               </Text>
             </View>
             {filter === 'drafts' && (item.draft_preview?.to?.length || item.draft_preview?.reply_mode === 'new') ? (
@@ -701,14 +708,18 @@ export default function EmailInboxScreen() {
                     ? 'Nothing dismissed'
                     : filter === 'drafts'
                       ? 'No unsent drafts'
-                      : 'Nothing to review'}
+                      : filter === 'sent'
+                        ? 'No sent mail yet'
+                        : 'Nothing to review'}
               </Text>
               <Text style={styles.emptySub}>
                 {filter === 'pending'
                   ? 'Pull down to sync. Swipe left to dismiss, right to close. Long-press to multi-select.'
                   : filter === 'drafts'
                     ? 'Compose a new email, or drafts from Clients and AI replies appear here until you send or discard them.'
-                    : 'Pull down to sync.'}
+                    : filter === 'sent'
+                      ? 'Emails you send from GrabDocs appear here.'
+                      : 'Pull down to sync.'}
               </Text>
               {filter === 'drafts' ? (
                 <TouchableOpacity

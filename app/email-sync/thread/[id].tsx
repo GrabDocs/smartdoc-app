@@ -58,7 +58,7 @@ import {
     type ThreadAttention,
 } from '../../../services/emailSyncApi';
 import { getClientsForItem, setItemClients } from '../../../services/clientsApi';
-import { AttachmentNamesRow, type AttachPreview } from '../_components/AttachmentNamesRow';
+import { AttachmentNamesRow } from '../_components/AttachmentNamesRow';
 import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
 import { formatEmailWhen } from '../_components/emailFormat';
@@ -122,7 +122,7 @@ export default function EmailThreadScreen() {
   }>();
   const threadId = Number(id);
   const wantCompose = compose === '1' || compose === 'true';
-  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'drafts'
+  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'drafts' || filter === 'sent' || filter === 'closed'
     ? filter
     : 'pending') as ThreadAttention;
   const dismissed = attention === 'dismissed';
@@ -923,13 +923,6 @@ export default function EmailThreadScreen() {
     Alert.alert('Attachment', 'Still importing…');
   };
 
-  const threadAttachments: AttachPreview[] = (() => {
-    const fromMessages = messages.flatMap((m) => m.attachments || []);
-    if (fromMessages.length) return fromMessages;
-    if (thread?.attachments?.length) return thread.attachments;
-    return (thread?.attachment_names || []).map((filename, i) => ({ id: -(i + 1), filename }));
-  })();
-
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -982,24 +975,6 @@ export default function EmailThreadScreen() {
         {Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
-          </View>
-        ) : null}
-
-        {threadAttachments.length > 0 ? (
-          <View
-            style={{
-              paddingHorizontal: 16,
-              paddingTop: 6,
-              paddingBottom: 4,
-              borderBottomWidth: StyleSheet.hairlineWidth,
-              borderBottomColor: colors.border,
-              backgroundColor: colors.background,
-            }}
-          >
-            <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textSecondary, marginBottom: 2 }}>
-              Attachments
-            </Text>
-            <AttachmentNamesRow attachments={threadAttachments} onOpen={openAttachment} style={{ marginTop: 0 }} />
           </View>
         ) : null}
 

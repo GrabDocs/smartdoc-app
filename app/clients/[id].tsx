@@ -663,11 +663,26 @@ export default function ClientDetailScreen() {
                     key={`${e.at}-${idx}`}
                     style={[styles.waitRow, { borderBottomColor: colors.border }]}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ color: colors.text }}>
+                    <View
+                      style={{
+                        flex: 1,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <Text style={{ color: colors.text, flexShrink: 1 }} numberOfLines={2}>
                         {e.label || e.action || e.source}
                       </Text>
-                      <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
+                      <Text
+                        style={{
+                          color: colors.textSecondary,
+                          fontSize: 11,
+                          flexShrink: 0,
+                          marginLeft: 8,
+                        }}
+                      >
                         {e.at ? new Date(e.at).toLocaleString() : ''}
                       </Text>
                     </View>
@@ -702,85 +717,79 @@ export default function ClientDetailScreen() {
                     <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 12, lineHeight: 18 }}>
                       Linked receipts and invoices. Totals only include documents with an extracted amount.
                     </Text>
-                    <View
-                      style={[
-                        styles.financialSummary,
-                        { backgroundColor: colors.card, borderColor: colors.border },
-                      ]}
-                    >
-                      <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 4 }]}>
-                        Total
-                      </Text>
-                      {Object.keys(financials.totals_by_currency || {}).length === 0 ? (
-                        <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>—</Text>
-                      ) : financials.multi_currency ? (
-                        Object.entries(financials.totals_by_currency).map(([cur, amt]) => (
-                          <Text
-                            key={cur}
-                            style={{ color: colors.text, fontSize: 20, fontWeight: '700', marginTop: 2 }}
+                    <View style={{ flexDirection: 'row', gap: 10, marginBottom: 8 }}>
+                      {([
+                        {
+                          label: 'Receipts',
+                          kind: 'Receipt' as const,
+                          single: financials.receipts_total || 0,
+                        },
+                        {
+                          label: 'Invoices',
+                          kind: 'Invoice' as const,
+                          single: financials.invoices_total || 0,
+                        },
+                      ]).map((box) => {
+                        const kindTotals = Object.entries(
+                          financials.totals_by_kind?.[box.kind] || {}
+                        );
+                        const hasAmounts = financials.multi_currency
+                          ? kindTotals.length > 0
+                          : (financials.total_count ?? financials.count) > 0 || box.single > 0;
+                        return (
+                          <View
+                            key={box.label}
+                            style={[
+                              styles.financialSummary,
+                              {
+                                flex: 1,
+                                marginBottom: 0,
+                                backgroundColor: colors.card,
+                                borderColor: colors.border,
+                              },
+                            ]}
                           >
-                            {formatClientMoney(amt, cur)}
-                          </Text>
-                        ))
-                      ) : (
-                        <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
-                          {formatClientMoney(
-                            financials.total_amount || 0,
-                            financials.primary_currency || 'USD'
-                          )}
-                        </Text>
-                      )}
-                      {!financials.multi_currency && (financials.total_count ?? financials.count) > 0 ? (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
-                          <Text style={{ color: colors.text, fontSize: 13 }}>
-                            Receipts:{' '}
-                            <Text style={{ fontWeight: '600' }}>
-                              {formatClientMoney(
-                                financials.receipts_total || 0,
-                                financials.primary_currency || 'USD'
-                              )}
+                            <Text
+                              style={{
+                                color: colors.textSecondary,
+                                fontSize: 13,
+                                fontWeight: '600',
+                                marginBottom: 6,
+                              }}
+                            >
+                              {box.label}
                             </Text>
-                          </Text>
-                          <Text style={{ color: colors.text, fontSize: 13 }}>
-                            Invoices:{' '}
-                            <Text style={{ fontWeight: '600' }}>
-                              {formatClientMoney(
-                                financials.invoices_total || 0,
-                                financials.primary_currency || 'USD'
-                              )}
-                            </Text>
-                          </Text>
-                        </View>
-                      ) : null}
-                      {financials.multi_currency ? (
-                        <View style={{ marginTop: 8, gap: 4 }}>
-                          {(['Receipt', 'Invoice'] as const).map((kind) => {
-                            const kindTotals = Object.entries(
-                              financials.totals_by_kind?.[kind] || {}
-                            );
-                            if (!kindTotals.length) return null;
-                            return (
-                              <Text key={kind} style={{ color: colors.text, fontSize: 13 }}>
-                                <Text style={{ fontWeight: '600' }}>
-                                  {kind === 'Receipt' ? 'Receipts' : 'Invoices'}:
-                                </Text>{' '}
-                                {kindTotals
-                                  .map(([cur, amt]) => formatClientMoney(amt, cur))
-                                  .join(' · ')}
+                            {!hasAmounts ? (
+                              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>—</Text>
+                            ) : financials.multi_currency ? (
+                              kindTotals.map(([cur, amt]) => (
+                                <Text
+                                  key={cur}
+                                  style={{ color: colors.text, fontSize: 20, fontWeight: '700', marginTop: 2 }}
+                                >
+                                  {formatClientMoney(amt, cur)}
+                                </Text>
+                              ))
+                            ) : (
+                              <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
+                                {formatClientMoney(
+                                  box.single,
+                                  financials.primary_currency || 'USD'
+                                )}
                               </Text>
-                            );
-                          })}
-                        </View>
-                      ) : null}
-                      <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 8 }}>
-                        {financials.counted_in_total} of{' '}
-                        {financials.total_count ?? financials.count} document
-                        {(financials.total_count ?? financials.count) === 1 ? '' : 's'} included
-                        {financials.unknown_amount_count > 0
-                          ? ` · ${financials.unknown_amount_count} with unknown amount`
-                          : ''}
-                      </Text>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11, marginBottom: 8 }}>
+                      {financials.counted_in_total} of{' '}
+                      {financials.total_count ?? financials.count} document
+                      {(financials.total_count ?? financials.count) === 1 ? '' : 's'} included
+                      {financials.unknown_amount_count > 0
+                        ? ` · ${financials.unknown_amount_count} with unknown amount`
+                        : ''}
+                    </Text>
                     {financials.items.length === 0 ? (
                       <Text style={{ color: colors.textSecondary, marginTop: 16 }}>
                         No linked receipts or invoices.

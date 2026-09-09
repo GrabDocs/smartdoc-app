@@ -71,6 +71,7 @@ export type EmailThread = {
   archived_at?: string | null;
   dismissed_at?: string | null;
   last_message_at?: string | null;
+  last_outbound_at?: string | null;
   participants?: string[];
   surface_reason?: string | null;
   provider_thread_id?: string | null;
@@ -156,7 +157,7 @@ export type ConnectionRules = {
   sync_start_date?: string | null;
 };
 
-export type ThreadAttention = 'pending' | 'candidates' | 'dismissed' | 'drafts' | 'closed';
+export type ThreadAttention = 'pending' | 'candidates' | 'dismissed' | 'drafts' | 'closed' | 'sent';
 
 function apiErrorMessage(err: any, fallback: string): string {
   return err?.response?.data?.error || err?.message || fallback;

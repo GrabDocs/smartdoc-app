@@ -13,6 +13,10 @@ export function shouldShowPersistentBottomNav(pathname: string | null | undefine
   if (p === '/calendar' || p === '/calendar/') return true;
   if (p.startsWith('/calendar/')) return false;
 
+  // Notes list — not edit / deleted / nested screens.
+  if (p === '/drafts' || p === '/drafts/') return true;
+  if (p.startsWith('/drafts/')) return false;
+
   // Expo Router may include or omit the "(tabs)" group in usePathname().
   if (p === '/' || p === '/index' || p === '/(tabs)' || p === '/(tabs)/' || p === '/(tabs)/index') {
     return true;

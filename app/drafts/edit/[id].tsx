@@ -350,6 +350,9 @@ const DRAFT_EDITOR_SCRIPT = `
         var node=r.startContainer;
         var offset=r.startOffset;
         while(node&&el.contains(node)){
+          if(node.nodeType===1&&BLOCK_TAGS.includes(node.nodeName)&&offset===0){
+            break;
+          }
           if(node.nodeType===3){
             var chunk=node.textContent.substring(0,offset);
             prefix=chunk+prefix;
@@ -364,18 +367,21 @@ const DRAFT_EDITOR_SCRIPT = `
             if(offset>0){
               var child=node.childNodes[offset-1];
               if(child&&child.nodeName==='BR') break;
+              if(child&&child.nodeType===1&&BLOCK_TAGS.includes(child.nodeName)) break;
               node=lastDescendant(child)||child;
               continue;
             }
             var prevEl=node.previousSibling;
             if(prevEl){
               if(prevEl.nodeName==='BR') break;
+              if(prevEl.nodeType===1&&BLOCK_TAGS.includes(prevEl.nodeName)) break;
               node=lastDescendant(prevEl)||prevEl;
               continue;
             }
           }
           if(node.parentNode&&node.parentNode!==el){
             var parent=node.parentNode;
+            if(BLOCK_TAGS.includes(parent.nodeName)) break;
             offset=Array.prototype.indexOf.call(parent.childNodes, node);
             node=parent;
             continue;
@@ -383,6 +389,27 @@ const DRAFT_EDITOR_SCRIPT = `
           break;
         }
         return prefix.replace(/\\u00a0/g,' ').trimEnd();
+      }
+
+      function normalizeListItemAfterConvert(){
+        var sel=window.getSelection();
+        if(!sel||sel.rangeCount===0) return;
+        var li=getBlock(sel.getRangeAt(0));
+        if(!li||li.nodeName!=='LI'){
+          var node=sel.anchorNode;
+          while(node&&node!==el){
+            if(node.nodeType===1&&node.nodeName==='LI'){ li=node; break; }
+            node=node.parentNode;
+          }
+        }
+        if(!li||li.nodeName!=='LI') return;
+        // WebKit often leaves caret after a leftover <br> from empty <p><br></p>,
+        // which makes the next keystrokes land on a second line under the bullet.
+        while(li.firstChild&&li.firstChild.nodeName==='BR'&&li.childNodes.length>1){
+          li.removeChild(li.firstChild);
+        }
+        if(isBlockEmpty(li)) li.innerHTML='<br>';
+        placeCursorAtStart(li);
       }
 
       function deleteCharsBeforeCursor(range, count){
@@ -446,16 +473,6 @@ const DRAFT_EDITOR_SCRIPT = `
         var block=getBlock(range);
         if(!block) return;
 
-        if(e.key==='Enter'||e.keyCode===13||e.which===13){
-          if(block.nodeName==='LI') return;
-          if(block.nodeName==='P'||block.nodeName==='DIV'){
-            e.preventDefault();
-            document.execCommand('insertParagraph',false,null);
-            sync();
-            return;
-          }
-        }
-
         if(e.key==='Backspace'){
           if(block.nodeName==='LI'&&isAtBlockStart(range, block)){
             e.preventDefault();
@@ -499,19 +516,32 @@ const DRAFT_EDITOR_SCRIPT = `
           }
         }
 
-        if(e.key!=='Enter'&&!(e.key===' '||e.keyCode===32)) return;
-        var linePrefix=getLinePrefixAtCursor(range);
-        var isBulletTrigger=(e.key==='Enter'&&(linePrefix==='-'||linePrefix==='*'))||(e.key===' '&&(linePrefix==='-'||linePrefix==='*'));
-        var isOrderedTrigger=(e.key===' ')&&/^[1][\\.)]$/.test(linePrefix);
-        if(isBulletTrigger||isOrderedTrigger){
-          e.preventDefault();
-          deleteCharsBeforeCursor(range, linePrefix.length);
-          if(isBulletTrigger){
-            document.execCommand('insertUnorderedList',false,null);
-          }else{
-            document.execCommand('insertOrderedList',false,null);
+        if(e.key==='Enter'||e.key===' '||e.keyCode===32||e.keyCode===13||e.which===13){
+          var linePrefix=getLinePrefixAtCursor(range);
+          var isBulletTrigger=(e.key==='Enter'||e.keyCode===13||e.which===13)&&(linePrefix==='-'||linePrefix==='*')||(e.key===' '||e.keyCode===32)&&(linePrefix==='-'||linePrefix==='*');
+          var isOrderedTrigger=(e.key===' '||e.keyCode===32)&&/^[1][\\.)]$/.test(linePrefix);
+          if(isBulletTrigger||isOrderedTrigger){
+            e.preventDefault();
+            deleteCharsBeforeCursor(range, linePrefix.length);
+            if(isBulletTrigger){
+              document.execCommand('insertUnorderedList',false,null);
+            }else{
+              document.execCommand('insertOrderedList',false,null);
+            }
+            normalizeListItemAfterConvert();
+            sync();
+            return;
           }
-          sync();
+        }
+
+        if(e.key==='Enter'||e.keyCode===13||e.which===13){
+          if(block.nodeName==='LI') return;
+          if(block.nodeName==='P'||block.nodeName==='DIV'){
+            e.preventDefault();
+            document.execCommand('insertParagraph',false,null);
+            sync();
+            return;
+          }
         }
       });
 
