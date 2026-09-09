@@ -52,8 +52,9 @@ import {
 import { useAuth } from '../context/auth';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
 
-import AppBackButton from '../../components/AppBackButton';
+import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { formatRemainingCountdown, parseAsUTC, parseUtcMs } from '../../utils/timeFormatting';
 
 const INTAKE_DETAIL_CACHE_MS = 30_000;
 
@@ -70,11 +71,7 @@ function toLocalDateString(d: Date): string {
 }
 
 function parseUtc(dateString: string | undefined | null): Date {
-  if (!dateString || typeof dateString !== 'string') return new Date(NaN);
-  const s = dateString.trim();
-  if (!s) return new Date(NaN);
-  if (!/Z|[-+]\d{2}:?\d{2}$/.test(s)) return new Date(s + 'Z');
-  return new Date(s);
+  return parseAsUTC(dateString);
 }
 
 function formatDate(dateString: string | undefined | null): string {
@@ -161,7 +158,7 @@ export default function IntakeDetailScreen() {
     if (!intake) return null;
     const candidates = [intake.sent_at, intake.last_reminder_sent_at]
       .filter((v): v is string => !!v)
-      .map((v) => Date.parse(v))
+      .map((v) => parseUtcMs(v))
       .filter((t) => !Number.isNaN(t));
     if (candidates.length === 0) return null;
     return new Date(Math.max(...candidates)).toISOString();
@@ -838,7 +835,7 @@ export default function IntakeDetailScreen() {
       borderBottomColor: colors.border,
     },
     headerTitle: { fontSize: 17, fontWeight: '600', color: colors.text, flex: 1, marginHorizontal: 8 },
-    placeholder: { width: 24 },
+    placeholder: { width: APP_BACK_BUTTON_SLOT },
     centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     loadingText: { fontSize: 16, color: colors.textSecondary },
     content: { padding: 16 },
@@ -1078,9 +1075,14 @@ export default function IntakeDetailScreen() {
     <SafeAreaView style={dynamicStyles.container}>
       <View style={dynamicStyles.header}>
         <AppBackButton />
-        <AppHeaderTitle>{intake.title}</AppHeaderTitle>
+        <AppHeaderTitle shrink={false} style={{ marginRight: 8 }}>{intake.title}</AppHeaderTitle>
         {intake.status !== 'archived' ? (
-          <TouchableOpacity onPress={openEdit} disabled={busy} accessibilityLabel="Edit">
+          <TouchableOpacity
+            onPress={openEdit}
+            disabled={busy}
+            accessibilityLabel="Edit"
+            style={{ flexShrink: 0 }}
+          >
             <Text style={[dynamicStyles.linkText, busy && { opacity: 0.5 }]}>Edit</Text>
           </TouchableOpacity>
         ) : (
@@ -1123,7 +1125,7 @@ export default function IntakeDetailScreen() {
               <Text style={[dynamicStyles.actionButtonText, dynamicStyles.actionButtonTextPrimary]}>
                 {intake.sent_at
                   ? clientPingCoolingDown
-                    ? `Resend in ${clientPingCooldownSec}s`
+                    ? `Resend in ${formatRemainingCountdown(clientPingCooldownSec)}`
                     : 'Resend to Client'
                   : 'Send to Client'}
               </Text>
@@ -1140,7 +1142,7 @@ export default function IntakeDetailScreen() {
               <Ionicons name="refresh" size={15} color={colors.text} />
               <Text style={dynamicStyles.actionButtonText}>
                 {clientPingCoolingDown
-                  ? `Remind in ${clientPingCooldownSec}s`
+                  ? `Remind in ${formatRemainingCountdown(clientPingCooldownSec)}`
                   : 'Send Reminder Now'}
               </Text>
             </FeedbackTouchable>

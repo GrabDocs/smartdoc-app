@@ -1,5 +1,6 @@
 import type { FileRowModel } from '../types/folder';
 import { resolveDocumentListStatus } from './fileDisplayStatus';
+import { parseAsUTC } from './timeFormatting';
 import { removeFileExtension } from './fileUtils';
 
 export interface MappedDocumentRow {
@@ -42,7 +43,7 @@ export function mapFileRowToDocument(
     name: removeFileExtension(originalName),
     type: getFileTypeFromExtension(originalName),
     size: formatFileSize(doc.file_size),
-    uploadDate: new Date(doc.created_at || Date.now()),
+    uploadDate: parseAsUTC(doc.created_at || Date.now()),
     status,
     tags: [],
     file_kind: doc.file_kind,

@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 // Local Development Configuration - Single source of truth for local backend IP
 // ⚠️ CHANGE THIS IP ADDRESS TO UPDATE ALL LOCAL DEVELOPMENT URLs
 // This affects: API backend URL, Expo dev server URL, and all local development endpoints
-export const LOCAL_DEV_IP = '192.168.200.17 ';
+export const LOCAL_DEV_IP = '192.168.1.8';
 export const LOCAL_DEV_PORT = 5000;
 export const EXPO_DEV_PORT = 8081; // Metro bundler default port
 export const LOCAL_DEV_URL = `http://${LOCAL_DEV_IP}:${LOCAL_DEV_PORT}`;

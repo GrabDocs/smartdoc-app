@@ -18,6 +18,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { intakesListScreenKey } from '../../services/userScopedCache';
 import { screenCache } from '../../utils/screenCache';
+import { parseUtcMs } from '../../utils/timeFormatting';
 import {
   INTAKE_DUE_BADGE_LABELS,
   INTAKE_STATUS_LABELS,
@@ -94,7 +95,7 @@ async function writeDiskIntakesCache(cacheKey: string | null, data: PaginatedInt
 
 function timeAgo(dateString?: string | null): string | null {
   if (!dateString) return null;
-  const then = new Date(dateString).getTime();
+  const then = parseUtcMs(dateString);
   if (isNaN(then)) return null;
   const now = Date.now();
   const diffSec = Math.max(0, Math.floor((now - then) / 1000));

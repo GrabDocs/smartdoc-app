@@ -2,6 +2,7 @@ import type { FillSubmission } from '../services/fillApi';
 import type { FillableTemplateListItem } from '../services/fillableApi';
 import type { Envelope } from '../types/signature';
 import { formatEnvelopeListDate } from './envelopeDisplay';
+import { parseUtcMs } from './timeFormatting';
 
 export type SignatureActivityKind = 'envelope' | 'fillable' | 'submission';
 
@@ -16,7 +17,7 @@ export interface SignatureActivityItem {
 
 function parseIsoMs(iso?: string | null): number | null {
   if (!iso) return null;
-  const ms = new Date(iso).getTime();
+  const ms = parseUtcMs(iso);
   return Number.isNaN(ms) ? null : ms;
 }
 

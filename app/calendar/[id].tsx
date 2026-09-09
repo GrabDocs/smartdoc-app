@@ -18,7 +18,7 @@ import LinkifiedText from '../../components/LinkifiedText';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import ClientsButton from '../../components/clients/ClientsButton';
 import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalendarProfile';
-import { resendCooldownKey, useResendCooldown } from '../../hooks/useResendCooldown';
+import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
     calendarDeleteEvent,
@@ -74,7 +74,7 @@ function CalendarResendInviteButton({
           return;
         }
         if (isCoolingDown) {
-          Alert.alert('Please wait', `You can resend in ${remainingSec}s`);
+          Alert.alert('Please wait', `You can resend in ${formatRemainingCountdown(remainingSec)}`);
           return;
         }
         try {
@@ -92,7 +92,7 @@ function CalendarResendInviteButton({
       }}
     >
       <Text style={{ color: '#007AFF' }}>
-        {isCoolingDown ? `Resend in ${remainingSec}s` : 'Resend'}
+        {isCoolingDown ? `Resend in ${formatRemainingCountdown(remainingSec)}` : 'Resend'}
       </Text>
     </FeedbackTouchable>
   );

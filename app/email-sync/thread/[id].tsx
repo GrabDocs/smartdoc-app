@@ -40,6 +40,7 @@ import {
     generateMailboxDraft,
     getMailboxSettings,
     getMailboxThread,
+    listMailboxThreads,
     mailboxCapabilities,
     nextPendingMailboxThread,
     patchMailboxDraft,
@@ -73,6 +74,8 @@ import {
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import { formatRemainingCountdown } from '../../../utils/timeFormatting';
+import { emailSyncClearUndo, emailSyncSetUndo, useEmailSyncUndo } from '../_components/emailSyncCache';
 
 function getFileTypeFromFilename(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
@@ -118,7 +121,7 @@ export default function EmailThreadScreen() {
   }>();
   const threadId = Number(id);
   const wantCompose = compose === '1' || compose === 'true';
-  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending'
+  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'drafts'
     ? filter
     : 'pending') as ThreadAttention;
   const dismissed = attention === 'dismissed';
@@ -146,7 +149,6 @@ export default function EmailThreadScreen() {
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [undoLeft, setUndoLeft] = useState(0);
   const [body, setBody] = useState('');
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -193,6 +195,9 @@ export default function EmailThreadScreen() {
   composingRef.current = composing;
   draftRef.current = draft;
   threadRef.current = thread;
+  const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
+  const isNewCompose =
+    draft?.reply_mode === 'new' || !!thread?.provider_thread_id?.startsWith('compose-');
 
   useEffect(() => {
     return () => {
@@ -222,8 +227,8 @@ export default function EmailThreadScreen() {
   }, [clientIdParam, threadId]);
 
   useEffect(() => {
-    if (replyFrom?.forward_without_send_as) setHeadersOpen(true);
-  }, [threadId, replyFrom?.forward_without_send_as]);
+    if (replyFrom?.forward_without_send_as || isNewCompose) setHeadersOpen(true);
+  }, [threadId, replyFrom?.forward_without_send_as, isNewCompose]);
 
   const applyDraft = (d: EmailDraft | null, openComposer = true) => {
     setDraft(d);
@@ -301,12 +306,6 @@ export default function EmailThreadScreen() {
       alive = false;
     };
   }, [load, ws, threadId]);
-
-  useEffect(() => {
-    if (undoLeft <= 0) return;
-    const t = setInterval(() => setUndoLeft((n) => Math.max(0, n - 1)), 1000);
-    return () => clearInterval(t);
-  }, [undoLeft]);
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -394,6 +393,7 @@ export default function EmailThreadScreen() {
 
   const runAnalyze = async (opts: { hasDraft: boolean; attention?: string; openForCompose?: boolean }) => {
     if (dismissed) return;
+    if (threadRef.current?.provider_thread_id?.startsWith('compose-') || draftRef.current?.reply_mode === 'new') return;
     setAnalysisLoading(true);
     try {
       const res = await analyzeMailboxThread(threadId);
@@ -475,7 +475,7 @@ export default function EmailThreadScreen() {
   };
 
   useEffect(() => {
-    if (loading || dismissed) return;
+    if (loading || dismissed || isNewCompose) return;
     if (analyzedForRef.current === threadId) return;
     analyzedForRef.current = threadId;
     void runAnalyze({
@@ -484,7 +484,7 @@ export default function EmailThreadScreen() {
       openForCompose: wantCompose,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, dismissed, threadId]);
+  }, [loading, dismissed, threadId, isNewCompose]);
 
   useEffect(() => {
     if (!wantCompose || loading || dismissed) return;
@@ -508,6 +508,19 @@ export default function EmailThreadScreen() {
       return;
     }
     try {
+      if (isNewCompose || attention === 'drafts') {
+        const list = await listMailboxThreads(ws, 'drafts');
+        const next = list.find((t) => t.id !== threadId);
+        if (next?.id) {
+          router.replace({
+            pathname: '/email-sync/thread/[id]',
+            params: { id: String(next.id), workspaceId: String(ws), filter: 'drafts', compose: '1' },
+          } as any);
+          return;
+        }
+        router.back();
+        return;
+      }
       const next = await nextPendingMailboxThread(ws, threadId);
       if (next?.id) {
         router.replace({
@@ -524,6 +537,10 @@ export default function EmailThreadScreen() {
 
   const send = async (advance: boolean) => {
     if (!draft) return;
+    if ((draft.reply_mode === 'new' || isNewCompose) && splitAddrs(to).length === 0) {
+      Alert.alert('Recipient required', 'Add at least one recipient.');
+      return;
+    }
     setBusy(true);
     try {
       try {
@@ -538,21 +555,29 @@ export default function EmailThreadScreen() {
         body_text: body,
       });
       if (res.pending_send?.id) setPendingSend({ id: res.pending_send.id });
-      const secs = Number(res.undo_seconds ?? 20);
-      setUndoLeft(secs);
+      const secsRaw = Number(res.undo_seconds ?? 20);
+      const secs = Number.isFinite(secsRaw) && secsRaw > 0 ? secsRaw : 20;
+      if (res.pending_send?.id) {
+        emailSyncSetUndo({
+          pendingId: res.pending_send.id,
+          untilMs: Date.now() + secs * 1000,
+          maxSecs: secs,
+          threadId,
+        });
+      }
       setComposing(false);
       setDraft(null);
-      if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+      if (advanceTimerRef.current) {
+        clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
+      }
       if (advance) {
-        advanceTimerRef.current = setTimeout(() => {
-          advanceTimerRef.current = null;
-          void goNextPending();
-        }, Math.max(secs, 1) * 1000 + 200);
+        void goNextPending();
       }
     } catch (e: any) {
       const status = e?.response?.status;
       if (status === 409) {
-        setUndoLeft(0);
+        emailSyncClearUndo();
         Alert.alert('Sent', 'This reply already went out.');
         if (advance) void goNextPending();
       } else if (status === 403) {
@@ -919,7 +944,7 @@ export default function EmailThreadScreen() {
           <AppBackButton />
           <View style={styles.headerBody}>
             <AppHeaderTitle fill={false} size={18} style={{ flexShrink: 1 }}>
-              {thread?.subject || 'Conversation'}
+              {isNewCompose ? 'New message' : thread?.subject || 'Conversation'}
             </AppHeaderTitle>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, minWidth: 0 }}>
               {Number.isFinite(threadId) && threadId > 0 ? (
@@ -941,7 +966,7 @@ export default function EmailThreadScreen() {
           >
             <Ionicons name={dismissed ? 'arrow-undo' : 'close-circle-outline'} size={22} color={colors.text} />
           </FeedbackTouchable>
-          {!dismissed && (
+          {!dismissed && !isNewCompose && (
             <FeedbackTouchable
               style={styles.iconBtn}
               onPress={() => {
@@ -1071,6 +1096,8 @@ export default function EmailThreadScreen() {
             showsVerticalScrollIndicator
           >
             <View style={styles.actions}>
+              {!isNewCompose ? (
+              <>
               {(analysis || analysisLoading || grabdocsResearchOn) ? (
                 <View style={styles.insight}>
                   {grabdocsResearchOn ? (
@@ -1204,6 +1231,8 @@ export default function EmailThreadScreen() {
                   <Text style={{ color: colors.isDark ? '#111' : '#fff', fontWeight: '700', fontSize: 14 }}>Generate</Text>
                 </TouchableOpacity>
               </View>
+              </>
+              ) : null}
             </View>
 
             {composing && draft ? (
@@ -1318,7 +1347,7 @@ export default function EmailThreadScreen() {
                       autoSuggestCancelledRef.current = true;
                       setBody(v);
                     }}
-                    placeholder="Reply"
+                    placeholder={isNewCompose ? 'Write your message…' : 'Reply'}
                     placeholderTextColor={colors.textSecondary}
                     multiline
                     textAlignVertical="top"
@@ -1377,6 +1406,7 @@ export default function EmailThreadScreen() {
                         setDraft(null);
                         setComposing(false);
                         setSuggestedReply(false);
+                        if (isNewCompose) router.back();
                       } catch (e: any) {
                         if (e?.response?.status === 409) Alert.alert('Discard', 'Undo the pending send first.');
                         else Alert.alert('Discard', emailApiError(e, 'Failed'));
@@ -1389,17 +1419,17 @@ export default function EmailThreadScreen() {
                   </TouchableOpacity>
                   <View style={styles.sendRow}>
                     <TouchableOpacity
-                      style={[styles.sendNext, (busy || !sendReady || drafting) && { opacity: 0.5 }]}
+                      style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
                       onPress={() => send(true)}
-                      disabled={busy || !sendReady || drafting}
+                      disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
                     >
                       <Ionicons name="paper-plane" size={14} color="#fff" />
                       <Text style={styles.sendNextTxt}>{busy ? 'Sending…' : 'Send & Next'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.sendOnly, (busy || !sendReady || drafting) && { opacity: 0.5 }]}
+                      style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
                       onPress={() => send(false)}
-                      disabled={busy || !sendReady || drafting}
+                      disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
                     >
                       <Text style={styles.sendOnlyTxt}>Send</Text>
                     </TouchableOpacity>
@@ -1410,9 +1440,11 @@ export default function EmailThreadScreen() {
           </ScrollView>
         ) : null}
 
-        {undoLeft > 0 && pendingSend ? (
+        {undo && undoLeft > 0 ? (
           <View style={[styles.undo, { bottom: Math.max(insets.bottom, 12) + 72 }]}>
-            <Text style={{ color: '#fff', flex: 1 }}>Sending in {undoLeft}s</Text>
+            <Text style={{ color: '#fff', flex: 1 }}>
+              Sending in {formatRemainingCountdown(undoLeft, undo.maxSecs)}
+            </Text>
             <TouchableOpacity
               onPress={async () => {
                 try {
@@ -1420,12 +1452,12 @@ export default function EmailThreadScreen() {
                     clearTimeout(advanceTimerRef.current);
                     advanceTimerRef.current = null;
                   }
-                  await undoMailboxSend(pendingSend.id);
-                  setUndoLeft(0);
+                  await undoMailboxSend(undo.pendingId);
+                  emailSyncClearUndo();
                   await load();
                   setComposing(true);
                 } catch {
-                  setUndoLeft(0);
+                  emailSyncClearUndo();
                   Alert.alert('Undo', 'Too late — already sending or sent.');
                 }
               }}

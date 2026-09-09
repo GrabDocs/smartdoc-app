@@ -28,6 +28,7 @@ import {
     mailboxPendingCount,
     syncMailbox,
     undismissMailboxThread,
+    undoMailboxSend,
     type EmailThread,
     type ThreadAttention,
 } from '../../services/emailSyncApi';
@@ -44,15 +45,19 @@ import {
     emailSyncCacheSetWorkspace,
     emailSyncConsumeOAuthRefresh,
     emailSyncPeekOAuthRefresh,
+    useEmailSyncUndo,
+    emailSyncClearUndo,
 } from './_components/emailSyncCache';
 import { EmailImportsPane } from './imports';
 import { EmailSetupPane } from './mailbox';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { formatRemainingCountdown } from '../../utils/timeFormatting';
 
 const FILTERS: { id: ThreadAttention; label: string }[] = [
   { id: 'pending', label: 'To reply' },
   { id: 'candidates', label: 'Review' },
+  { id: 'drafts', label: 'Drafts' },
   { id: 'dismissed', label: 'Dismissed' },
 ];
 
@@ -90,11 +95,15 @@ export default function EmailInboxScreen() {
   const [loading, setLoading] = useState(() => !emailSyncCacheReplies('pending'));
   const [refreshing, setRefreshing] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [canSend, setCanSend] = useState(false);
+  const [composing, setComposing] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const openedRef = useRef<string | null>(null);
   const composeBootRef = useRef(false);
   const swipeRefs = useRef<Map<number, Swipeable>>(new Map());
+
+  const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
 
   const selectTab = (next: EmailSyncTab) => {
     setTab(next);
@@ -134,6 +143,7 @@ export default function EmailInboxScreen() {
       listMailboxThreads(workspaceId, filter),
     ]);
     setHasMailbox(!!caps.has_oauth_mailbox);
+    setCanSend((caps.connections || []).some((c) => c.send_enabled));
     setPending(count);
     setThreads(list);
     emailSyncCacheSetPending(count);
@@ -231,12 +241,13 @@ export default function EmailInboxScreen() {
         });
         const threadId = res.thread?.id;
         if (!threadId) throw new Error('No thread');
+        setFilter('drafts');
         router.push({
           pathname: '/email-sync/thread/[id]',
           params: {
             id: String(threadId),
             workspaceId: String(workspaceId),
-            filter,
+            filter: 'drafts',
             compose: '1',
             ...(clientId ? { client_id: String(clientId) } : {}),
             ...(typeof toRaw === 'string' && toRaw.trim() ? { to: toRaw.trim() } : {}),
@@ -295,6 +306,30 @@ export default function EmailInboxScreen() {
     }
   };
 
+  const startCompose = async () => {
+    if (!workspaceId || composing) return;
+    setComposing(true);
+    try {
+      const res = await composeMailboxEmail({ workspace_id: workspaceId });
+      const threadId = res.thread?.id;
+      if (!threadId) throw new Error('No thread');
+      setFilter('drafts');
+      router.push({
+        pathname: '/email-sync/thread/[id]',
+        params: {
+          id: String(threadId),
+          workspaceId: String(workspaceId),
+          filter: 'drafts',
+          compose: '1',
+        },
+      } as any);
+    } catch (e) {
+      Alert.alert('Email', emailApiError(e, 'Could not start a new email'));
+    } finally {
+      setComposing(false);
+    }
+  };
+
   const exitSelect = () => {
     setSelectMode(false);
     setSelected([]);
@@ -320,7 +355,7 @@ export default function EmailInboxScreen() {
         },
         pill: { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center' },
         pillOn: { backgroundColor: colors.surface },
-        pillTxt: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+        pillTxt: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
         pillTxtOn: { color: colors.text },
         selectBar: {
           flexDirection: 'row',
@@ -400,7 +435,7 @@ export default function EmailInboxScreen() {
           if (ref) swipeRefs.current.set(item.id, ref);
           else swipeRefs.current.delete(item.id);
         }}
-        enabled={!selectMode}
+        enabled={!selectMode && filter !== 'drafts'}
         overshootRight={false}
         overshootLeft={false}
         renderRightActions={() => (
@@ -460,12 +495,20 @@ export default function EmailInboxScreen() {
           <View style={styles.body}>
             <View style={styles.top}>
               <Text style={styles.subject} numberOfLines={1}>
-                {item.subject || '(no subject)'}
+                {item.draft_preview?.reply_mode === 'new' || item.provider_thread_id?.startsWith('compose-')
+                  ? item.subject || 'New message'
+                  : item.subject || '(no subject)'}
               </Text>
               <Text style={styles.when}>
                 {formatEmailWhen(filter === 'dismissed' ? item.dismissed_at || item.last_message_at : item.last_message_at)}
               </Text>
             </View>
+            {filter === 'drafts' && (item.draft_preview?.to?.length || item.draft_preview?.reply_mode === 'new') ? (
+              <Text style={{ fontSize: 12, color: colors.textSecondary }} numberOfLines={1}>
+                {item.draft_preview?.reply_mode === 'new' ? 'New message' : 'Reply draft'}
+                {item.draft_preview?.to?.length ? ` · ${item.draft_preview.to.join(', ')}` : ''}
+              </Text>
+            ) : null}
             <AttachmentNamesRow attachments={item.attachments} names={item.attachment_names} />
           </View>
         </TouchableOpacity>
@@ -502,6 +545,15 @@ export default function EmailInboxScreen() {
           >
             <Ionicons name="close-circle-outline" size={24} color={colors.text} />
           </FeedbackTouchable>
+        ) : tab === 'replies' && hasMailbox && !selectMode ? (
+          <FeedbackTouchable
+            style={styles.iconBtn}
+            onPress={() => void startCompose()}
+            disabled={!canSend || composing}
+            accessibilityLabel="Compose"
+          >
+            <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
+          </FeedbackTouchable>
         ) : (
           <View style={{ width: 44 }} />
         )}
@@ -521,6 +573,27 @@ export default function EmailInboxScreen() {
       ) : null}
 
       <View style={{ flex: 1, display: tab === 'replies' ? 'flex' : 'none', backgroundColor: colors.background }}>
+      {undo && tab === 'replies' ? (
+        <View style={{ marginHorizontal: 16, marginBottom: 8, padding: 10, borderRadius: 10, backgroundColor: colors.isDark ? '#3b2f1a' : '#FEF3C7', flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text style={{ color: colors.isDark ? '#FDE68A' : '#92400E', fontSize: 13, flex: 1 }}>
+            Sending in {formatRemainingCountdown(undoLeft, undo.maxSecs)}
+          </Text>
+          <TouchableOpacity
+            onPress={async () => {
+              try {
+                await undoMailboxSend(undo.pendingId);
+                emailSyncClearUndo();
+                await load();
+              } catch {
+                emailSyncClearUndo();
+                Alert.alert('Undo', 'Too late — already sending or sent.');
+              }
+            }}
+          >
+            <Text style={{ color: '#007AFF', fontWeight: '700' }}>Undo</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       {hasMailbox ? (
         <View style={styles.pills}>
           {FILTERS.map((f) => {
@@ -595,13 +668,26 @@ export default function EmailInboxScreen() {
                   ? 'You’re caught up'
                   : filter === 'dismissed'
                     ? 'Nothing dismissed'
-                    : 'Nothing to review'}
+                    : filter === 'drafts'
+                      ? 'No unsent drafts'
+                      : 'Nothing to review'}
               </Text>
               <Text style={styles.emptySub}>
                 {filter === 'pending'
                   ? 'Pull down to sync. Swipe left to dismiss, right to close. Long-press to multi-select.'
-                  : 'Pull down to sync.'}
+                  : filter === 'drafts'
+                    ? 'Compose a new email, or drafts from Clients and AI replies appear here until you send or discard them.'
+                    : 'Pull down to sync.'}
               </Text>
+              {filter === 'drafts' ? (
+                <TouchableOpacity
+                  onPress={() => void startCompose()}
+                  disabled={!canSend || composing}
+                  style={{ marginTop: 16, backgroundColor: '#2563EB', borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 }}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>{composing ? 'Opening…' : 'Compose'}</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           }
         />

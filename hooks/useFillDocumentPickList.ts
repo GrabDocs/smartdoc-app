@@ -12,6 +12,7 @@ import {
   type FillPickListCacheEntry,
 } from '../services/fillDocumentListCache';
 import { sanitizeDisplayFilename } from '../utils/displayFilename';
+import { parseUtcMs } from '../utils/timeFormatting';
 
 export { FILL_PICK_PAGE_SIZE, invalidateFillPickListCache };
 
@@ -44,8 +45,8 @@ function toAccountFile(raw: Record<string, unknown>): FillPickFile | null {
 
 function sortNewestFirst(files: FillPickFile[]): FillPickFile[] {
   return [...files].sort((a, b) => {
-    const aTs = new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
-    const bTs = new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
+    const aTs = parseUtcMs(a.updatedAt ?? a.createdAt ?? 0);
+    const bTs = parseUtcMs(b.updatedAt ?? b.createdAt ?? 0);
     return bTs - aTs;
   });
 }

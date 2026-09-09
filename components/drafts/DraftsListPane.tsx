@@ -38,6 +38,7 @@ import {
 import { CachedDraftMeta, draftsCache, isNetworkError } from '../../utils/draftsCache';
 import { flushAllPendingDraftOps } from '../../utils/draftsOfflineSync';
 import { saveLastOpenedDraft } from '../../utils/lastOpenedDraft';
+import { parseAsUTC, parseUtcMs } from '../../utils/timeFormatting';
 import { AnimatedHeaderContainer } from '../../app/components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../../app/components/TapToToggleHeaderView';
 import { useAuth } from '../../app/context/auth';
@@ -70,7 +71,7 @@ function getSectionLabel(key: string): string {
 function formatItemDate(draft: DraftListItem, sectionKey: string): string {
   const raw = draft.updated_at || draft.created_at;
   if (!raw) return '';
-  const date = new Date(raw);
+  const date = parseAsUTC(raw);
   if (sectionKey === 'today') {
     return date.toLocaleTimeString('default', { hour: 'numeric', minute: '2-digit' });
   }
@@ -139,8 +140,8 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
       const serverIds = new Set(serverDrafts.map((d) => d.id));
       const localOnly = localDrafts.filter((d) => !serverIds.has(d.id));
       const merged = [...serverDrafts, ...localOnly].sort((a, b) => {
-        const ta = new Date(a.updated_at || a.created_at || 0).getTime();
-        const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+        const ta = parseUtcMs(a.updated_at || a.created_at || 0);
+        const tb = parseUtcMs(b.updated_at || b.created_at || 0);
         return tb - ta;
       });
 

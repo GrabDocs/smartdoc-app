@@ -48,6 +48,7 @@ import {
   emailSyncCacheSetup,
   emailSyncPeekOAuthRefresh,
 } from './_components/emailSyncCache';
+import { parseAsUTC } from '../../utils/timeFormatting';
 
 const FILE_TYPES = ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx', 'csv'];
 
@@ -65,9 +66,7 @@ function platformLabel(platform: string): string {
 
 function formatLastSynced(iso?: string | null): string {
   if (!iso) return 'never';
-  const raw = iso.trim();
-  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-  const d = new Date(hasZone ? raw : `${raw}Z`);
+  const d = parseAsUTC(iso);
   if (Number.isNaN(d.getTime())) return 'never';
   const mins = Math.floor((Date.now() - d.getTime()) / 60000);
   if (mins < 1) return 'just now';
@@ -269,7 +268,7 @@ export function EmailSetupPane({
       setRulesTypes(r.allowed_file_types || []);
       setRulesFolderId(r.target_folder_id ?? null);
       if (r.sync_start_date) {
-        const d = new Date(r.sync_start_date);
+        const d = parseAsUTC(r.sync_start_date);
         setRulesSyncAt(Number.isNaN(d.getTime()) ? new Date() : d);
       } else {
         const start = new Date();

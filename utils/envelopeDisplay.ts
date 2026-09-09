@@ -1,5 +1,6 @@
 import type { Envelope, EnvelopeRecipient, EnvelopeStatus } from '../types/signature';
 import type { EnvelopeTab } from '../services/envelopeApi';
+import { parseAsUTC } from './timeFormatting';
 
 export interface BadgeStyle {
   label: string;
@@ -77,14 +78,14 @@ export function envelopeSignerSummary(envelope: Envelope, tab?: EnvelopeTab): st
 /** Compact date for tight mobile layouts, e.g. "May 22, 26". */
 export function formatEnvelopeShortDate(iso?: string | null): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
+  const d = parseAsUTC(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
 }
 
 export function formatEnvelopeListDate(iso?: string | null): string | null {
   if (!iso) return null;
-  const d = new Date(iso);
+  const d = parseAsUTC(iso);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -92,7 +93,7 @@ export function formatEnvelopeListDate(iso?: string | null): string | null {
 /** Compact date + time for detail rows, e.g. "May 10, 26, 7:37 PM". */
 export function formatEnvelopeDateTime(iso?: string | null, fallback = '—'): string {
   if (!iso) return fallback;
-  const d = new Date(iso);
+  const d = parseAsUTC(iso);
   if (Number.isNaN(d.getTime())) return fallback;
   const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
   const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });

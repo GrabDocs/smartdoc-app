@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useSyncExternalStore } from 'react';
+import { formatRemainingCountdown, parseUtcMs } from '../utils/timeFormatting';
 
 /** Soft anti-spam lock for outbound invite / remind / resend actions. */
 export const RESEND_COOLDOWN_MS = 60_000;
+
+export { formatRemainingCountdown };
 
 const lastSentAt = new Map<string, number>();
 const listeners = new Set<() => void>();
@@ -19,7 +22,8 @@ export function getResendRemainingSec(key: string, cooldownMs = RESEND_COOLDOWN_
   const last = lastSentAt.get(key);
   if (last == null) return 0;
   const rem = Math.ceil((last + cooldownMs - Date.now()) / 1000);
-  return rem > 0 ? rem : 0;
+  if (rem <= 0) return 0;
+  return Math.min(rem, Math.ceil(cooldownMs / 1000));
 }
 
 export function markResendSent(key: string, atMs = Date.now()): void {
@@ -30,10 +34,10 @@ export function markResendSent(key: string, atMs = Date.now()): void {
   }
 }
 
-/** Prefer server timestamp when it is newer than any in-session mark. */
+/** Prefer server timestamp when it is newer than any in-session mark. Naive ISO is UTC. */
 export function seedResendFromServer(key: string, iso: string | null | undefined): void {
   if (!iso) return;
-  const t = Date.parse(iso);
+  const t = parseUtcMs(iso);
   if (Number.isNaN(t)) return;
   markResendSent(key, t);
 }

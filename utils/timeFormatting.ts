@@ -1,17 +1,47 @@
 /**
  * Utility functions for formatting timestamps in mobile app
- * Converts UTC timestamps to local browser timezone
+ * Converts UTC timestamps to local phone timezone
  */
 
 /**
- * Ensure an ISO timestamp is parsed as UTC. Backend often sends UTC without "Z";
- * JS then parses as local, so we append "Z" when no timezone is present.
+ * Parse a backend timestamp as a UTC instant, then format with toLocale* for phone-local display.
+ * Naive ISO (no Z/offset) is UTC. Date-only `YYYY-MM-DD` stays a local calendar day so due dates
+ * do not shift. Returns an Invalid Date when the value cannot be parsed.
  */
-function parseAsUTC(timestamp: string): Date {
-  const t = timestamp.trim();
-  const hasTz = /Z|[+-]\d{2}:?\d{2}$/.test(t);
-  const iso = hasTz ? t : (t.endsWith('Z') ? t : t + 'Z');
-  return new Date(iso);
+export function parseAsUTC(timestamp: string | number | Date | null | undefined): Date {
+  if (timestamp == null || timestamp === '') return new Date(NaN);
+  if (timestamp instanceof Date) return new Date(timestamp.getTime());
+  if (typeof timestamp === 'number') {
+    const n = timestamp;
+    return new Date(n > 0 && n < 1e12 ? n * 1000 : n);
+  }
+  let s = String(timestamp).trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  if (/^\d{4}-\d{2}-\d{2}\s+\d/.test(s)) {
+    s = s.replace(/\s+/, 'T');
+  }
+  const hasTz = /Z|[+-]\d{2}:?\d{2}$/i.test(s);
+  return new Date(hasTz ? s : `${s}Z`);
+}
+
+/** Epoch ms for a UTC backend timestamp, or NaN if unusable. */
+export function parseUtcMs(timestamp: string | number | Date | null | undefined): number {
+  return parseAsUTC(timestamp).getTime();
+}
+
+/** Remaining lock/undo time, e.g. `18s` or `1m 5s`. Caps so a bad parse never shows hours. */
+export function formatRemainingCountdown(sec: number, maxSec = 60): string {
+  const s = Math.max(0, Math.min(Math.ceil(sec), Math.max(0, Math.ceil(maxSec))));
+  if (s >= 60) {
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r ? `${m}m ${r}s` : `${m}m`;
+  }
+  return `${s}s`;
 }
 
 /**

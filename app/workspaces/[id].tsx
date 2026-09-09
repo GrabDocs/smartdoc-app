@@ -24,10 +24,11 @@ import FileNameText from '../../components/FileNameText';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import QuickFormViewer from '../../components/QuickFormViewer';
-import { resendCooldownKey, useResendCooldown } from '../../hooks/useResendCooldown';
+import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { getReachParticipantDisplayName } from '../../utils/reachDisplayName';
+import { parseAsUTC } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import {
@@ -71,7 +72,7 @@ function normalizeWorkspaceSheetBookmarks(raw: any[]): WorkspaceSheetBookmark[] 
 
 function workspaceStandaloneFileSubtitle(f: any): string {
   const sizeLabel = formatBytes(f.file_size);
-  return [f.file_kind, sizeLabel, f.created_at ? new Date(f.created_at).toLocaleDateString() : '']
+  return [f.file_kind, sizeLabel, f.created_at ? parseAsUTC(f.created_at).toLocaleDateString() : '']
     .filter(Boolean)
     .join(' • ');
 }
@@ -1449,7 +1450,7 @@ export default function WorkspaceDetailsScreen() {
               <Ionicons name="send-outline" size={20} color="#007AFF" />
               <Text style={dynamicStyles.kebabMenuText}>
                 {inviteResendCoolingDown
-                  ? `Resend in ${inviteResendCooldownSec}s`
+                  ? `Resend in ${formatRemainingCountdown(inviteResendCooldownSec)}`
                   : 'Resend Invite'}
               </Text>
             </FeedbackTouchable>

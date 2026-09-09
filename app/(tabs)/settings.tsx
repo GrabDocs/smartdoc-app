@@ -40,6 +40,7 @@ import {
   WebDefaultHomePath,
 } from '../../utils/defaultHomePath';
 import { screenCache } from '../../utils/screenCache';
+import { parseAsUTC } from '../../utils/timeFormatting';
 import {
   dialogSurfaceBorder,
   dialogSurfaceShadow,
@@ -343,7 +344,7 @@ export default function SettingsScreen() {
   };
 
   const formatJoinDate = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseAsUTC(dateString);
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'long',

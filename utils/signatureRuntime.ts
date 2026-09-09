@@ -13,6 +13,7 @@ import type {
   WizardStep,
 } from '../types/signature';
 import { makeFieldKey, parseFieldKey } from './fieldKeys';
+import { parseAsUTC } from './timeFormatting';
 
 function resolveSignerSourceType(source: SignerSourcePayload): SignerSourcePayload['source_type'] {
   return source.source_type ?? source.type;
@@ -63,7 +64,7 @@ export function dateFieldDisplayText(val: unknown): string {
   const o = val as Record<string, unknown>;
   if (typeof o.display === 'string' && o.display.trim()) return o.display.trim();
   if (typeof o.iso === 'string' && o.iso.trim()) {
-    const d = new Date(o.iso);
+    const d = parseAsUTC(o.iso);
     if (!Number.isNaN(d.getTime())) {
       return d.toLocaleDateString(undefined, {
         year: 'numeric',

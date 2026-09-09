@@ -12,6 +12,8 @@ type AppHeaderTitleProps = Omit<TextProps, 'children'> & {
    * Set false when nested in a title+subtitle column wrap (Notes, sheets).
    */
   fill?: boolean;
+  /** When false, long titles ellipsize instead of shrinking into neighboring actions. */
+  shrink?: boolean;
 };
 
 /**
@@ -22,12 +24,13 @@ export default function AppHeaderTitle({
   style,
   size = 24,
   fill = true,
+  shrink = true,
   ...rest
 }: AppHeaderTitleProps) {
   const colors = useThemeColors();
   const label = typeof children === 'string' ? children : '';
   // Short titles must not shrink; long ones may scale down to stay on one line.
-  const allowScale = label.length > 16;
+  const allowScale = shrink && label.length > 16;
 
   return (
     <Text

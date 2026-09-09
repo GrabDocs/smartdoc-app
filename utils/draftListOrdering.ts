@@ -1,4 +1,5 @@
 import type { DraftListItem } from './createUntitledDraft';
+import { parseAsUTC } from './timeFormatting';
 
 export function getSectionKey(date: Date): string {
   const now = new Date();
@@ -26,7 +27,7 @@ export function groupDraftsForList(filteredDrafts: DraftListItem[]) {
 
   filteredDrafts.forEach((d) => {
     const raw = d.updated_at || d.created_at;
-    const date = raw ? new Date(raw) : new Date();
+    const date = raw ? parseAsUTC(raw) : new Date();
     const key = getSectionKey(date);
     if (!map.has(key)) {
       map.set(key, []);

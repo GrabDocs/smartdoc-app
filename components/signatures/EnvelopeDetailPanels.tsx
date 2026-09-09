@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FeedbackTouchable } from '../FeedbackTouchable';
-import { resendCooldownKey, useResendCooldown } from '../../hooks/useResendCooldown';
+import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import type { Envelope, EnvelopeRecipient } from '../../types/signature';
 import {
@@ -111,7 +111,7 @@ function RecipientRow({
           spinnerColor={colors.text}
         >
           <Text style={[styles.resendText, { color: colors.text }]}>
-            {isCoolingDown ? `${remainingSec}s` : 'Resend'}
+            {isCoolingDown ? formatRemainingCountdown(remainingSec) : 'Resend'}
           </Text>
         </FeedbackTouchable>
       ) : null}

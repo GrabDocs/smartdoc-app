@@ -73,8 +73,16 @@ export type EmailThread = {
   last_message_at?: string | null;
   participants?: string[];
   surface_reason?: string | null;
+  provider_thread_id?: string | null;
   attachment_names?: string[];
   attachments?: { id: number; filename?: string | null; file_id?: number | null; import_status?: string | null }[];
+  draft_preview?: {
+    id: number;
+    subject?: string | null;
+    to?: string[];
+    reply_mode?: string;
+    updated_at?: string | null;
+  };
 };
 
 export type EmailMessage = {
@@ -148,7 +156,7 @@ export type ConnectionRules = {
   sync_start_date?: string | null;
 };
 
-export type ThreadAttention = 'pending' | 'candidates' | 'dismissed';
+export type ThreadAttention = 'pending' | 'candidates' | 'dismissed' | 'drafts' | 'closed';
 
 function apiErrorMessage(err: any, fallback: string): string {
   return err?.response?.data?.error || err?.message || fallback;
@@ -270,7 +278,7 @@ export async function nextPendingMailboxThread(workspaceId: number, after?: numb
 
 export async function composeMailboxEmail(body: {
   workspace_id: number;
-  to?: string;
+  to?: string | string[];
   subject?: string;
   client_id?: number;
 }): Promise<{

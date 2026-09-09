@@ -1,4 +1,5 @@
 import type { EmailImportEvent, EmailInboxAlias, EmailThread, InboxConnection, ThreadAttention } from '../../services/emailSyncApi';
+import { useEffect, useSyncExternalStore } from 'react';
 
 const TTL_MS = 90_000;
 
@@ -97,4 +98,67 @@ export function emailSyncCacheImports() {
 }
 export function emailSyncCacheSetImports(data: { items: EmailImportEvent[]; cursor: string | null }) {
   imports = { ...data, at: Date.now() };
+}
+
+export type EmailUndoSend = {
+  pendingId: number;
+  untilMs: number;
+  maxSecs: number;
+  threadId: number;
+};
+
+let undoSend: EmailUndoSend | null = null;
+const undoListeners = new Set<() => void>();
+
+function emitUndo() {
+  undoListeners.forEach((l) => l());
+}
+
+export function emailSyncSetUndo(next: EmailUndoSend | null) {
+  undoSend = next;
+  emitUndo();
+}
+
+export function emailSyncClearUndo() {
+  emailSyncSetUndo(null);
+}
+
+export function emailSyncGetUndo() {
+  return undoSend;
+}
+
+function subscribeUndo(onStoreChange: () => void) {
+  undoListeners.add(onStoreChange);
+  return () => {
+    undoListeners.delete(onStoreChange);
+  };
+}
+
+function getUndoSnapshot() {
+  if (!undoSend) return '';
+  const rem = Math.max(
+    0,
+    Math.min(Math.ceil((undoSend.untilMs - Date.now()) / 1000), undoSend.maxSecs || 20)
+  );
+  return `${undoSend.pendingId}:${undoSend.maxSecs}:${undoSend.threadId}:${rem}`;
+}
+
+export function useEmailSyncUndo() {
+  const snap = useSyncExternalStore(subscribeUndo, getUndoSnapshot, () => '');
+  const remainingSec = snap ? Number(snap.split(':')[3] || 0) : 0;
+  const undo = snap && remainingSec > 0 && undoSend
+    ? undoSend
+    : null;
+
+  useEffect(() => {
+    if (!undoSend) return;
+    if (remainingSec <= 0) {
+      emailSyncSetUndo(null);
+      return;
+    }
+    const id = setInterval(emitUndo, 250);
+    return () => clearInterval(id);
+  }, [snap, remainingSec]);
+
+  return { undo, remainingSec };
 }
