@@ -16,6 +16,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import type { FolderRowModel } from '../../types/folder';
 import AppHeaderTitle from '../AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import FolderBreadcrumb from './FolderBreadcrumb';
 import FolderListItem from './FolderListItem';
 
@@ -114,7 +115,9 @@ export default function FolderMovePicker({
         <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn} accessibilityLabel="Close">
           <Ionicons name="close" size={28} color={colors.text} />
         </TouchableOpacity>
-        <AppHeaderTitle>{currentName}</AppHeaderTitle>
+        <AppHeaderTitle shrink={false}>
+          {truncateAppHeaderTitle(currentName || 'Folder')}
+        </AppHeaderTitle>
         <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.cancelBtn}>
           <Text style={{ color: colors.primary, fontSize: 16, fontWeight: '600' }}>Cancel</Text>
         </TouchableOpacity>

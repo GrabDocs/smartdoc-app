@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
@@ -58,6 +59,25 @@ const TABS: { key: TabKey; label: string }[] = [
 const WORK_TYPES = ['intake', 'intake_schedule', 'file_upload_link', 'signature_envelope', 'form'];
 const FILE_TYPES = ['file', 'note'];
 const COMM_TYPES = ['email_thread', 'email_draft', 'chat_history', 'user_chat'];
+
+function formatClientMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: currency || 'USD',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency || 'USD'} ${Number(amount).toFixed(2)}`;
+  }
+}
+
+function displayFinancialKind(fileKind?: string | null): string {
+  const k = (fileKind || '').trim().toLowerCase();
+  if (k === 'invoice') return 'Invoice';
+  if (k === 'receipt') return 'Receipt';
+  return fileKind?.trim() || 'Document';
+}
 
 export default function ClientDetailScreen() {
   const router = useRouter();
@@ -183,6 +203,40 @@ export default function ClientDetailScreen() {
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error || err?.message || 'Failed to add');
     }
+  };
+
+  const removeIdentifier = (ident: ClientIdentifier) => {
+    const identifiers = client?.identifiers || [];
+    if (ident.identifier_type === 'email') {
+      const emailCount = identifiers.filter((i) => i.identifier_type === 'email').length;
+      if (emailCount <= 1) {
+        Alert.alert(
+          'Required',
+          'Each client must have an email. Add another before removing this one.'
+        );
+        return;
+      }
+    }
+    Alert.alert('Remove identifier?', ident.identifier_value, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            try {
+              await deleteIdentifier(ident.id);
+              await loadOverview();
+            } catch (err: any) {
+              Alert.alert(
+                'Error',
+                err?.response?.data?.error || err?.message || 'Failed to remove'
+              );
+            }
+          })();
+        },
+      },
+    ]);
   };
 
   const openItem = (itemType?: string | null, itemId?: number | null, extra?: any) => {
@@ -355,7 +409,9 @@ export default function ClientDetailScreen() {
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <AppBackButton onPress={() => router.back()} />
-        <AppHeaderTitle>{client?.display_name || 'Client'}</AppHeaderTitle>
+        <AppHeaderTitle shrink={false}>
+          {truncateAppHeaderTitle(client?.display_name || 'Client')}
+        </AppHeaderTitle>
         <TouchableOpacity onPress={handleArchive} hitSlop={8}>
           <Ionicons
             name={client?.status === 'archived' ? 'refresh-outline' : 'archive-outline'}
@@ -493,12 +549,19 @@ export default function ClientDetailScreen() {
                 <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 20 }]}>
                   Identifiers
                 </Text>
-                {(client?.identifiers || []).map((id: ClientIdentifier) => (
+                {(() => {
+                  const identifiers = (client?.identifiers || []).filter(
+                    (id: ClientIdentifier) => !(id.is_learned && id.identifier_type === 'tag')
+                  );
+                  const emailIdentifierCount = identifiers.filter(
+                    (i) => i.identifier_type === 'email'
+                  ).length;
+                  return identifiers.map((id: ClientIdentifier) => (
                   <View
                     key={id.id}
                     style={[styles.idRow, { borderBottomColor: colors.border }]}
                   >
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
                         {id.identifier_type === 'inbox_alias_token'
                           ? 'inbox alias'
@@ -511,42 +574,49 @@ export default function ClientDetailScreen() {
                       <View style={{ flexDirection: 'row', gap: 12 }}>
                         <TouchableOpacity
                           onPress={async () => {
-                            await acceptSuggestedIdentifier(id.id);
-                            await loadOverview();
+                            try {
+                              await acceptSuggestedIdentifier(id.id);
+                              await loadOverview();
+                            } catch (err: any) {
+                              Alert.alert(
+                                'Error',
+                                err?.response?.data?.error || err?.message || 'Failed to accept'
+                              );
+                            }
                           }}
                         >
                           <Text style={{ color: '#0D9488' }}>Accept</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={async () => {
-                            await rejectSuggestedIdentifier(id.id);
-                            await loadOverview();
+                            try {
+                              await rejectSuggestedIdentifier(id.id);
+                              await loadOverview();
+                            } catch (err: any) {
+                              Alert.alert(
+                                'Error',
+                                err?.response?.data?.error || err?.message || 'Failed to reject'
+                              );
+                            }
                           }}
                         >
                           <Text style={{ color: '#B91C1C' }}>Reject</Text>
                         </TouchableOpacity>
                       </View>
+                    ) : id.identifier_type === 'email' && emailIdentifierCount <= 1 ? (
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>Required</Text>
                     ) : (
                       <TouchableOpacity
-                        onPress={() => {
-                          Alert.alert('Remove identifier?', id.identifier_value, [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Remove',
-                              style: 'destructive',
-                              onPress: async () => {
-                                await deleteIdentifier(id.id);
-                                await loadOverview();
-                              },
-                            },
-                          ]);
-                        }}
+                        onPress={() => removeIdentifier(id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel={`Remove ${id.identifier_value}`}
                       >
                         <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
                       </TouchableOpacity>
                     )}
                   </View>
-                ))}
+                  ));
+                })()}
                 <View style={styles.addIdRow}>
                   <View style={styles.idTypeRow}>
                     {(
@@ -629,43 +699,144 @@ export default function ClientDetailScreen() {
               <>
                 {financials ? (
                   <>
-                    <Text style={[styles.sectionTitle, { color: colors.text }]}>
-                      Total ({financials.primary_currency}):{' '}
-                      {financials.total_amount?.toLocaleString?.() ?? financials.total_amount}
+                    <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 12, lineHeight: 18 }}>
+                      Linked receipts and invoices. Totals only include documents with an extracted amount.
                     </Text>
-                    {financials.items.map((item) => (
-                      <TouchableOpacity
-                        key={item.file_id}
-                        style={[
-                          styles.linkRow,
-                          { backgroundColor: colors.card, borderColor: colors.border },
-                        ]}
-                        onPress={() => openItem('file', item.file_id)}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: colors.text }} numberOfLines={1}>
-                            {item.label || item.filename}
+                    <View
+                      style={[
+                        styles.financialSummary,
+                        { backgroundColor: colors.card, borderColor: colors.border },
+                      ]}
+                    >
+                      <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 4 }]}>
+                        Total
+                      </Text>
+                      {Object.keys(financials.totals_by_currency || {}).length === 0 ? (
+                        <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>—</Text>
+                      ) : financials.multi_currency ? (
+                        Object.entries(financials.totals_by_currency).map(([cur, amt]) => (
+                          <Text
+                            key={cur}
+                            style={{ color: colors.text, fontSize: 20, fontWeight: '700', marginTop: 2 }}
+                          >
+                            {formatClientMoney(amt, cur)}
                           </Text>
-                          <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-                            {item.file_kind}
-                            {item.amount_known
-                              ? ` · ${item.currency} ${item.amount}`
-                              : ' · amount unknown'}
+                        ))
+                      ) : (
+                        <Text style={{ color: colors.text, fontSize: 22, fontWeight: '700' }}>
+                          {formatClientMoney(
+                            financials.total_amount || 0,
+                            financials.primary_currency || 'USD'
+                          )}
+                        </Text>
+                      )}
+                      {!financials.multi_currency && (financials.total_count ?? financials.count) > 0 ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+                          <Text style={{ color: colors.text, fontSize: 13 }}>
+                            Receipts:{' '}
+                            <Text style={{ fontWeight: '600' }}>
+                              {formatClientMoney(
+                                financials.receipts_total || 0,
+                                financials.primary_currency || 'USD'
+                              )}
+                            </Text>
+                          </Text>
+                          <Text style={{ color: colors.text, fontSize: 13 }}>
+                            Invoices:{' '}
+                            <Text style={{ fontWeight: '600' }}>
+                              {formatClientMoney(
+                                financials.invoices_total || 0,
+                                financials.primary_currency || 'USD'
+                              )}
+                            </Text>
                           </Text>
                         </View>
-                      </TouchableOpacity>
-                    ))}
+                      ) : null}
+                      {financials.multi_currency ? (
+                        <View style={{ marginTop: 8, gap: 4 }}>
+                          {(['Receipt', 'Invoice'] as const).map((kind) => {
+                            const kindTotals = Object.entries(
+                              financials.totals_by_kind?.[kind] || {}
+                            );
+                            if (!kindTotals.length) return null;
+                            return (
+                              <Text key={kind} style={{ color: colors.text, fontSize: 13 }}>
+                                <Text style={{ fontWeight: '600' }}>
+                                  {kind === 'Receipt' ? 'Receipts' : 'Invoices'}:
+                                </Text>{' '}
+                                {kindTotals
+                                  .map(([cur, amt]) => formatClientMoney(amt, cur))
+                                  .join(' · ')}
+                              </Text>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+                      <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 8 }}>
+                        {financials.counted_in_total} of{' '}
+                        {financials.total_count ?? financials.count} document
+                        {(financials.total_count ?? financials.count) === 1 ? '' : 's'} included
+                        {financials.unknown_amount_count > 0
+                          ? ` · ${financials.unknown_amount_count} with unknown amount`
+                          : ''}
+                      </Text>
+                    </View>
+                    {financials.items.length === 0 ? (
+                      <Text style={{ color: colors.textSecondary, marginTop: 16 }}>
+                        No linked receipts or invoices.
+                      </Text>
+                    ) : (
+                      financials.items.map((item) => (
+                        <TouchableOpacity
+                          key={item.file_id}
+                          style={[
+                            styles.linkRow,
+                            { backgroundColor: colors.card, borderColor: colors.border },
+                          ]}
+                          onPress={() => openItem('file', item.file_id)}
+                        >
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={{ color: colors.text }} numberOfLines={1}>
+                              {item.label || item.filename || 'Untitled document'}
+                            </Text>
+                            <Text style={{ color: colors.textSecondary, fontSize: 12 }} numberOfLines={1}>
+                              {displayFinancialKind(item.file_kind)}
+                              {item.date ? ` · ${item.date}` : ''}
+                            </Text>
+                          </View>
+                          <Text
+                            style={{
+                              color: colors.text,
+                              fontSize: 13,
+                              fontWeight: '600',
+                              marginLeft: 8,
+                            }}
+                          >
+                            {item.amount_known && item.amount != null
+                              ? formatClientMoney(item.amount, item.currency || 'USD')
+                              : 'Unknown'}
+                          </Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
                     {financials.has_more ? (
                       <TouchableOpacity
                         onPress={async () => {
-                          const more = await getClientFinancials(clientId, {
-                            limit: 40,
-                            offset: financials.items.length,
-                          });
-                          setFinancials({
-                            ...more,
-                            items: [...financials.items, ...more.items],
-                          });
+                          try {
+                            const more = await getClientFinancials(clientId, {
+                              limit: 40,
+                              offset: financials.items.length,
+                            });
+                            setFinancials({
+                              ...more,
+                              items: [...financials.items, ...more.items],
+                            });
+                          } catch (err: any) {
+                            Alert.alert(
+                              'Error',
+                              err?.response?.data?.error || err?.message || 'Failed to load more'
+                            );
+                          }
                         }}
                       >
                         <Text style={{ color: '#0D9488', marginTop: 12 }}>Load more</Text>
@@ -788,6 +959,12 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 8,
+  },
+  financialSummary: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 12,
+    padding: 14,
     marginBottom: 8,
   },
   card: {

@@ -20,6 +20,7 @@ import { getFillDocument, type FillDocumentResponse } from '../../../services/fi
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../../utils/chatTitleDisplay';
 
 export default function FillSessionScreen() {
   const router = useRouter();
@@ -83,8 +84,8 @@ export default function FillSessionScreen() {
       <View style={[styles.header, { backgroundColor: colors.headerBackground }]}>
         <AppBackButton />
         <View style={{ flex: 1 }}>
-          <AppHeaderTitle>
-            {doc.template_name}
+          <AppHeaderTitle shrink={false}>
+            {truncateAppHeaderTitle(doc.template_name || 'Document')}
           </AppHeaderTitle>
           <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
             {readOnly ? 'View only' : 'Fill mode'}

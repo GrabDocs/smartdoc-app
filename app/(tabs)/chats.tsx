@@ -166,7 +166,7 @@ const ChatConversationHeader = React.memo(function ChatConversationHeader({
         <AppBackButton onPress={onBack} />
 
         <View style={headerInfoStyle} pointerEvents="none">
-          <AppHeaderTitle fill={false}>
+          <AppHeaderTitle fill={false} shrink={false}>
             {truncateChatHeaderTitle(title)}
           </AppHeaderTitle>
           <Text style={subtitleStyle}>{subtitle}</Text>

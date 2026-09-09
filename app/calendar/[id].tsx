@@ -49,6 +49,7 @@ import { calendarDisplayLocation, formatUtcIsoForDevice } from '../../utils/cale
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
 function CalendarResendInviteButton({
   eventId,
@@ -528,8 +529,8 @@ export default function CalendarEventDetailScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle>
-          {event.title || 'Event'}
+        <AppHeaderTitle shrink={false}>
+          {truncateAppHeaderTitle(event.title || 'Event')}
         </AppHeaderTitle>
       </View>
 

@@ -19,6 +19,7 @@ import { MicrosoftLogo } from '../../components/MicrosoftLogo';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
     composeMailboxEmail,
+    deleteMailboxDraft,
     dismissMailboxThread,
     dismissMailboxThreads,
     emailApiError,
@@ -427,39 +428,69 @@ export default function EmailInboxScreen() {
     } as any);
   };
 
+  const discardDraftRow = async (item: EmailThread) => {
+    const draftId = item.draft_preview?.id;
+    if (!draftId) {
+      Alert.alert('Drafts', 'Could not delete this draft.');
+      return;
+    }
+    try {
+      await deleteMailboxDraft(draftId);
+      setThreads((prev) => prev.filter((t) => t.id !== item.id));
+      await load();
+    } catch (e) {
+      Alert.alert('Drafts', emailApiError(e, 'Could not delete draft'));
+    }
+  };
+
   const renderItem = ({ item }: { item: EmailThread }) => {
     const on = selected.includes(item.id);
+    const isDrafts = filter === 'drafts';
     return (
       <Swipeable
         ref={(ref) => {
           if (ref) swipeRefs.current.set(item.id, ref);
           else swipeRefs.current.delete(item.id);
         }}
-        enabled={!selectMode && filter !== 'drafts'}
+        enabled={!selectMode}
         overshootRight={false}
         overshootLeft={false}
         renderRightActions={() => (
           <TouchableOpacity
-            style={[styles.swipe, { backgroundColor: filter === 'dismissed' ? '#007AFF' : '#8E8E93' }]}
+            style={[
+              styles.swipe,
+              {
+                backgroundColor: isDrafts
+                  ? '#EF4444'
+                  : filter === 'dismissed'
+                    ? '#007AFF'
+                    : '#8E8E93',
+              },
+            ]}
             onPress={async () => {
               swipeRefs.current.get(item.id)?.close();
               try {
-                if (filter === 'dismissed') await undismissMailboxThread(item.id);
+                if (isDrafts) await discardDraftRow(item);
+                else if (filter === 'dismissed') await undismissMailboxThread(item.id);
                 else await dismissMailboxThread(item.id);
-                await load();
+                if (!isDrafts) await load();
               } catch (e) {
                 Alert.alert('Inbox', emailApiError(e, 'Action failed'));
               }
             }}
           >
-            <Ionicons name={filter === 'dismissed' ? 'arrow-undo' : 'close-circle'} size={22} color="#fff" />
+            <Ionicons
+              name={isDrafts ? 'trash' : filter === 'dismissed' ? 'arrow-undo' : 'close-circle'}
+              size={22}
+              color="#fff"
+            />
             <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12, marginTop: 4 }}>
-              {filter === 'dismissed' ? 'Restore' : 'Dismiss'}
+              {isDrafts ? 'Delete' : filter === 'dismissed' ? 'Restore' : 'Dismiss'}
             </Text>
           </TouchableOpacity>
         )}
         renderLeftActions={
-          filter === 'dismissed'
+          filter === 'dismissed' || isDrafts
             ? undefined
             : () => (
                 <TouchableOpacity
@@ -479,7 +510,7 @@ export default function EmailInboxScreen() {
           style={[styles.row, on && { backgroundColor: colors.isDark ? '#1e3a5f33' : '#E8F1FF' }]}
           onPress={() => openThread(item)}
           onLongPress={() => {
-            if (filter === 'dismissed') return;
+            if (filter === 'dismissed' || isDrafts) return;
             setSelectMode(true);
             setSelected([item.id]);
           }}

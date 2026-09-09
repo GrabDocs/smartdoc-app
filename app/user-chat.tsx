@@ -46,6 +46,7 @@ import { useAuth } from './context/auth';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../components/AppBackButton';
 import AppHeaderTitle from '../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../utils/chatTitleDisplay';
 
 interface ChatParticipant {
   id: number;
@@ -1901,8 +1902,8 @@ export default function UserChatScreen() {
               }}
               activeOpacity={0.7}
             >
-              <AppHeaderTitle fill={false}>
-                {selectedChat?.title || ''}
+              <AppHeaderTitle fill={false} shrink={false}>
+                {truncateAppHeaderTitle(selectedChat?.title || 'Chat')}
               </AppHeaderTitle>
               <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'nowrap', gap: 8, marginTop: 2 }}>
                 <Text style={dynamicStyles.headerSubtitle}>
@@ -1918,8 +1919,10 @@ export default function UserChatScreen() {
             </TouchableOpacity>
           ) : (
               <View style={{ flex: 1, minWidth: 0, alignItems: 'flex-start', justifyContent: 'center' }}>
-              <AppHeaderTitle fill={false}>
-                {isNewChat ? 'New Message' : selectedChat?.display_name || selectedChat?.title || ''}
+              <AppHeaderTitle fill={false} shrink={false}>
+                {isNewChat
+                  ? 'New Message'
+                  : truncateAppHeaderTitle(selectedChat?.display_name || selectedChat?.title || 'Chat')}
               </AppHeaderTitle>
               {!isNewChat && selectedChat && (selectedChat.type === 'user_direct' || selectedChat.type === 'direct') ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>

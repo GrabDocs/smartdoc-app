@@ -54,6 +54,7 @@ import { UploadOptionsModal } from '../components/UploadOptionsModal';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import { formatRemainingCountdown, parseAsUTC, parseUtcMs } from '../../utils/timeFormatting';
 
 const INTAKE_DETAIL_CACHE_MS = 30_000;
@@ -1075,7 +1076,9 @@ export default function IntakeDetailScreen() {
     <SafeAreaView style={dynamicStyles.container}>
       <View style={dynamicStyles.header}>
         <AppBackButton />
-        <AppHeaderTitle shrink={false} style={{ marginRight: 8 }}>{intake.title}</AppHeaderTitle>
+        <AppHeaderTitle shrink={false} style={{ marginRight: 8 }}>
+          {truncateAppHeaderTitle(intake.title || 'Intake')}
+        </AppHeaderTitle>
         {intake.status !== 'archived' ? (
           <TouchableOpacity
             onPress={openEdit}

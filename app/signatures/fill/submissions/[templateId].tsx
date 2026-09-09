@@ -20,6 +20,7 @@ import { submissionDisplayTitle } from '../../../../utils/signatureActivity';
 
 import AppBackButton from '../../../../components/AppBackButton';
 import AppHeaderTitle from '../../../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../../../utils/chatTitleDisplay';
 
 export default function TemplateSubmissionsScreen() {
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
@@ -96,8 +97,8 @@ export default function TemplateSubmissionsScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle>
-          {templateTitle}
+        <AppHeaderTitle shrink={false}>
+          {truncateAppHeaderTitle(templateTitle || 'Submissions')}
         </AppHeaderTitle>
       </View>
 

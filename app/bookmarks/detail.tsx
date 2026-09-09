@@ -18,6 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import DocumentViewer from '../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
@@ -1033,7 +1034,9 @@ export default function BookmarkDetailScreen() {
       <AnimatedHeaderContainer>
         <View style={dynamicStyles.header}>
           <AppBackButton />
-          <AppHeaderTitle>{bookmark.name}</AppHeaderTitle>
+          <AppHeaderTitle shrink={false}>
+            {truncateAppHeaderTitle(bookmark.name || 'Bookmark')}
+          </AppHeaderTitle>
           <View style={dynamicStyles.headerActions}>
             <FeedbackTouchable
               onPress={handleToggleLock}

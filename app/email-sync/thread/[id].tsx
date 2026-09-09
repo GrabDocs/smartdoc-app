@@ -74,6 +74,7 @@ import {
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../../utils/chatTitleDisplay';
 import { formatRemainingCountdown } from '../../../utils/timeFormatting';
 import { emailSyncClearUndo, emailSyncSetUndo, useEmailSyncUndo } from '../_components/emailSyncCache';
 
@@ -943,17 +944,16 @@ export default function EmailThreadScreen() {
         <View style={styles.header}>
           <AppBackButton />
           <View style={styles.headerBody}>
-            <AppHeaderTitle fill={false} size={18} style={{ flexShrink: 1 }}>
-              {isNewCompose ? 'New message' : thread?.subject || 'Conversation'}
+            <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
+              {isNewCompose
+                ? 'New message'
+                : truncateAppHeaderTitle(thread?.subject || 'Conversation')}
             </AppHeaderTitle>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, minWidth: 0 }}>
-              {Number.isFinite(threadId) && threadId > 0 ? (
+            {Number.isFinite(threadId) && threadId > 0 ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, minWidth: 0 }}>
                 <ClientsButton itemType="email_thread" itemId={threadId} compact allowCreate />
-              ) : null}
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <AttachmentNamesRow attachments={threadAttachments} onOpen={openAttachment} />
               </View>
-            </View>
+            ) : null}
           </View>
           <FeedbackTouchable
             style={styles.iconBtn}
@@ -982,6 +982,24 @@ export default function EmailThreadScreen() {
         {Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
+          </View>
+        ) : null}
+
+        {threadAttachments.length > 0 ? (
+          <View
+            style={{
+              paddingHorizontal: 16,
+              paddingTop: 6,
+              paddingBottom: 4,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: colors.border,
+              backgroundColor: colors.background,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '600', color: colors.textSecondary, marginBottom: 2 }}>
+              Attachments
+            </Text>
+            <AttachmentNamesRow attachments={threadAttachments} onOpen={openAttachment} style={{ marginTop: 0 }} />
           </View>
         ) : null}
 

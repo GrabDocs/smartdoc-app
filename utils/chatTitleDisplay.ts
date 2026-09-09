@@ -30,6 +30,14 @@ export function truncateChatHeaderTitle(
   return truncateWithEllipsis(title, maxLength, 'Chat');
 }
 
+/** Truncate any mobile nav header title to the standard cap (20 chars). */
+export function truncateAppHeaderTitle(
+  title: string | null | undefined,
+  emptyFallback = '',
+): string {
+  return truncateWithEllipsis(title, CHAT_HEADER_TITLE_MAX_LENGTH, emptyFallback);
+}
+
 /**
  * Truncate a client display name for Ask UI (banner + composer placeholder).
  */

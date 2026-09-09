@@ -20,6 +20,7 @@ import SignatureCaptureModal from './SignatureCaptureModal';
 import type { SignerUIActions } from '../../hooks/useSignerUIState';
 import AppBackButton from '../AppBackButton';
 import AppHeaderTitle from '../AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
 interface Props {
   session: NormalizedSignerSession;
@@ -77,8 +78,8 @@ export default function UnifiedSignerShell({
       {onBack ? (
         <View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.headerBackground }]}>
           <AppBackButton onPress={onBack} style={styles.backBtn} />
-          <AppHeaderTitle>
-            {session.envelopeTitle}
+          <AppHeaderTitle shrink={false}>
+            {truncateAppHeaderTitle(session.envelopeTitle || 'Signature')}
           </AppHeaderTitle>
         </View>
       ) : null}

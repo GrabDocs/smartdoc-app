@@ -48,6 +48,7 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
 interface WorkspaceSheetBookmark {
   bookmark_id: number;
@@ -1009,7 +1010,9 @@ export default function WorkspaceDetailsScreen() {
     <SafeAreaView style={dynamicStyles.container}>
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={handleBack} />
-        <AppHeaderTitle pointerEvents="none">{workspace.name}</AppHeaderTitle>
+        <AppHeaderTitle pointerEvents="none" shrink={false}>
+          {truncateAppHeaderTitle(workspace.name || 'Workspace')}
+        </AppHeaderTitle>
         {workspace.user_role !== 'owner' && workspace.user_role !== 'admin' && (
           <FeedbackTouchable onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
             <Ionicons name="exit-outline" size={24} color="#FF3B30" />
