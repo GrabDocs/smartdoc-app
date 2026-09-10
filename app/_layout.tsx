@@ -49,7 +49,9 @@ import PersistentBottomNavigation from './components/PersistentBottomNavigation'
 import UpdateRequiredScreen from './components/UpdateRequiredScreen';
 import { AuthProvider, useAuth } from './context/auth';
 import { LimitErrorProvider } from '../contexts/LimitErrorContext';
-import { getNotificationScreen, parseNotificationPath, initializePushNotifications, pushNotificationService, isJoinRequestNotificationAction, executeJoinRequestNotificationAction, isEmailReplyNotificationAction, getEmailReplyComposeScreen } from './services/pushNotifications';
+import { getNotificationScreen, parseNotificationPath, initializePushNotifications, pushNotificationService, isJoinRequestNotificationAction, executeJoinRequestNotificationAction, isEmailReplyNotificationAction, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, getReachMeetingJoinPath } from './services/pushNotifications';
+import ReachMeetingStartedBanner from './components/ReachMeetingStartedBanner';
+import { canonicalizeReachMeetingId, REACH_CURRENT_MEETING_KEY } from '../constants/reachMeeting';
 
 // Prevent the splash screen from auto-hiding (ignore if native splash not ready yet)
 SplashScreen.preventAutoHideAsync().catch((err) => {
@@ -66,14 +68,217 @@ function RootLayoutNav() {
   const router = useRouter();
   const segments = useSegments();
   const pushListenerRef = useRef<{ remove: () => void } | null>(null);
+  const receivedNotifListenerRef = useRef<{ remove: () => void } | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
   // User id present when auth bootstrap finished — only auto-open notification targets on cold
   // start with an existing session, never right after sign-in/sign-up in the same app session.
   const coldStartAuthenticatedUserIdRef = useRef<string | null | undefined>(undefined);
   const [appLockReminderVisible, setAppLockReminderVisible] = useState(false);
+  const [meetingStartedBanner, setMeetingStartedBanner] = useState<{
+    meetingId: string;
+    message: string;
+    notificationId?: number;
+  } | null>(null);
+  const dismissedMeetingIdsRef = useRef<Set<string>>(new Set());
+  // Latest authenticated user, readable from notification listener callbacks without re-registering.
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   // Hide top bar (NetworkIndicator) on meeting screen to avoid black banner and full-screen meeting UX
   const isMeetingScreen = segments.some((s) => String(s).includes('hms-meeting-interface'));
+  const isJoinMeetingScreen = segments.some((s) => String(s) === 'join-meeting');
+
+  const clearMeetingStartedBannerIfJoined = useCallback(async (candidateMeetingId?: string) => {
+    try {
+      const current = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
+      const currentCanon = current ? canonicalizeReachMeetingId(current) : '';
+      if (!currentCanon) return;
+      setMeetingStartedBanner((prev) => {
+        if (!prev) return prev;
+        const prevCanon = canonicalizeReachMeetingId(prev.meetingId);
+        if (candidateMeetingId && canonicalizeReachMeetingId(candidateMeetingId) !== prevCanon) {
+          return prev;
+        }
+        if (prevCanon === currentCanon) return null;
+        return prev;
+      });
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const maybeShowMeetingStartedBanner = useCallback(
+    async (payload: {
+      meetingId: string;
+      message: string;
+      notificationId?: number;
+    }) => {
+      const meetingId = String(payload.meetingId || '').trim();
+      if (!meetingId) return;
+      const canon = canonicalizeReachMeetingId(meetingId);
+      if (!canon || dismissedMeetingIdsRef.current.has(canon)) return;
+
+      try {
+        const current = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
+        if (current && canonicalizeReachMeetingId(current) === canon) return;
+      } catch {
+        // ignore storage errors
+      }
+
+      setMeetingStartedBanner({
+        meetingId: canon,
+        message: payload.message || 'A Reach meeting started. Join to participate.',
+        notificationId: payload.notificationId,
+      });
+    },
+    []
+  );
+
+  // Foreground push: show OTA-style banner when a workspace/chat meeting starts.
+  useEffect(() => {
+    if (!user) {
+      setMeetingStartedBanner(null);
+      return;
+    }
+    let mounted = true;
+    pushNotificationService
+      .addNotificationReceivedListener((notification) => {
+        if (!mounted || !userRef.current) return;
+        const content = notification.request.content;
+        const data = (content.data || {}) as Record<string, unknown>;
+        const type = data.type ?? data.action_type;
+        if (!isReachMeetingStartedNotificationType(type)) return;
+        const joinPath = getReachMeetingJoinPath(data as Record<string, any>);
+        const rawMid = data.meeting_id ?? data.meetingId;
+        let meetingId = rawMid != null ? String(rawMid).trim() : '';
+        if (!meetingId && joinPath) {
+          const m = joinPath.match(/meeting_id=([^&]+)/);
+          if (m?.[1]) {
+            try {
+              meetingId = decodeURIComponent(m[1]);
+            } catch {
+              meetingId = m[1];
+            }
+          }
+        }
+        if (!meetingId) return;
+        const message =
+          (typeof content.body === 'string' && content.body.trim()) ||
+          (typeof content.title === 'string' && content.title.trim()) ||
+          'A Reach meeting started. Join to participate.';
+        void maybeShowMeetingStartedBanner({ meetingId, message });
+      })
+      .then((subscription) => {
+        receivedNotifListenerRef.current = subscription;
+      });
+    return () => {
+      mounted = false;
+      receivedNotifListenerRef.current?.remove();
+      receivedNotifListenerRef.current = null;
+    };
+  }, [user, maybeShowMeetingStartedBanner]);
+
+  // When app returns to foreground, surface any unread meeting-started inbox items.
+  useEffect(() => {
+    if (!user) return;
+
+    const checkUnreadMeetingStarted = async () => {
+      try {
+        const res = await apiClient.getNotifications();
+        if (!res?.success || !res?.data) return;
+        const list = (res.data.notifications ?? []) as Array<{
+          id: number;
+          title?: string;
+          message?: string;
+          type?: string;
+          read?: boolean;
+          metadata?: Record<string, any>;
+        }>;
+        const hit = list.find((n) => {
+          if (n.read) return false;
+          if (!isReachMeetingStartedNotificationType(n.type) &&
+              !isReachMeetingStartedNotificationType(n.metadata?.action_type)) {
+            return false;
+          }
+          const mid = n.metadata?.meeting_id ?? n.metadata?.meetingId;
+          if (!mid) return false;
+          const canon = canonicalizeReachMeetingId(mid);
+          return !!canon && !dismissedMeetingIdsRef.current.has(canon);
+        });
+        if (!hit) return;
+        const mid = String(hit.metadata?.meeting_id ?? hit.metadata?.meetingId);
+        const message =
+          (hit.message && String(hit.message).trim()) ||
+          (hit.title && String(hit.title).trim()) ||
+          'A Reach meeting started. Join to participate.';
+        await maybeShowMeetingStartedBanner({
+          meetingId: mid,
+          message,
+          notificationId: hit.id,
+        });
+      } catch {
+        // non-fatal
+      }
+    };
+
+    void checkUnreadMeetingStarted();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void checkUnreadMeetingStarted();
+        void clearMeetingStartedBannerIfJoined();
+      }
+    });
+    return () => sub.remove();
+  }, [user, maybeShowMeetingStartedBanner, clearMeetingStartedBannerIfJoined]);
+
+  // Drop banner once the user is already in that meeting or on the join/call screens for it.
+  useEffect(() => {
+    if (!meetingStartedBanner) return;
+    if (isMeetingScreen || isJoinMeetingScreen) {
+      setMeetingStartedBanner(null);
+      return;
+    }
+    void clearMeetingStartedBannerIfJoined(meetingStartedBanner.meetingId);
+  }, [
+    meetingStartedBanner,
+    isMeetingScreen,
+    isJoinMeetingScreen,
+    clearMeetingStartedBannerIfJoined,
+  ]);
+
+  const handleMeetingStartedJoin = useCallback(() => {
+    const banner = meetingStartedBanner;
+    if (!banner) return;
+    dismissedMeetingIdsRef.current.add(canonicalizeReachMeetingId(banner.meetingId));
+    setMeetingStartedBanner(null);
+    if (banner.notificationId != null) {
+      apiClient.markNotificationRead(banner.notificationId).catch(() => {});
+    }
+    const path = getReachMeetingJoinPath({ meeting_id: banner.meetingId });
+    if (!path) return;
+    try {
+      const { pathname, params } = parseNotificationPath(path);
+      if (params && Object.keys(params).length > 0) {
+        router.push({ pathname, params } as any);
+      } else {
+        router.push(pathname as any);
+      }
+    } catch {
+      router.push('/quick-reach/meeting-call' as any);
+    }
+  }, [meetingStartedBanner, router]);
+
+  const handleMeetingStartedDismiss = useCallback(() => {
+    const banner = meetingStartedBanner;
+    if (!banner) return;
+    dismissedMeetingIdsRef.current.add(canonicalizeReachMeetingId(banner.meetingId));
+    setMeetingStartedBanner(null);
+    if (banner.notificationId != null) {
+      apiClient.markNotificationRead(banner.notificationId).catch(() => {});
+    }
+  }, [meetingStartedBanner]);
 
   useEffect(() => {
     if (!user) return;
@@ -154,12 +359,6 @@ function RootLayoutNav() {
     if (!user && coldStartAuthenticatedUserIdRef.current) {
       coldStartAuthenticatedUserIdRef.current = null;
     }
-  }, [user]);
-
-  // Latest authenticated user, readable from notification listener callbacks without re-registering.
-  const userRef = useRef(user);
-  useEffect(() => {
-    userRef.current = user;
   }, [user]);
 
   const navigateFromNotificationData = useCallback(
@@ -316,6 +515,13 @@ function RootLayoutNav() {
     <>
       {showLock && <AppLockScreen />}
       <StatusBar style={isMeetingScreen ? "light" : isDark ? "light" : "dark"} />
+      {meetingStartedBanner && !isMeetingScreen && !isJoinMeetingScreen && (
+        <ReachMeetingStartedBanner
+          message={meetingStartedBanner.message}
+          onJoin={handleMeetingStartedJoin}
+          onDismiss={handleMeetingStartedDismiss}
+        />
+      )}
       {/* Skip to main content - WCAG 2.4.1 Bypass Blocks; visually hidden, first focusable for screen readers */}
       <Pressable
         onPress={handleSkipToContent}
@@ -326,7 +532,7 @@ function RootLayoutNav() {
         <View />
       </Pressable>
       {/* Persistent Network Indicator - hidden on meeting screen for full-screen UX */}
-      {!isMeetingScreen && (
+      {!isMeetingScreen && !meetingStartedBanner && (
         <SafeAreaView
           style={styles.networkIndicatorContainer}
           edges={['top']}

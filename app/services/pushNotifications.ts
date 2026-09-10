@@ -96,11 +96,17 @@ class PushNotificationService {
     Notifications.setNotificationHandler({
       handleNotification: async (notification) => {
         const data = notification.request.content.data as Record<string, unknown> | undefined;
-        const isChatMessage = data?.type === 'chat_message';
+        const type = typeof data?.type === 'string' ? data.type : '';
+        // In-app banner handles these while foregrounded (same idea as chat_message).
+        const suppressOsBanner =
+          type === 'chat_message' ||
+          type === 'workspace_meeting_started' ||
+          type === 'chat_call_started' ||
+          type === 'meeting_started';
         return {
-          shouldShowAlert: !isChatMessage,
-          shouldPlaySound: !isChatMessage,
-          shouldSetBadge: !isChatMessage,
+          shouldShowAlert: !suppressOsBanner,
+          shouldPlaySound: !suppressOsBanner,
+          shouldSetBadge: !suppressOsBanner,
         };
       },
     });
@@ -471,7 +477,7 @@ export async function initializePushNotifications(): Promise<string | null> {
   return await pushNotificationService.registerForPushNotifications();
 }
 
-/** All 8 backend notification types that can trigger push + in-app notifications */
+/** Backend notification types that can trigger push + in-app notifications */
 export const NOTIFICATION_TYPES = [
   'file_request',
   'chat_message',
@@ -484,7 +490,41 @@ export const NOTIFICATION_TYPES = [
   'transcript_ready',
   'intake_file_received',
   'inbound_email',
+  'workspace_meeting_started',
+  'chat_call_started',
+  'meeting_started',
 ] as const;
+
+export const REACH_MEETING_STARTED_TYPES = [
+  'workspace_meeting_started',
+  'chat_call_started',
+  'meeting_started',
+] as const;
+
+export function isReachMeetingStartedNotificationType(type: unknown): boolean {
+  return (
+    type === 'workspace_meeting_started' ||
+    type === 'chat_call_started' ||
+    type === 'meeting_started'
+  );
+}
+
+/** Resolve mobile join path from push/inbox metadata (web uses `/meeting/{id}`). */
+export function getReachMeetingJoinPath(data: Record<string, any> | null | undefined): string | null {
+  if (!data) return null;
+  const mid = data.meeting_id ?? data.meetingId;
+  if (mid != null && String(mid).trim()) {
+    return `/join-meeting?meeting_id=${encodeURIComponent(String(mid).trim())}`;
+  }
+  const nav = data.navigation_path ?? data.screen;
+  if (typeof nav === 'string') {
+    const m = nav.match(/\/meeting\/([^/?#]+)/);
+    if (m?.[1]) {
+      return `/join-meeting?meeting_id=${encodeURIComponent(m[1])}`;
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve app path for push/data payload (type + optional metadata).
@@ -493,7 +533,12 @@ export const NOTIFICATION_TYPES = [
 export function getNotificationScreen(data: Record<string, any>): string {
   const type = data?.type;
   const screen = data?.screen;
-  if (screen && typeof screen === 'string' && screen.startsWith('/')) return screen;
+  if (screen && typeof screen === 'string' && screen.startsWith('/')) {
+    if (screen.startsWith('/meeting/')) {
+      return getReachMeetingJoinPath({ ...data, navigation_path: screen }) || '/quick-reach/meeting-call';
+    }
+    return screen;
+  }
   if (screen && typeof screen === 'string') return screen.startsWith('/') ? screen : `/${screen}`;
 
   switch (type) {
@@ -517,6 +562,10 @@ export function getNotificationScreen(data: Record<string, any>): string {
       return '/notifications';
     case 'join_request_approved':
       return data?.meeting_id != null ? `/join-meeting?meeting_id=${encodeURIComponent(String(data.meeting_id))}` : '/(tabs)';
+    case 'workspace_meeting_started':
+    case 'chat_call_started':
+    case 'meeting_started':
+      return getReachMeetingJoinPath(data) || '/quick-reach/meeting-call';
     case 'transcript_ready':
       return data?.video_call_id != null ? `/quick-reach/meeting-details?roomId=${data.video_call_id}` : '/quick-reach/meeting-call';
     case 'file_upload':

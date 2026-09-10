@@ -15,7 +15,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import { resolveSignatureRoute } from '../../utils/signatureRouteResolver';
 import { useAuth } from '../context/auth';
-import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen } from '../services/pushNotifications';
+import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType } from '../services/pushNotifications';
 import { formatUtcIsoForDevice } from '../../utils/calendarTime';
 import { AnimatedHeaderContainer } from './AnimatedHeaderContainer';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -167,8 +167,14 @@ export function NotificationsInboxContent({
     if (n.type === 'inbound_email' || meta.action_type === 'email_reply') {
       return getNotificationScreen({ type: n.type || 'inbound_email', ...meta });
     }
+    if (isReachMeetingStartedNotificationType(n.type) || isReachMeetingStartedNotificationType(meta.action_type)) {
+      return getNotificationScreen({ type: n.type, ...meta });
+    }
     if (meta.navigation_path) {
       const p = String(meta.navigation_path);
+      if (p.includes('/meeting/')) {
+        return getNotificationScreen({ type: n.type || 'workspace_meeting_started', ...meta, navigation_path: p });
+      }
       return p.startsWith('/') ? p : `/${p}`;
     }
     return getNotificationScreen({ type: n.type, ...meta });
