@@ -891,10 +891,6 @@ export default function EmailThreadScreen() {
     lastTapRef.current = now;
   };
 
-  const inboundBg = colors.isDark ? '#1C1E22' : '#FFFFFF';
-  const outboundBg = colors.isDark ? '#1e3a5f' : '#EFF6FF';
-  const bodyTextColor = colors.isDark ? '#E5E7EB' : '#111827';
-
   const openAttachment = async (att: AttachPreview) => {
     const name = (att.filename || '').trim() || 'Attachment';
     if (att.file_id) {
@@ -1023,7 +1019,6 @@ export default function EmailThreadScreen() {
           {messages.map((m) => {
             const out = m.direction === 'outbound';
             const expanded = expandedId === m.id;
-            const bg = out ? outboundBg : inboundBg;
             return (
               <Pressable
                 key={m.id}
@@ -1051,9 +1046,6 @@ export default function EmailThreadScreen() {
                 <EmailHtmlBody
                   html={m.body_html}
                   text={m.body_text}
-                  textColor={bodyTextColor}
-                  background={bg}
-                  isDark={colors.isDark}
                   expanded={expanded}
                 />
                 <AttachmentNamesRow
