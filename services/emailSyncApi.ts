@@ -250,6 +250,30 @@ export async function hideImport(eventId: number) {
   await client().delete(`${INBOUND}/imports/${eventId}`);
 }
 
+const VIEW_EMAIL_ERROR_COPY: Record<string, string> = {
+  not_found_at_source: "Email can't be downloaded. It may no longer exist in the source.",
+  mailbox_disconnected: 'Connect or reconnect this mailbox in Email Setup to view the email.',
+  mailbox_not_connected: 'Connect or reconnect this mailbox in Email Setup to view the email.',
+  needs_reconnect: 'Reconnect this mailbox in Email Setup, then try again.',
+  unsupported_source: "This source can't load the email.",
+};
+
+export function viewEmailErrorMessage(err: unknown, fallback?: string): string {
+  const code = (err as any)?.response?.data?.code as string | undefined;
+  if (code && VIEW_EMAIL_ERROR_COPY[code]) return VIEW_EMAIL_ERROR_COPY[code];
+  return apiErrorMessage(err as any, fallback || VIEW_EMAIL_ERROR_COPY.not_found_at_source);
+}
+
+/** Resolve or live-hydrate the email that accompanied an attachment import. */
+export async function viewEmailFromImport(importEventId: number): Promise<{ thread_id: number }> {
+  const { data } = await client().post(`${MAILBOX}/imports/${importEventId}/view-email`);
+  const threadId = Number(data?.thread_id);
+  if (!threadId) {
+    throw new Error(VIEW_EMAIL_ERROR_COPY.not_found_at_source);
+  }
+  return { thread_id: threadId };
+}
+
 export async function mailboxCapabilities(workspaceId: number) {
   const { data } = await client().get(`${MAILBOX}/capabilities`, { params: { workspace_id: workspaceId } });
   return data as {

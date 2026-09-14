@@ -70,6 +70,7 @@ export default function EmailInboxScreen() {
     threadId?: string;
     workspaceId?: string;
     tab?: string;
+    filter?: string;
     oauth?: string;
     compose?: string;
     client_id?: string;
@@ -87,7 +88,16 @@ export default function EmailInboxScreen() {
   const [workspaceId, setWorkspaceId] = useState<number | null>(
     params.workspaceId ? Number(params.workspaceId) : null
   );
-  const [filter, setFilter] = useState<ThreadAttention>('pending');
+  const initialFilter: ThreadAttention =
+    params.filter === 'dismissed'
+    || params.filter === 'candidates'
+    || params.filter === 'pending'
+    || params.filter === 'drafts'
+    || params.filter === 'sent'
+    || params.filter === 'closed'
+      ? params.filter
+      : 'pending';
+  const [filter, setFilter] = useState<ThreadAttention>(initialFilter);
   const [threads, setThreads] = useState<EmailThread[]>(() => emailSyncCacheReplies('pending')?.threads || []);
   const [pending, setPending] = useState(emailSyncCachePending());
   const [hasMailbox, setHasMailbox] = useState<boolean | null>(() => {
@@ -118,6 +128,20 @@ export default function EmailInboxScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.tab]);
+
+  useEffect(() => {
+    const f = Array.isArray(params.filter) ? params.filter[0] : params.filter;
+    if (
+      f === 'dismissed'
+      || f === 'candidates'
+      || f === 'pending'
+      || f === 'drafts'
+      || f === 'sent'
+      || f === 'closed'
+    ) {
+      setFilter(f);
+    }
+  }, [params.filter]);
 
   useEffect(() => {
     let alive = true;
@@ -212,16 +236,28 @@ export default function EmailInboxScreen() {
   useEffect(() => {
     if (!params.threadId || openedRef.current === params.threadId || !workspaceId) return;
     openedRef.current = params.threadId;
+    const composeFlag = Array.isArray(params.compose) ? params.compose[0] : params.compose;
+    const wantCompose = composeFlag === '1' || composeFlag === 'true';
+    const filterParam = Array.isArray(params.filter) ? params.filter[0] : params.filter;
+    const attention =
+      filterParam === 'dismissed'
+      || filterParam === 'candidates'
+      || filterParam === 'pending'
+      || filterParam === 'drafts'
+      || filterParam === 'sent'
+      || filterParam === 'closed'
+        ? filterParam
+        : filter;
     router.push({
       pathname: '/email-sync/thread/[id]',
       params: {
         id: params.threadId,
         workspaceId: String(workspaceId),
-        filter,
-        compose: '1',
+        filter: attention,
+        ...(wantCompose ? { compose: '1' } : {}),
       },
     } as any);
-  }, [params.threadId, workspaceId, filter, router]);
+  }, [params.threadId, params.compose, params.filter, workspaceId, filter, router]);
 
   useEffect(() => {
     if (!workspaceId) return;

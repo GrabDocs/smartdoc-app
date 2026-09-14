@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Redirect } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
@@ -12,6 +12,8 @@ import {
   listWorkspaceImports,
   mailboxPendingCount,
   retryImport,
+  viewEmailErrorMessage,
+  viewEmailFromImport,
   type EmailImportEvent,
 } from '../../services/emailSyncApi';
 import { formatEmailWhen, getFileTypeFromFilename, importSourceLabel, importStatusBadge, senderDisplayName, senderNameAndEmail } from './_components/emailFormat';
@@ -19,24 +21,57 @@ import { emailSyncCacheImports, emailSyncCacheSetImports, emailSyncCacheSetPendi
 
 function ImportRow({
   item,
+  workspaceId,
   onView,
   onRetry,
   onRemove,
 }: {
   item: EmailImportEvent;
+  workspaceId: number;
   onView: () => void;
   onRetry: () => void;
   onRemove: () => void;
 }) {
   const colors = useThemeColors();
+  const router = useRouter();
   const [menu, setMenu] = useState(false);
+  const [viewingEmail, setViewingEmail] = useState(false);
   const badge = importStatusBadge(item.status, item.failure_category, colors.isDark);
   const when = formatEmailWhen(item.created_at);
   const source = importSourceLabel(item.source_type);
   const senderName = senderDisplayName(item.email_sender);
   const senderDetail = senderNameAndEmail(item.email_sender);
+
+  const onViewEmail = useCallback(async () => {
+    if (viewingEmail) return;
+    setViewingEmail(true);
+    try {
+      const { thread_id } = await viewEmailFromImport(item.id);
+      // Stay on email-sync: switch to Replies → Dismissed, then open the thread.
+      router.setParams({
+        tab: 'replies',
+        filter: 'dismissed',
+        threadId: String(thread_id),
+        workspaceId: String(workspaceId),
+      } as any);
+    } catch (e) {
+      Alert.alert('View email', viewEmailErrorMessage(e));
+    } finally {
+      setViewingEmail(false);
+    }
+  }, [item.id, router, viewingEmail, workspaceId]);
+
   const items = useMemo((): ActionMenuItem[] => {
     const next: ActionMenuItem[] = [];
+    next.push({
+      id: 'view-email',
+      label: viewingEmail ? 'Loading…' : 'View email',
+      icon: 'mail-outline',
+      iconColor: '#007AFF',
+      onPress: () => {
+        void onViewEmail();
+      },
+    });
     if (importCanView(item)) {
       next.push({ id: 'view', label: 'View', icon: 'eye-outline', iconColor: '#007AFF', onPress: onView });
     }
@@ -51,7 +86,7 @@ function ImportRow({
       onPress: onRemove,
     });
     return next;
-  }, [item, onRemove, onRetry, onView]);
+  }, [item, onRemove, onRetry, onView, onViewEmail, viewingEmail]);
 
   return (
     <>
@@ -189,6 +224,7 @@ export function EmailImportsPane({
           renderItem={({ item }) => (
             <ImportRow
               item={item}
+              workspaceId={workspaceId}
               onView={() =>
                 setViewer({
                   fileId: item.file_id as number,

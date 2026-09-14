@@ -12,6 +12,7 @@ import {
     Alert,
     Animated,
     Dimensions,
+    findNodeHandle,
     FlatList,
     Keyboard,
     KeyboardAvoidingView,
@@ -817,6 +818,7 @@ export default function ChatsScreen() {
   const chatSwipeableRefs = useRef<Map<number, Swipeable>>(new Map());
   // Separate ref map for swipeables inside the history modal (avoids conflicts with main list)
   const historySwipeableRefs = useRef<Map<number, Swipeable>>(new Map());
+  const historyRowRefs = useRef<Map<number, View>>(new Map());
   const swipingChatId = useRef<number | null>(null);
   const [menuChatId, setMenuChatId] = useState<number | null>(null);
   const [favoriteChatIds, setFavoriteChatIds] = useState<Set<number>>(new Set());
@@ -898,6 +900,16 @@ export default function ChatsScreen() {
 
   // Chat history bottom sheet (shown from chat messages view)
   const historySheet = useMinimizableSheet();
+
+  useEffect(() => {
+    if (menuChatId == null || !historySheet.visible) return;
+    const row = historyRowRefs.current.get(menuChatId);
+    if (!row) return;
+    const handle = findNodeHandle(row);
+    if (handle) {
+      AccessibilityInfo.setAccessibilityFocus(handle);
+    }
+  }, [menuChatId, historySheet.visible]);
 
   // Mention system state
   const [showMentionModal, setShowMentionModal] = useState(false);
@@ -7661,10 +7673,8 @@ export default function ChatsScreen() {
       setFavoriteChatIds(newFavorites);
 
       setMenuChatId(null);
-      const swipeableRef = chatSwipeableRefs.current.get(chatId);
-      if (swipeableRef) {
-        swipeableRef.close();
-      }
+      chatSwipeableRefs.current.get(chatId)?.close();
+      historySwipeableRefs.current.get(chatId)?.close();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to update favorite');
     }
@@ -7687,20 +7697,16 @@ export default function ChatsScreen() {
     );
   };
 
-  // Render menu action for chat swipeable inside a Modal. Uses Pressable (better touch handling
-  // in nested gesture contexts). Closes history modal first so the Favorite/Delete menu appears
-  // on the main screen (avoids modal-on-modal touch/stacking issues).
+  // Render menu action for chat swipeable inside the history sheet. Uses Pressable (better touch
+  // handling in nested gesture contexts). Keep history open so Favorite/Delete appears on this
+  // screen (in-sheet overlay, not a nested RN Modal).
   const renderHistoryMenuAction = (chatId: number) => {
     return (
       <View style={dynamicStyles.menuActionContainer}>
         <Pressable
           style={({ pressed }) => [dynamicStyles.menuActionButton, pressed && { opacity: 0.7 }]}
           onPress={() => {
-            historySheet.close();
-            historySwipeableRefs.current.get(chatId)?.close();
-            requestAnimationFrame(() => {
-              setMenuChatId(chatId);
-            });
+            setMenuChatId(chatId);
           }}
         >
           <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
@@ -8019,6 +8025,7 @@ export default function ChatsScreen() {
       onClose={closeHistoryModal}
       title="Chat History"
       heightRatio={0.8}
+      overlay={menuChatId != null ? renderChatMenuContent({ inSheet: true }) : null}
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -8061,6 +8068,7 @@ export default function ChatsScreen() {
           ) : (
             <FlatList
               data={filteredChats}
+              extraData={`${menuChatId ?? ''}:${selectedChat?.id ?? ''}:${[...favoriteChatIds].join(',')}`}
               keyExtractor={(item, index) => item ? `history-${item.type}-${item.id}-${index}` : `history-${index}`}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 88 }}
@@ -8091,18 +8099,29 @@ export default function ChatsScreen() {
                 };
                 const { name: iconName, color } = getChatIconForHistory();
                 const isActive = selectedChat?.id === item.id;
+                const isMenuFocused = menuChatId === item.id;
                 // Skip swipe for virtual/placeholder chats (id < 0)
                 const canSwipe = item.id > 0;
                 const rowContent = (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    backgroundColor: isActive ? `${color}15` : colors.card,
-                    borderLeftWidth: isActive ? 3 : 0,
-                    borderLeftColor: isActive ? color : 'transparent',
-                  }}>
+                  <View
+                    ref={(ref) => {
+                      if (ref) historyRowRefs.current.set(item.id, ref);
+                      else historyRowRefs.current.delete(item.id);
+                    }}
+                    collapsable={false}
+                    accessible
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isActive || isMenuFocused }}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 16,
+                      paddingVertical: 12,
+                      backgroundColor: isMenuFocused ? `${color}30` : isActive ? `${color}15` : colors.card,
+                      borderLeftWidth: isMenuFocused ? 4 : isActive ? 3 : 0,
+                      borderLeftColor: isMenuFocused || isActive ? color : 'transparent',
+                    }}
+                  >
                     <View style={{
                       width: 42,
                       height: 42,
@@ -9595,10 +9614,97 @@ export default function ChatsScreen() {
   }), [colors]);
 
   // Show chat list or individual chat based on selection
-  // Render chat menu modal
-  const renderChatMenuModal = () => {
+  const renderChatMenuContent = (opts?: { inSheet?: boolean }) => {
     if (!menuChatId) return null;
-    
+    const menuChat = chats.find((c) => c.id === menuChatId);
+    const closeMenu = () => {
+      const id = menuChatId;
+      setMenuChatId(null);
+      if (opts?.inSheet && id != null) {
+        historySwipeableRefs.current.get(id)?.close();
+      }
+    };
+
+    return (
+      <TouchableOpacity
+        style={[
+          dynamicStyles.chatMenuModal,
+          StyleSheet.absoluteFillObject,
+          opts?.inSheet && {
+            backgroundColor: colors.isDark ? 'rgba(0, 0, 0, 0.32)' : 'rgba(0, 0, 0, 0.22)',
+          },
+        ]}
+        activeOpacity={1}
+        onPress={closeMenu}
+        accessibilityViewIsModal
+        accessibilityLabel="Chat actions"
+      >
+        <View
+          style={[
+            dynamicStyles.chatMenuContent,
+            opts?.inSheet && floatingDialogSurfaceStyle(colors, colors.isDark, { minWidth: 200 }),
+          ]}
+          onStartShouldSetResponder={() => true}
+        >
+          {opts?.inSheet && menuChat ? (
+            <View
+              style={{
+                paddingHorizontal: 16,
+                paddingTop: 12,
+                paddingBottom: 8,
+                borderBottomWidth: StyleSheet.hairlineWidth,
+                borderBottomColor: colors.border,
+              }}
+            >
+              <Text
+                style={{ fontSize: 15, fontWeight: '600', color: colors.text }}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+              >
+                {truncateChatHeaderTitle(menuChat.title || 'Untitled Chat')}
+              </Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={dynamicStyles.chatMenuItem}
+            onPress={() => {
+              handleToggleFavorite(menuChatId);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={favoriteChatIds.has(menuChatId) ? "star" : "star-outline"}
+              size={20}
+              color={favoriteChatIds.has(menuChatId) ? "#FFD700" : "#007AFF"}
+            />
+            <Text style={dynamicStyles.chatMenuItemText}>
+              {favoriteChatIds.has(menuChatId) ? "Remove from Favorite" : "Add to Favorite"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={dynamicStyles.chatMenuItem}
+            onPress={() => {
+              setMenuChatId(null);
+              chatSwipeableRefs.current.get(menuChatId)?.close();
+              historySwipeableRefs.current.get(menuChatId)?.close();
+              setTimeout(() => {
+                handleDeleteChat(menuChatId);
+              }, 300);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+            <Text style={[dynamicStyles.chatMenuItemText, dynamicStyles.chatMenuItemDanger]}>Delete</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  // Render chat menu modal (main list). History uses the in-sheet overlay instead.
+  const renderChatMenuModal = () => {
+    if (!menuChatId || historySheet.visible) return null;
+
     return (
       <Modal
         visible={menuChatId !== null}
@@ -9606,45 +9712,7 @@ export default function ChatsScreen() {
         animationType="fade"
         onRequestClose={() => setMenuChatId(null)}
       >
-        <TouchableOpacity
-          style={dynamicStyles.chatMenuModal}
-          activeOpacity={1}
-          onPress={() => setMenuChatId(null)}
-        >
-          <View style={dynamicStyles.chatMenuContent} onStartShouldSetResponder={() => true}>
-            <TouchableOpacity
-              style={dynamicStyles.chatMenuItem}
-              onPress={() => {
-                handleToggleFavorite(menuChatId);
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons 
-                name={favoriteChatIds.has(menuChatId) ? "star" : "star-outline"} 
-                size={20} 
-                color={favoriteChatIds.has(menuChatId) ? "#FFD700" : "#007AFF"} 
-              />
-              <Text style={dynamicStyles.chatMenuItemText}>
-                {favoriteChatIds.has(menuChatId) ? "Remove from Favorite" : "Add to Favorite"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={dynamicStyles.chatMenuItem}
-              onPress={() => {
-                setMenuChatId(null);
-                chatSwipeableRefs.current.get(menuChatId)?.close();
-                historySwipeableRefs.current.get(menuChatId)?.close();
-                setTimeout(() => {
-                  handleDeleteChat(menuChatId);
-                }, 300);
-              }}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-              <Text style={[dynamicStyles.chatMenuItemText, dynamicStyles.chatMenuItemDanger]}>Delete</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
+        {renderChatMenuContent()}
       </Modal>
     );
   };
