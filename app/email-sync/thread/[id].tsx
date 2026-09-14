@@ -23,11 +23,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview';
 import ActionMenuModal, { type ActionMenuItem } from '../../../components/ActionMenuModal';
 import AdaptiveListPickerModal from '../../../components/AdaptiveListPickerModal';
-import ClientsButton from '../../../components/clients/ClientsButton';
 import ClientContextStrip from '../../../components/clients/ClientContextStrip';
+import ClientsButton from '../../../components/clients/ClientsButton';
 import DocumentViewer from '../../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { useThemeColors } from '../../../hooks/useThemeColors';
+import { getClientsForItem, setItemClients } from '../../../services/clientsApi';
 import {
     addDraftAttachmentFile,
     addDraftAttachmentFileId,
@@ -57,11 +58,9 @@ import {
     type ThreadAnalysis,
     type ThreadAttention,
 } from '../../../services/emailSyncApi';
-import { getClientsForItem, setItemClients } from '../../../services/clientsApi';
 import { AttachmentNamesRow } from '../_components/AttachmentNamesRow';
-import { EmailHtmlBody } from '../_components/EmailHtmlBody';
-import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
 import { formatEmailWhen } from '../_components/emailFormat';
+import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import {
     canReplyAll,
     DEFAULT_REPLY_TONE,
@@ -71,6 +70,7 @@ import {
     restoreTone,
     type ReplyTone,
 } from '../_components/emailReplyShared';
+import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
@@ -822,23 +822,11 @@ export default function EmailThreadScreen() {
           borderRadius: 10,
           paddingHorizontal: 14,
           paddingVertical: 10,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 6,
-        },
-        generateSpinnerSlot: {
-          width: 16,
-          height: 16,
-          alignItems: 'center',
-          justifyContent: 'center',
         },
         generateBtnText: {
           color: colors.isDark ? '#111' : '#fff',
           fontWeight: '700',
           fontSize: 14,
-          width: 68,
-          textAlign: 'center',
         },
         undo: {
           position: 'absolute',
@@ -1228,22 +1216,19 @@ export default function EmailThreadScreen() {
                   </TouchableOpacity>
                 ) : null}
                 <View style={{ flex: 1, minWidth: 4 }} />
-                <TouchableOpacity
-                  style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
-                  onPress={() => void generate()}
-                  disabled={drafting || busy || !sendReady}
-                  accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
-                >
-                  {/* Fixed spinner slot so Generate ↔ Drafting does not change button width */}
-                  <View style={styles.generateSpinnerSlot}>
-                    {drafting ? (
-                      <ActivityIndicator size="small" color={colors.isDark ? '#111' : '#fff'} />
-                    ) : null}
-                  </View>
-                  <Text style={styles.generateBtnText}>
-                    {drafting ? 'Drafting' : 'Generate'}
-                  </Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {drafting ? (
+                    <ActivityIndicator size="small" color="#007AFF" accessibilityLabel="Drafting reply" />
+                  ) : null}
+                  <TouchableOpacity
+                    style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
+                    onPress={() => void generate()}
+                    disabled={drafting || busy || !sendReady}
+                    accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
+                  >
+                    <Text style={styles.generateBtnText}>{drafting ? 'Drafting' : 'Generate'}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               </>
               ) : null}

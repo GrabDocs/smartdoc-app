@@ -7470,8 +7470,8 @@ export default function ChatsScreen() {
 
     const { name: iconName, color } = getChatIcon();
 
-    // Ensure all text values are properly stringified; cap list titles for mobile density
-    const safeTitle = truncateChatHeaderTitle(item.title || 'Untitled Chat');
+    // Let layout ellipsis fill the title column; do not pre-truncate by character count.
+    const safeTitle = String(item.title || 'Untitled Chat');
     const safeLastMessage = String(item.last_message || 'No messages');
     const safeUpdatedAt = String(item.updated_at || new Date().toISOString());
     const safeUnreadCount = Number(item.unread_count || 0);
@@ -7528,7 +7528,7 @@ export default function ChatsScreen() {
           </View>
           <View style={dynamicStyles.chatContent}>
             <View style={dynamicStyles.chatItemHeader}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                 <Text style={dynamicStyles.chatTitle} numberOfLines={1} ellipsizeMode="tail">
                   {safeTitle}
                 </Text>
@@ -8110,9 +8110,9 @@ export default function ChatsScreen() {
                       <Ionicons name={iconName} size={22} color={color} />
                     </View>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 15, fontWeight: '500', color: colors.text, flex: 1 }} numberOfLines={1} ellipsizeMode="tail">
-                          {truncateChatHeaderTitle(item.title || 'Untitled Chat')}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', minWidth: 0 }}>
+                        <Text style={{ fontSize: 15, fontWeight: '500', color: colors.text, flex: 1, minWidth: 0 }} numberOfLines={1} ellipsizeMode="tail">
+                          {item.title || 'Untitled Chat'}
                         </Text>
                         {favoriteChatIds.has(item.id) && (
                           <Ionicons name="star" size={14} color="#FFD700" style={{ marginLeft: 4 }} />
@@ -9088,6 +9088,7 @@ export default function ChatsScreen() {
     },
     chatContent: {
       flex: 1,
+      minWidth: 0,
     },
     chatItemHeader: {
       flexDirection: 'row',
@@ -9100,6 +9101,7 @@ export default function ChatsScreen() {
       fontWeight: '600',
       color: colors.text,
       flex: 1,
+      minWidth: 0,
     },
     chatTime: {
       fontSize: 11,
@@ -9637,7 +9639,7 @@ export default function ChatsScreen() {
                 numberOfLines={2}
                 ellipsizeMode="tail"
               >
-                {truncateChatHeaderTitle(menuChat.title || 'Untitled Chat')}
+                {menuChat.title || 'Untitled Chat'}
               </Text>
             </View>
           ) : null}
