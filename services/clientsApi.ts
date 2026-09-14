@@ -570,8 +570,7 @@ export function itemHref(
     case 'intake_item':
       return (parentId ? `/intake/${parentId}` : '/intake') as Href;
     case 'intake_schedule':
-      // No mobile schedules app yet — open intake list
-      return '/intake' as Href;
+      return `/intake/schedules/${itemId}` as Href;
     case 'file':
       return `/(tabs)/documents` as Href;
     case 'signature_envelope':

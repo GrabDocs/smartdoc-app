@@ -382,7 +382,7 @@ export default function ClientDetailScreen() {
           <TouchableOpacity
             key={s.id}
             style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => router.push('/intake' as any)}
+            onPress={() => router.push(`/intake/schedules/${s.id}` as any)}
           >
             <Text style={{ color: colors.text, fontWeight: '600' }}>{s.title}</Text>
             <Text style={{ color: colors.textSecondary, fontSize: 12 }}>

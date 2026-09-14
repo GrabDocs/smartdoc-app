@@ -128,6 +128,9 @@ export default function IntakeDetailScreen() {
   const [editing, setEditing] = useState(false);
   const [folders, setFolders] = useState<FolderOption[]>([]);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editClientName, setEditClientName] = useState('');
@@ -765,6 +768,41 @@ export default function IntakeDetailScreen() {
       }
     } catch (error) {
       console.error('Load folders error:', error);
+    }
+  };
+
+  const handleCreateDestinationFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || creatingFolderBusy) return;
+    setCreatingFolderBusy(true);
+    try {
+      const ws = await apiService.resolveEffectiveWorkspaceId();
+      if (ws == null) {
+        Alert.alert('Could not create folder', 'No workspace available.');
+        return;
+      }
+      const res = await apiService.createFolder({
+        name,
+        workspace_id: ws,
+        parent_folder_id: null,
+      });
+      const created = res?.folder;
+      if (created?.id) {
+        setFolders((prev) => [{ id: created.id, name: created.name }, ...prev]);
+        setEditFolderId(created.id);
+        setShowFolderPicker(false);
+        setCreatingFolder(false);
+        setNewFolderName('');
+      } else {
+        Alert.alert('Could not create folder', res?.error || 'Try again.');
+      }
+    } catch (error: any) {
+      Alert.alert(
+        'Could not create folder',
+        error?.response?.data?.error || error?.message || 'Try again.',
+      );
+    } finally {
+      setCreatingFolderBusy(false);
     }
   };
 
@@ -1622,16 +1660,52 @@ export default function IntakeDetailScreen() {
               <TouchableOpacity
                 style={StyleSheet.absoluteFill}
                 activeOpacity={1}
-                onPress={() => setShowFolderPicker(false)}
+                onPress={() => {
+                  setShowFolderPicker(false);
+                  setCreatingFolder(false);
+                  setNewFolderName('');
+                }}
               />
               <View style={dynamicStyles.editSheetCard}>
                 <View style={dynamicStyles.modalHeader}>
                   <Text style={dynamicStyles.modalTitle}>Destination folder</Text>
-                  <TouchableOpacity onPress={() => setShowFolderPicker(false)} hitSlop={8}>
+                  <TouchableOpacity onPress={() => {
+                    setShowFolderPicker(false);
+                    setCreatingFolder(false);
+                    setNewFolderName('');
+                  }} hitSlop={8}>
                     <Ionicons name="close" size={22} color={colors.text} />
                   </TouchableOpacity>
                 </View>
                 <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 360 }}>
+                  <TouchableOpacity
+                    style={dynamicStyles.modalOption}
+                    onPress={() => setCreatingFolder((v) => !v)}
+                  >
+                    <Text style={[dynamicStyles.modalOptionText, { color: '#007AFF' }]}>Create new folder</Text>
+                  </TouchableOpacity>
+                  {creatingFolder ? (
+                    <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+                      <TextInput
+                        style={dynamicStyles.input}
+                        value={newFolderName}
+                        onChangeText={setNewFolderName}
+                        placeholder="Folder name"
+                        placeholderTextColor={colors.textSecondary}
+                        autoFocus
+                        onSubmitEditing={() => void handleCreateDestinationFolder()}
+                      />
+                      <TouchableOpacity
+                        style={{ marginTop: 8, paddingVertical: 10, alignItems: 'center' }}
+                        onPress={() => void handleCreateDestinationFolder()}
+                        disabled={creatingFolderBusy || !newFolderName.trim()}
+                      >
+                        <Text style={[dynamicStyles.linkText, (creatingFolderBusy || !newFolderName.trim()) && { opacity: 0.5 }]}>
+                          {creatingFolderBusy ? 'Creating…' : 'Create and select'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                   <TouchableOpacity
                     style={dynamicStyles.modalOption}
                     onPress={() => { setEditFolderId(null); setShowFolderPicker(false); }}

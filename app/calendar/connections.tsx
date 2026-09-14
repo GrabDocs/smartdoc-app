@@ -156,24 +156,28 @@ export default function CalendarConnectionsScreen() {
           }}
           onDisconnect={(connection) => {
             const label = connectionDisplayLabel(connection);
-            Alert.alert('Disconnect', `Remove ${label}?`, [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Disconnect',
-                style: 'destructive',
-                onPress: async () => {
-                  setBusyConnectionId(Number(connection.id));
-                  try {
-                    await calendarDeleteConnection(Number(connection.id));
-                    await load();
-                  } catch (e: any) {
-                    Alert.alert('Error', e?.response?.data?.error || '');
-                  } finally {
-                    setBusyConnectionId(null);
-                  }
+            Alert.alert(
+              'Disconnect calendar',
+              `Disconnect ${label}?\n\nSynced events will be removed from GrabDocs. Events you created in GrabDocs keep working. Reconnect later to restore synced events.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Disconnect',
+                  style: 'destructive',
+                  onPress: async () => {
+                    setBusyConnectionId(Number(connection.id));
+                    try {
+                      await calendarDeleteConnection(Number(connection.id));
+                      await load();
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.response?.data?.error || '');
+                    } finally {
+                      setBusyConnectionId(null);
+                    }
+                  },
                 },
-              },
-            ]);
+              ]
+            );
           }}
           onAddAnother={() => setConnectModalOpen(true)}
           busyConnectionId={busyConnectionId}
@@ -208,24 +212,28 @@ export default function CalendarConnectionsScreen() {
                 disabled={cardBusyId != null}
                 loading={cardBusyId === Number(c.id)}
                 onPress={() => {
-                  Alert.alert('Disconnect', 'Remove this connection?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Disconnect',
-                      style: 'destructive',
-                      onPress: async () => {
-                        setCardBusyId(Number(c.id));
-                        try {
-                          await calendarDeleteConnection(Number(c.id));
-                          await load();
-                        } catch (e: any) {
-                          Alert.alert('Error', e?.response?.data?.error || '');
-                        } finally {
-                          setCardBusyId(null);
-                        }
+                  Alert.alert(
+                    'Disconnect calendar',
+                    'Synced events will be removed from GrabDocs. Events you created in GrabDocs keep working. Reconnect later to restore synced events.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Disconnect',
+                        style: 'destructive',
+                        onPress: async () => {
+                          setCardBusyId(Number(c.id));
+                          try {
+                            await calendarDeleteConnection(Number(c.id));
+                            await load();
+                          } catch (e: any) {
+                            Alert.alert('Error', e?.response?.data?.error || '');
+                          } finally {
+                            setCardBusyId(null);
+                          }
+                        },
                       },
-                    },
-                  ]);
+                    ]
+                  );
                 }}
               >
                 <Text style={{ color: '#ef4444' }}>Disconnect</Text>

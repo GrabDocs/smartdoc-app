@@ -669,29 +669,33 @@ export default function CalendarHomeScreen() {
   const handleDisconnectCalendar = useCallback(
     (connection: CalendarConnection) => {
       const label = connectionDisplayLabel(connection);
-      Alert.alert('Disconnect', `Remove ${label} from GrabDocs?`, [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Disconnect',
-          style: 'destructive',
-          onPress: async () => {
-            if (deviceOffline) {
-              Alert.alert('Offline', 'Disconnecting requires a connection.');
-              return;
-            }
-            setBusyConnectionId(Number(connection.id));
-            try {
-              await calendarDeleteConnection(Number(connection.id));
-              await refreshConnections();
-              await load();
-            } catch (e: any) {
-              Alert.alert('Error', e?.response?.data?.error || e?.message || '');
-            } finally {
-              setBusyConnectionId(null);
-            }
+      Alert.alert(
+        'Disconnect calendar',
+        `Disconnect ${label}?\n\nSynced events will be removed from GrabDocs (no more reminders for those). Events you created in GrabDocs keep working.\n\nReconnect later to restore synced events.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disconnect',
+            style: 'destructive',
+            onPress: async () => {
+              if (deviceOffline) {
+                Alert.alert('Offline', 'Disconnecting requires a connection.');
+                return;
+              }
+              setBusyConnectionId(Number(connection.id));
+              try {
+                await calendarDeleteConnection(Number(connection.id));
+                await refreshConnections();
+                await load();
+              } catch (e: any) {
+                Alert.alert('Error', e?.response?.data?.error || e?.message || '');
+              } finally {
+                setBusyConnectionId(null);
+              }
+            },
           },
-        },
-      ]);
+        ]
+      );
     },
     [load, refreshConnections, deviceOffline]
   );

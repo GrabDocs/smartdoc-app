@@ -401,7 +401,10 @@ export function EmailSetupPane({
           icon: 'cloud-download-outline',
           onPress: async () => {
             await syncInboxConnection(menuConn.id);
-            Alert.alert('Syncing', 'New attachments will show up in Documents shortly.');
+            Alert.alert(
+              'Syncing',
+              'New attachments will show up in Documents, and new emails in Replies, shortly.',
+            );
           },
         },
         {

@@ -7,6 +7,13 @@ export default function IntakeLayout() {
       <Stack.Screen name="create" />
       <Stack.Screen name="template/[id]" />
       <Stack.Screen
+        name="schedules/[id]"
+        options={{
+          presentation: 'card',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
         name="[id]"
         options={{
           presentation: 'card',

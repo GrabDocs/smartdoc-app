@@ -224,6 +224,8 @@ const MOBILE_ENDPOINTS = {
   WEB_INTAKE_ITEM_NOT_APPLICABLE: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/not-applicable`,
   WEB_INTAKE_ITEM_ASSIGN: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/assign`,
   WEB_INTAKE_ITEM_UPLOAD: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/upload`,
+  WEB_INTAKE_SCHEDULES: '/api/v1/web/intake-schedules',
+  WEB_INTAKE_SCHEDULE_BY_ID: (id: number) => `/api/v1/web/intake-schedules/${id}`,
   INTAKE_TEMPLATES: '/api/v1/mobile/intake-templates',
   INTAKE_TEMPLATE_BY_ID: (id: number) => `/api/v1/mobile/intake-templates/${id}`,
   WEB_INTAKE_TEMPLATES: '/api/v1/web/intake-templates',
@@ -5498,6 +5500,7 @@ class ApiService {
     reminder_repeat_every_hours?: number;
     reminder_max_count?: number;
     client_ids?: number[];
+    schedule?: Record<string, unknown>;
   }): Promise<ApiResponse> {
     try {
       const response = await this.client.post(MOBILE_ENDPOINTS.WEB_INTAKES, data);
@@ -5505,6 +5508,38 @@ class ApiService {
     } catch (error: any) {
       console.error('Create intake error:', error);
       throw new Error(error.response?.data?.message || 'Failed to create Intake');
+    }
+  }
+
+  async getIntakeSchedules(status?: string): Promise<ApiResponse> {
+    try {
+      const response = await this.client.get(MOBILE_ENDPOINTS.WEB_INTAKE_SCHEDULES, {
+        params: status ? { status } : undefined,
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('Get intake schedules error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to load schedules');
+    }
+  }
+
+  async getIntakeSchedule(id: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.get(MOBILE_ENDPOINTS.WEB_INTAKE_SCHEDULE_BY_ID(id));
+      return response.data;
+    } catch (error: any) {
+      console.error('Get intake schedule error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to load schedule');
+    }
+  }
+
+  async patchIntakeSchedule(id: number, data: Record<string, unknown>): Promise<ApiResponse> {
+    try {
+      const response = await this.client.patch(MOBILE_ENDPOINTS.WEB_INTAKE_SCHEDULE_BY_ID(id), data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Patch intake schedule error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to update schedule');
     }
   }
 

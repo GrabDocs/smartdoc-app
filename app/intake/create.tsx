@@ -21,7 +21,7 @@ import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { getClient, primaryEmail, setItemClients } from '../../services/clientsApi';
-import { INTAKE_REMINDER_PRESETS, type IntakeTemplate, type ReminderPreset } from '../../types/intake';
+import { INTAKE_REMINDER_PRESETS, INTAKE_WEEKDAY_OPTIONS, type IntakeTemplate, type IntakeWeekday, type ReminderPreset } from '../../types/intake';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -42,11 +42,25 @@ interface FolderOption {
   name: string;
 }
 
+type StartMode = 'now' | 'later';
+type RepeatMode = 'none' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'custom';
+type CustomUnit = 'weeks' | 'months' | 'years';
+type EndsMode = 'never' | 'on_date' | 'after_n';
+type DatePickerTarget = 'due' | 'start' | 'ends';
+
 function toLocalDateString(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
 }
 
 export default function CreateIntakeScreen() {
@@ -75,8 +89,29 @@ export default function CreateIntakeScreen() {
   const [autoVerify, setAutoVerify] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
 
+  const [startMode, setStartMode] = useState<StartMode>('now');
+  const [startAtDate, setStartAtDate] = useState('');
+  const [repeatMode, setRepeatMode] = useState<RepeatMode>('none');
+  const [customInterval, setCustomInterval] = useState(1);
+  const [customUnit, setCustomUnit] = useState<CustomUnit>('months');
+  const [byWeekday, setByWeekday] = useState<IntakeWeekday>('MO');
+  const [byMonthDay, setByMonthDay] = useState(1);
+  const [byMonth, setByMonth] = useState(1);
+  const [endsMode, setEndsMode] = useState<EndsMode>('never');
+  const [endsOnDate, setEndsOnDate] = useState('');
+  const [endsAfterN, setEndsAfterN] = useState(12);
+  const [dueAfterDays, setDueAfterDays] = useState(14);
+  const [reminderMaxDays, setReminderMaxDays] = useState(30);
+
+  const isScheduling = startMode === 'later' || repeatMode !== 'none';
+  const showRecurrenceFields = repeatMode !== 'none';
+
   const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('due');
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
   const [templateNameForSave, setTemplateNameForSave] = useState('');
   const [templateIndustryForSave, setTemplateIndustryForSave] = useState('');
@@ -130,6 +165,41 @@ export default function CreateIntakeScreen() {
     })();
   }, []);
 
+  const handleCreateDestinationFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || creatingFolderBusy) return;
+    setCreatingFolderBusy(true);
+    try {
+      const ws = await apiService.resolveEffectiveWorkspaceId();
+      if (ws == null) {
+        Alert.alert('Could not create folder', 'No workspace available.');
+        return;
+      }
+      const res = await apiService.createFolder({
+        name,
+        workspace_id: ws,
+        parent_folder_id: null,
+      });
+      const created = res?.folder;
+      if (created?.id) {
+        setFolders((prev) => [{ id: created.id, name: created.name }, ...prev]);
+        setDestinationFolderId(created.id);
+        setShowFolderPicker(false);
+        setCreatingFolder(false);
+        setNewFolderName('');
+      } else {
+        Alert.alert('Could not create folder', res?.error || 'Try again.');
+      }
+    } catch (error: any) {
+      Alert.alert(
+        'Could not create folder',
+        error?.response?.data?.error || error?.message || 'Try again.',
+      );
+    } finally {
+      setCreatingFolderBusy(false);
+    }
+  };
+
   const applyTemplate = (templateId: number | null, sourceTemplates?: IntakeTemplate[]) => {
     setSelectedTemplateId(templateId);
     if (templateId === null) return;
@@ -155,16 +225,26 @@ export default function CreateIntakeScreen() {
     setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
   };
 
-  const openDatePicker = () => {
+  const applyPickedDate = (target: DatePickerTarget, date: Date) => {
+    const value = toLocalDateString(date);
+    if (target === 'due') setDueAt(value);
+    else if (target === 'start') setStartAtDate(value);
+    else setEndsOnDate(value);
+  };
+
+  const openDatePicker = (target: DatePickerTarget = 'due') => {
+    const current =
+      target === 'due' ? dueAt : target === 'start' ? startAtDate : endsOnDate;
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
-        value: dueAt ? new Date(dueAt) : new Date(),
+        value: current ? new Date(current) : new Date(),
         mode: 'date',
         onChange: (event, date) => {
-          if (event?.type === 'set' && date) setDueAt(toLocalDateString(date));
+          if (event?.type === 'set' && date) applyPickedDate(target, date);
         },
       });
     } else {
+      setDatePickerTarget(target);
       setShowDatePicker(true);
     }
   };
@@ -220,6 +300,14 @@ export default function CreateIntakeScreen() {
       Alert.alert('Error', 'Add at least one checklist item');
       return;
     }
+    if (startMode === 'later' && !startAtDate) {
+      Alert.alert('Error', 'Pick a start date');
+      return;
+    }
+    if (isScheduling && (!Number.isFinite(dueAfterDays) || dueAfterDays < 1)) {
+      Alert.alert('Error', 'Due after days must be at least 1');
+      return;
+    }
     const validSenders = authorizedSenders.filter((s) => s.email.trim());
 
     const reminderFields =
@@ -234,7 +322,7 @@ export default function CreateIntakeScreen() {
 
     setSubmitting(true);
     try {
-      const response = await apiService.createIntake({
+      const payload: Parameters<typeof apiService.createIntake>[0] = {
         title: title.trim(),
         client_name: clientName.trim() || null,
         client_primary_email: clientPrimaryEmail.trim() || null,
@@ -244,14 +332,56 @@ export default function CreateIntakeScreen() {
           description: i.description.trim() || null,
           required: i.required,
         })),
-        due_at: dueAt || null,
+        due_at: !isScheduling ? dueAt || null : null,
         destination_folder_id: destinationFolderId,
         template_id: selectedTemplateId,
         auto_verify_high_confidence: autoVerify,
         client_ids: selectedClientIds.length ? selectedClientIds : undefined,
         ...reminderFields,
-      });
+      };
+
+      if (isScheduling) {
+        let frequency: string = repeatMode === 'none' ? 'once' : repeatMode;
+        let interval_count = 1;
+        if (repeatMode === 'custom') {
+          interval_count = Math.max(1, customInterval);
+          frequency =
+            customUnit === 'weeks' ? 'weekly' : customUnit === 'years' ? 'yearly' : 'monthly';
+        }
+        const schedule: Record<string, unknown> = {
+          frequency,
+          interval_count,
+          send_now: startMode === 'now',
+          due_after_days: dueAfterDays,
+          reminder_max_days: Math.max(1, reminderMaxDays),
+          timezone: deviceTimezone(),
+        };
+        if (startMode === 'later' && startAtDate) {
+          schedule.start_at = `${startAtDate}T09:00:00`;
+        } else {
+          schedule.start_at = new Date().toISOString();
+        }
+        if (frequency === 'weekly' || (repeatMode === 'custom' && customUnit === 'weeks')) {
+          schedule.by_weekday = byWeekday;
+        }
+        if (['monthly', 'quarterly', 'yearly'].includes(frequency)) {
+          schedule.by_month_day = byMonthDay;
+        }
+        if (frequency === 'yearly') {
+          schedule.by_month = byMonth;
+        }
+        if (endsMode === 'on_date' && endsOnDate) {
+          schedule.end_at = `${endsOnDate}T23:59:59`;
+        }
+        if (endsMode === 'after_n') {
+          schedule.max_occurrences = Math.max(1, endsAfterN);
+        }
+        payload.schedule = schedule;
+      }
+
+      const response = await apiService.createIntake(payload);
       if (response.success) {
+        const schedule = (response as any).schedule;
         const intake = (response as any).intake;
         const intakeId = intake?.id as number | undefined;
         if (intakeId && selectedClientIds.length > 0) {
@@ -273,7 +403,11 @@ export default function CreateIntakeScreen() {
             console.error('Error linking clients to intake:', linkErr);
           }
         }
-        router.replace(`/intake/${intakeId}`);
+        if (schedule?.id) {
+          router.replace(`/intake/schedules/${schedule.id}` as any);
+        } else {
+          router.replace(`/intake/${intakeId}`);
+        }
       } else {
         Alert.alert('Error', response.message || 'Failed to create Intake');
       }
@@ -532,13 +666,15 @@ export default function CreateIntakeScreen() {
                 placeholderTextColor={colors.textLight}
               />
             </View>
-            <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
-              <Text style={dynamicStyles.label}>Due date</Text>
-              <TouchableOpacity style={dynamicStyles.pickerButton} onPress={openDatePicker}>
-                <Text style={dynamicStyles.pickerButtonText}>{dueAt || 'None'}</Text>
-                <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
+            {!isScheduling ? (
+              <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
+                <Text style={dynamicStyles.label}>Due date</Text>
+                <TouchableOpacity style={dynamicStyles.pickerButton} onPress={() => openDatePicker('due')}>
+                  <Text style={dynamicStyles.pickerButtonText}>{dueAt || 'None'}</Text>
+                  <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
           <View style={dynamicStyles.inputGroup}>
             <Text style={dynamicStyles.label}>Primary client email</Text>
@@ -636,6 +772,230 @@ export default function CreateIntakeScreen() {
         </View>
 
         <View style={dynamicStyles.section}>
+          <Text style={dynamicStyles.sectionTitle}>Schedule</Text>
+          <Text style={dynamicStyles.sectionSubtitle}>
+            Use Repeat or a future Start date to create recurring Collections.
+          </Text>
+
+          <View style={dynamicStyles.inputGroup}>
+            <Text style={dynamicStyles.label}>Start</Text>
+            <View style={dynamicStyles.chipsRow}>
+              {([
+                { key: 'now' as const, label: 'Now' },
+                { key: 'later' as const, label: 'Later' },
+              ]).map((o) => (
+                <TouchableOpacity
+                  key={o.key}
+                  style={[dynamicStyles.chip, startMode === o.key && dynamicStyles.chipSelected]}
+                  onPress={() => setStartMode(o.key)}
+                >
+                  <Text style={[dynamicStyles.chipText, startMode === o.key && dynamicStyles.chipTextSelected]}>
+                    {o.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {startMode === 'later' ? (
+              <TouchableOpacity
+                style={[dynamicStyles.pickerButton, { marginTop: 8 }]}
+                onPress={() => openDatePicker('start')}
+              >
+                <Text style={dynamicStyles.pickerButtonText}>{startAtDate || 'Pick start date'}</Text>
+                <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={dynamicStyles.inputGroup}>
+            <Text style={dynamicStyles.label}>Repeat</Text>
+            <View style={dynamicStyles.chipsRow}>
+              {(
+                [
+                  { key: 'none', label: 'None' },
+                  { key: 'weekly', label: 'Weekly' },
+                  { key: 'monthly', label: 'Monthly' },
+                  { key: 'quarterly', label: 'Quarterly' },
+                  { key: 'yearly', label: 'Yearly' },
+                  { key: 'custom', label: 'Custom' },
+                ] as { key: RepeatMode; label: string }[]
+              ).map((o) => (
+                <TouchableOpacity
+                  key={o.key}
+                  style={[dynamicStyles.chip, repeatMode === o.key && dynamicStyles.chipSelected]}
+                  onPress={() => setRepeatMode(o.key)}
+                >
+                  <Text style={[dynamicStyles.chipText, repeatMode === o.key && dynamicStyles.chipTextSelected]}>
+                    {o.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {repeatMode === 'custom' ? (
+            <View style={dynamicStyles.customRow}>
+              <View style={dynamicStyles.customField}>
+                <Text style={dynamicStyles.customLabel}>Every</Text>
+                <TextInput
+                  style={dynamicStyles.smallInput}
+                  keyboardType="number-pad"
+                  value={String(customInterval)}
+                  onChangeText={(v) => setCustomInterval(Math.max(1, parseInt(v, 10) || 1))}
+                />
+              </View>
+              <View style={[dynamicStyles.customField, { flex: 1.4 }]}>
+                <Text style={dynamicStyles.customLabel}>Unit</Text>
+                <View style={dynamicStyles.chipsRow}>
+                  {([
+                    { key: 'weeks' as const, label: 'Weeks' },
+                    { key: 'months' as const, label: 'Months' },
+                    { key: 'years' as const, label: 'Years' },
+                  ]).map((o) => (
+                    <TouchableOpacity
+                      key={o.key}
+                      style={[dynamicStyles.chip, customUnit === o.key && dynamicStyles.chipSelected]}
+                      onPress={() => setCustomUnit(o.key)}
+                    >
+                      <Text style={[dynamicStyles.chipText, customUnit === o.key && dynamicStyles.chipTextSelected]}>
+                        {o.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+          ) : null}
+
+          {showRecurrenceFields &&
+          (repeatMode === 'weekly' || (repeatMode === 'custom' && customUnit === 'weeks')) ? (
+            <View style={dynamicStyles.inputGroup}>
+              <Text style={dynamicStyles.label}>Weekday</Text>
+              <View style={dynamicStyles.chipsRow}>
+                {INTAKE_WEEKDAY_OPTIONS.map((o) => (
+                  <TouchableOpacity
+                    key={o.value}
+                    style={[dynamicStyles.chip, byWeekday === o.value && dynamicStyles.chipSelected]}
+                    onPress={() => setByWeekday(o.value)}
+                  >
+                    <Text style={[dynamicStyles.chipText, byWeekday === o.value && dynamicStyles.chipTextSelected]}>
+                      {o.label.slice(0, 3)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {showRecurrenceFields &&
+          (repeatMode === 'monthly' ||
+            repeatMode === 'quarterly' ||
+            (repeatMode === 'custom' && customUnit === 'months') ||
+            repeatMode === 'yearly' ||
+            (repeatMode === 'custom' && customUnit === 'years')) ? (
+            <View style={dynamicStyles.inputGroup}>
+              <Text style={dynamicStyles.label}>Day of month</Text>
+              <View style={dynamicStyles.chipsRow}>
+                <TouchableOpacity
+                  style={[dynamicStyles.chip, byMonthDay === -1 && dynamicStyles.chipSelected]}
+                  onPress={() => setByMonthDay(-1)}
+                >
+                  <Text style={[dynamicStyles.chipText, byMonthDay === -1 && dynamicStyles.chipTextSelected]}>
+                    Last day
+                  </Text>
+                </TouchableOpacity>
+                {[1, 5, 10, 15, 20, 25, 28].map((d) => (
+                  <TouchableOpacity
+                    key={d}
+                    style={[dynamicStyles.chip, byMonthDay === d && dynamicStyles.chipSelected]}
+                    onPress={() => setByMonthDay(d)}
+                  >
+                    <Text style={[dynamicStyles.chipText, byMonthDay === d && dynamicStyles.chipTextSelected]}>
+                      {d}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {showRecurrenceFields &&
+          (repeatMode === 'yearly' || (repeatMode === 'custom' && customUnit === 'years')) ? (
+            <View style={dynamicStyles.inputGroup}>
+              <Text style={dynamicStyles.label}>Month</Text>
+              <TextInput
+                style={dynamicStyles.input}
+                keyboardType="number-pad"
+                value={String(byMonth)}
+                onChangeText={(v) => setByMonth(Math.min(12, Math.max(1, parseInt(v, 10) || 1)))}
+              />
+            </View>
+          ) : null}
+
+          {isScheduling ? (
+            <>
+              <View style={dynamicStyles.inputGroup}>
+                <Text style={dynamicStyles.label}>Ends</Text>
+                <View style={dynamicStyles.chipsRow}>
+                  {([
+                    { key: 'never' as const, label: 'Never' },
+                    { key: 'on_date' as const, label: 'On date' },
+                    { key: 'after_n' as const, label: 'After N' },
+                  ]).map((o) => (
+                    <TouchableOpacity
+                      key={o.key}
+                      style={[dynamicStyles.chip, endsMode === o.key && dynamicStyles.chipSelected]}
+                      onPress={() => setEndsMode(o.key)}
+                    >
+                      <Text style={[dynamicStyles.chipText, endsMode === o.key && dynamicStyles.chipTextSelected]}>
+                        {o.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {endsMode === 'on_date' ? (
+                  <TouchableOpacity
+                    style={[dynamicStyles.pickerButton, { marginTop: 8 }]}
+                    onPress={() => openDatePicker('ends')}
+                  >
+                    <Text style={dynamicStyles.pickerButtonText}>{endsOnDate || 'Pick end date'}</Text>
+                    <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+                {endsMode === 'after_n' ? (
+                  <TextInput
+                    style={[dynamicStyles.input, { marginTop: 8 }]}
+                    keyboardType="number-pad"
+                    value={String(endsAfterN)}
+                    onChangeText={(v) => setEndsAfterN(Math.max(1, parseInt(v, 10) || 1))}
+                  />
+                ) : null}
+              </View>
+
+              <View style={dynamicStyles.customRow}>
+                <View style={dynamicStyles.customField}>
+                  <Text style={dynamicStyles.customLabel}>Due after (days)</Text>
+                  <TextInput
+                    style={dynamicStyles.smallInput}
+                    keyboardType="number-pad"
+                    value={String(dueAfterDays)}
+                    onChangeText={(v) => setDueAfterDays(Math.max(1, parseInt(v, 10) || 1))}
+                  />
+                </View>
+                <View style={dynamicStyles.customField}>
+                  <Text style={dynamicStyles.customLabel}>Stop reminding (days)</Text>
+                  <TextInput
+                    style={dynamicStyles.smallInput}
+                    keyboardType="number-pad"
+                    value={String(reminderMaxDays)}
+                    onChangeText={(v) => setReminderMaxDays(Math.max(1, parseInt(v, 10) || 1))}
+                  />
+                </View>
+              </View>
+            </>
+          ) : null}
+        </View>
+
+        <View style={dynamicStyles.section}>
           <Text style={dynamicStyles.sectionTitle}>Automation</Text>
           <View style={dynamicStyles.inputGroup}>
             <Text style={dynamicStyles.label}>Destination folder (optional)</Text>
@@ -725,23 +1085,60 @@ export default function CreateIntakeScreen() {
 
       <View style={dynamicStyles.footer}>
         <FeedbackTouchable
-          style={[dynamicStyles.createButton, submitting && dynamicStyles.disabledButton]}
+          style={[
+            dynamicStyles.createButton,
+            (submitting || (startMode === 'later' && !startAtDate)) && dynamicStyles.disabledButton,
+          ]}
           onPress={handleSubmit}
-          disabled={submitting}
+          disabled={submitting || (startMode === 'later' && !startAtDate)}
           loading={submitting}
           spinnerColor="#fff"
         >
-          <Text style={dynamicStyles.createButtonText}>Create Intake</Text>
+          <Text style={dynamicStyles.createButtonText}>
+            {isScheduling ? 'Schedule Intake' : 'Create Intake'}
+          </Text>
         </FeedbackTouchable>
       </View>
 
       {/* Destination folder picker */}
       <AdaptiveListPickerModal
         visible={showFolderPicker}
-        onClose={() => setShowFolderPicker(false)}
+        onClose={() => {
+          setShowFolderPicker(false);
+          setCreatingFolder(false);
+          setNewFolderName('');
+        }}
         title="Destination folder"
-        itemCount={folders.length + 1}
+        itemCount={folders.length + 2}
       >
+        <TouchableOpacity
+          style={dynamicStyles.modalOption}
+          onPress={() => setCreatingFolder((v) => !v)}
+        >
+          <Text style={[dynamicStyles.modalOptionText, { color: '#007AFF' }]}>Create new folder</Text>
+        </TouchableOpacity>
+        {creatingFolder ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+            <TextInput
+              style={dynamicStyles.input}
+              value={newFolderName}
+              onChangeText={setNewFolderName}
+              placeholder="Folder name"
+              placeholderTextColor={colors.textLight}
+              autoFocus
+              onSubmitEditing={() => void handleCreateDestinationFolder()}
+            />
+            <TouchableOpacity
+              style={[dynamicStyles.createButton, { marginTop: 8 }, (creatingFolderBusy || !newFolderName.trim()) && dynamicStyles.disabledButton]}
+              onPress={() => void handleCreateDestinationFolder()}
+              disabled={creatingFolderBusy || !newFolderName.trim()}
+            >
+              <Text style={dynamicStyles.createButtonText}>
+                {creatingFolderBusy ? 'Creating…' : 'Create and select'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <TouchableOpacity
           style={dynamicStyles.modalOption}
           onPress={() => {
@@ -774,19 +1171,48 @@ export default function CreateIntakeScreen() {
         <View style={dynamicStyles.modalOverlay}>
           <View style={dynamicStyles.modalCard}>
             <View style={dynamicStyles.modalHeader}>
-              <TouchableOpacity onPress={() => { setDueAt(''); setShowDatePicker(false); }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (datePickerTarget === 'due') setDueAt('');
+                  else if (datePickerTarget === 'start') setStartAtDate('');
+                  else setEndsOnDate('');
+                  setShowDatePicker(false);
+                }}
+              >
                 <Text style={dynamicStyles.linkText}>Clear</Text>
               </TouchableOpacity>
-              <Text style={dynamicStyles.modalTitle}>Due date</Text>
+              <Text style={dynamicStyles.modalTitle}>
+                {datePickerTarget === 'due'
+                  ? 'Due date'
+                  : datePickerTarget === 'start'
+                    ? 'Start date'
+                    : 'End date'}
+              </Text>
               <TouchableOpacity onPress={() => setShowDatePicker(false)}>
                 <Text style={dynamicStyles.linkText}>Done</Text>
               </TouchableOpacity>
             </View>
             <DateTimePicker
-              value={dueAt ? new Date(dueAt) : new Date()}
+              value={
+                (datePickerTarget === 'due'
+                  ? dueAt
+                  : datePickerTarget === 'start'
+                    ? startAtDate
+                    : endsOnDate)
+                  ? new Date(
+                      datePickerTarget === 'due'
+                        ? dueAt
+                        : datePickerTarget === 'start'
+                          ? startAtDate
+                          : endsOnDate
+                    )
+                  : new Date()
+              }
               mode="date"
               display="spinner"
-              onChange={(_, d) => { if (d) setDueAt(toLocalDateString(d)); }}
+              onChange={(_, d) => {
+                if (d) applyPickedDate(datePickerTarget, d);
+              }}
               textColor={colors.text}
             />
           </View>

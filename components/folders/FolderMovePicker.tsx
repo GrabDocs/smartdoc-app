@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Modal,
   Platform,
@@ -19,6 +20,7 @@ import AppHeaderTitle from '../AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import FolderBreadcrumb from './FolderBreadcrumb';
 import FolderListItem from './FolderListItem';
+import CreateFolderSheet from './CreateFolderSheet';
 
 interface Props {
   visible: boolean;
@@ -52,6 +54,7 @@ export default function FolderMovePicker({
   const [folders, setFolders] = useState<FolderRowModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = async (parentId: number | null) => {
     setLoading(true);
@@ -79,6 +82,7 @@ export default function FolderMovePicker({
     if (visible) {
       setPickerFolderId(null);
       setTrail([{ id: null, name: 'My Files' }]);
+      setShowCreate(false);
       void load(null);
     }
   }, [visible, workspaceId]);
@@ -86,6 +90,39 @@ export default function FolderMovePicker({
   const choose = (id: number | null) => {
     onSelect(id);
     onClose();
+  };
+
+  const createFolderHere = async (name: string) => {
+    const ws =
+      workspaceId ??
+      (await apiService.resolveEffectiveWorkspaceId({
+        folderId: pickerFolderId,
+        explicitWorkspaceId: workspaceId,
+      }));
+    if (ws == null) {
+      Alert.alert('Could not create folder', 'No workspace available.');
+      throw new Error('No workspace');
+    }
+    try {
+      const res = await apiService.createFolder({
+        name,
+        workspace_id: ws,
+        parent_folder_id: pickerFolderId,
+      });
+      const newId = res?.folder?.id;
+      if (typeof newId !== 'number') {
+        Alert.alert('Could not create folder', res?.error || 'Try again.');
+        throw new Error('create failed');
+      }
+      choose(newId);
+    } catch (e: any) {
+      if (e?.message === 'No workspace' || e?.message === 'create failed') throw e;
+      Alert.alert(
+        'Could not create folder',
+        e?.response?.data?.error || e?.message || 'Try again.',
+      );
+      throw e;
+    }
   };
 
   const currentName = trail[trail.length - 1]?.name || 'My Files';
@@ -128,6 +165,16 @@ export default function FolderMovePicker({
         </Text>
       ) : null}
       <FolderBreadcrumb items={trail} onPress={goToTrailIndex} />
+      <TouchableOpacity
+        style={[styles.rootBtn, { borderColor: colors.border }]}
+        onPress={() => setShowCreate(true)}
+        accessibilityLabel="Create new folder"
+      >
+        <View style={styles.createRow}>
+          <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontWeight: '600' }}>Create new folder</Text>
+        </View>
+      </TouchableOpacity>
       <TouchableOpacity style={[styles.rootBtn, { borderColor: colors.border }]} onPress={() => choose(null)}>
         <Text style={{ color: colors.primary, fontWeight: '600' }}>Use My Files (root)</Text>
       </TouchableOpacity>
@@ -165,6 +212,13 @@ export default function FolderMovePicker({
           {pickerFolderId == null ? 'Use My Files (root)' : `Select “${currentName}”`}
         </Text>
       </TouchableOpacity>
+      <CreateFolderSheet
+        embedded
+        visible={showCreate}
+        title={`New folder in ${currentName}`}
+        onClose={() => setShowCreate(false)}
+        onSubmit={createFolderHere}
+      />
     </View>
   );
 
@@ -198,6 +252,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
   },
+  createRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   empty: { textAlign: 'center', marginTop: 24, padding: 16 },
   selectBtn: {
     margin: 16,

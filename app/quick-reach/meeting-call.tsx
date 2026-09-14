@@ -1077,6 +1077,23 @@ export default function MeetingCallScreen() {
     setInviteEmails(prev => prev.filter(e => e !== email));
   };
 
+  const openInviteModal = async (meeting: Meeting) => {
+    setSelectedMeeting(meeting);
+    setInviteEmails([]);
+    setNewInviteEmail('');
+    setInviteMessage(buildLocalInviteText(meeting));
+    setShowInviteModal(true);
+
+    try {
+      const response = await apiClient.copyMeetingInvite(meeting.meetingId);
+      if (response.success && response.data?.invite_message) {
+        setInviteMessage(stripClipboardEmojis(String(response.data.invite_message)));
+      }
+    } catch {
+      // keep local prefill
+    }
+  };
+
   const inviteToMeeting = async () => {
     if (!selectedMeeting || inviteEmails.length === 0) {
       Alert.alert('Error', 'Please add at least one email address');
@@ -1516,6 +1533,11 @@ export default function MeetingCallScreen() {
       height: 80,
       textAlignVertical: 'top',
     },
+    inviteTextArea: {
+      minHeight: 200,
+      maxHeight: 320,
+      textAlignVertical: 'top',
+    },
     infoSection: {
       marginBottom: 16,
     },
@@ -1676,8 +1698,7 @@ export default function MeetingCallScreen() {
               ? [{ text: 'Remove from my list', onPress: () => removeMeetingFromList(item) }]
               : []),
           { text: 'Invite', onPress: () => {
-            setSelectedMeeting(item);
-            setShowInviteModal(true);
+            void openInviteModal(item);
           }}
         ];
 
@@ -1781,8 +1802,7 @@ export default function MeetingCallScreen() {
           style={dynamicStyles.actionIcon}
           onPress={(e) => {
             e.stopPropagation();
-            setSelectedMeeting(item);
-            setShowInviteModal(true);
+            void openInviteModal(item);
           }}
         >
           <Ionicons name="person-add" size={16} color="#34C759" />
@@ -2064,7 +2084,7 @@ export default function MeetingCallScreen() {
             </FeedbackTouchable>
           </View>
           
-          <View style={dynamicStyles.modalContent}>
+          <ScrollView style={dynamicStyles.modalContent} keyboardShouldPersistTaps="handled">
             <Text style={dynamicStyles.inputLabel}>Email Addresses</Text>
             <View style={dynamicStyles.participantInput}>
               <TextInput
@@ -2096,17 +2116,18 @@ export default function MeetingCallScreen() {
               </View>
             )}
             
-            <Text style={dynamicStyles.inputLabel}>Message (Optional)</Text>
+            <Text style={dynamicStyles.inputLabel}>Message</Text>
             <TextInput
-              style={[dynamicStyles.input, dynamicStyles.textArea]}
-              placeholder="Add a personal message..."
+              style={[dynamicStyles.input, dynamicStyles.inviteTextArea]}
+              placeholder="Meeting invitation details…"
               placeholderTextColor={colors.textLight}
               value={inviteMessage}
               onChangeText={setInviteMessage}
               multiline
-              numberOfLines={3}
+              numberOfLines={10}
+              textAlignVertical="top"
             />
-          </View>
+          </ScrollView>
         </SafeAreaView>
       </Modal>
 

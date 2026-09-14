@@ -151,3 +151,125 @@ export const INTAKE_REMINDER_PRESETS: Record<'gentle' | 'standard' | 'urgent', {
   standard: { first: 48, repeat: 72, max: 4 },
   urgent: { first: 24, repeat: 24, max: 6 },
 };
+
+export type IntakeScheduleStatus = 'active' | 'paused' | 'completed';
+export type IntakeScheduleFrequency = 'once' | 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+export type IntakeWeekday = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
+
+export interface IntakeScheduleProgress {
+  received: number;
+  total: number;
+  percent: number;
+}
+
+export interface IntakeScheduleCurrentCollection {
+  id: number;
+  title: string;
+  status: string;
+  period_label?: string | null;
+  progress?: IntakeScheduleProgress;
+}
+
+export interface IntakeScheduleCollection {
+  id: number;
+  title: string;
+  status: string;
+  period_label?: string | null;
+  progress?: IntakeScheduleProgress;
+  scheduled_for?: string | null;
+  due_at?: string | null;
+  sent_at?: string | null;
+  due_badge?: string | null;
+}
+
+export interface IntakeScheduleListItem {
+  id: number;
+  title: string;
+  status: string;
+  frequency: string;
+  cadence_summary?: string;
+  client_name?: string | null;
+  client_primary_email?: string | null;
+  next_run_at?: string | null;
+  collections_count?: number;
+  current_collection?: IntakeScheduleCurrentCollection | null;
+}
+
+export interface IntakeScheduleDetail {
+  id: number;
+  user_id: number;
+  company_id: number;
+  workspace_id: number;
+  title: string;
+  client_name?: string | null;
+  client_primary_email?: string | null;
+  authorized_senders?: IntakeAuthorizedSender[];
+  destination_folder_id?: number | null;
+  template_id?: number | null;
+  auto_verify_high_confidence?: boolean;
+  frequency: string;
+  interval_count?: number;
+  by_month_day?: number | null;
+  by_month?: number | null;
+  by_weekday?: string | null;
+  timezone?: string;
+  start_at?: string | null;
+  end_at?: string | null;
+  max_occurrences?: number | null;
+  due_after_days?: number;
+  reminder_enabled?: boolean;
+  reminder_preset?: string | null;
+  reminder_first_after_hours?: number;
+  reminder_repeat_every_hours?: number;
+  reminder_max_count?: number;
+  reminder_max_days?: number;
+  next_run_at?: string | null;
+  last_run_at?: string | null;
+  occurrence_count?: number;
+  status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  cadence_summary?: string;
+  estimated_next_due_at?: string | null;
+  checklist_items?: { label: string; description?: string | null; required?: boolean; sort_order?: number }[];
+  collections?: IntakeScheduleCollection[];
+}
+
+/** Nested on POST /intakes when creating a schedule. */
+export interface CreateIntakeSchedulePayload {
+  frequency: IntakeScheduleFrequency;
+  interval_count: number;
+  send_now: boolean;
+  due_after_days: number;
+  reminder_max_days: number;
+  timezone: string;
+  start_at: string;
+  by_weekday?: IntakeWeekday;
+  by_month_day?: number;
+  by_month?: number;
+  end_at?: string;
+  max_occurrences?: number;
+}
+
+export const INTAKE_SCHEDULE_STATUS_LABELS: Record<string, string> = {
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+};
+
+export const INTAKE_SCHEDULE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  active: { bg: '#CCFBF1', text: '#0F766E' },
+  paused: { bg: '#FEF3C7', text: '#92400E' },
+  completed: { bg: '#E5E7EB', text: '#6B7280' },
+};
+
+export const INTAKE_WEEKDAY_OPTIONS: { value: IntakeWeekday; label: string }[] = [
+  { value: 'MO', label: 'Monday' },
+  { value: 'TU', label: 'Tuesday' },
+  { value: 'WE', label: 'Wednesday' },
+  { value: 'TH', label: 'Thursday' },
+  { value: 'FR', label: 'Friday' },
+  { value: 'SA', label: 'Saturday' },
+  { value: 'SU', label: 'Sunday' },
+];
+

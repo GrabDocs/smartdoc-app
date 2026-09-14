@@ -16,6 +16,8 @@ interface Props {
   onClose: () => void;
   onSubmit: (name: string) => Promise<void>;
   title?: string;
+  /** Render as an overlay View (use inside an existing Modal). */
+  embedded?: boolean;
 }
 
 export default function CreateFolderSheet({
@@ -23,6 +25,7 @@ export default function CreateFolderSheet({
   onClose,
   onSubmit,
   title = 'New folder',
+  embedded = false,
 }: Props) {
   const colors = useThemeColors();
   const [name, setName] = useState('');
@@ -44,40 +47,48 @@ export default function CreateFolderSheet({
     }
   };
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.overlay}
-      >
-        <View style={[styles.sheet, { backgroundColor: colors.card }]}>
-          <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Folder name"
-            placeholderTextColor={colors.textSecondary}
-            style={[
-              styles.input,
-              { color: colors.text, borderColor: colors.border, backgroundColor: colors.background },
-            ]}
-            autoFocus
-            onSubmitEditing={() => void handleCreate()}
-          />
-          <View style={styles.actions}>
-            <TouchableOpacity onPress={onClose} style={styles.btn}>
-              <Text style={{ color: colors.textSecondary }}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => void handleCreate()}
-              disabled={busy || !name.trim()}
-              style={styles.btn}
-            >
-              <Text style={{ color: colors.primary, fontWeight: '600' }}>{busy ? '…' : 'Create'}</Text>
-            </TouchableOpacity>
-          </View>
+  if (!visible) return null;
+
+  const form = (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={embedded ? styles.embeddedOverlay : styles.overlay}
+    >
+      <View style={[styles.sheet, { backgroundColor: colors.card }]}>
+        <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Folder name"
+          placeholderTextColor={colors.textSecondary}
+          style={[
+            styles.input,
+            { color: colors.text, borderColor: colors.border, backgroundColor: colors.background },
+          ]}
+          autoFocus
+          onSubmitEditing={() => void handleCreate()}
+        />
+        <View style={styles.actions}>
+          <TouchableOpacity onPress={onClose} style={styles.btn}>
+            <Text style={{ color: colors.textSecondary }}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => void handleCreate()}
+            disabled={busy || !name.trim()}
+            style={styles.btn}
+          >
+            <Text style={{ color: colors.primary, fontWeight: '600' }}>{busy ? '…' : 'Create'}</Text>
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
+    </KeyboardAvoidingView>
+  );
+
+  if (embedded) return form;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      {form}
     </Modal>
   );
 }
@@ -88,6 +99,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.4)',
     padding: 24,
+  },
+  embeddedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    padding: 24,
+    zIndex: 30,
   },
   sheet: { borderRadius: 12, padding: 20 },
   title: { fontSize: 18, fontWeight: '600', marginBottom: 12 },

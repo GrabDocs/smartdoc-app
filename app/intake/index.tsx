@@ -21,8 +21,11 @@ import { screenCache } from '../../utils/screenCache';
 import { parseUtcMs } from '../../utils/timeFormatting';
 import {
   INTAKE_DUE_BADGE_LABELS,
+  INTAKE_SCHEDULE_STATUS_COLORS,
+  INTAKE_SCHEDULE_STATUS_LABELS,
   INTAKE_STATUS_LABELS,
   type Intake,
+  type IntakeScheduleListItem,
   type IntakeStatus,
   type IntakeTemplate,
 } from '../../types/intake';
@@ -37,7 +40,7 @@ const INTAKES_LIST_CACHE_MS = 30_000;
 const INTAKES_DISK_CACHE_MS = 24 * 60 * 60_000;
 const INTAKES_PAGE_SIZE = 20;
 
-type ListTab = 'active' | 'archived' | 'templates';
+type ListTab = 'active' | 'schedules' | 'archived' | 'templates';
 
 type PaginatedIntakesCache = {
   items: Intake[];
@@ -123,6 +126,10 @@ export default function IntakeListScreen() {
   const [templates, setTemplates] = useState<IntakeTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null);
+  const [schedules, setSchedules] = useState<IntakeScheduleListItem[]>([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
+  const [schedulesLoaded, setSchedulesLoaded] = useState(false);
+  const [scheduleBusyId, setScheduleBusyId] = useState<number | null>(null);
 
   const showArchived = activeTab === 'archived';
 
@@ -247,6 +254,55 @@ export default function IntakeListScreen() {
     }
   }, [user]);
 
+  const loadSchedules = useCallback(async () => {
+    if (!user) return;
+    setSchedulesLoading(true);
+    try {
+      const response = await apiService.getIntakeSchedules();
+      if (response.success) {
+        setSchedules((response.schedules || []) as IntakeScheduleListItem[]);
+        setSchedulesLoaded(true);
+      } else {
+        Alert.alert('Error', response.message || 'Failed to load schedules');
+      }
+    } catch (error: any) {
+      console.error('Load intake schedules error:', error);
+      Alert.alert('Error', error.message || 'Failed to load schedules');
+    } finally {
+      setSchedulesLoading(false);
+      setRefreshing(false);
+    }
+  }, [user]);
+
+  const patchScheduleStatus = useCallback(
+    async (scheduleId: number, status: 'active' | 'paused' | 'completed') => {
+      const run = async () => {
+        setScheduleBusyId(scheduleId);
+        try {
+          const res = await apiService.patchIntakeSchedule(scheduleId, { status });
+          if (res.success) {
+            await loadSchedules();
+          } else {
+            Alert.alert('Error', res.message || 'Could not update schedule');
+          }
+        } catch (e: any) {
+          Alert.alert('Error', e.message || 'Could not update schedule');
+        } finally {
+          setScheduleBusyId(null);
+        }
+      };
+      if (status === 'completed') {
+        Alert.alert('End schedule?', 'No more Collections will be created.', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'End', style: 'destructive', onPress: () => void run() },
+        ]);
+        return;
+      }
+      await run();
+    },
+    [loadSchedules]
+  );
+
   const loadMoreIntakes = useCallback(() => {
     if (loading || refreshing || loadingMoreRef.current || !hasMoreRef.current) return;
     void loadIntakes(showArchived, false, true);
@@ -266,11 +322,13 @@ export default function IntakeListScreen() {
         lastLoadTimeRef.current = now;
         if (activeTab === 'templates') {
           loadTemplates();
+        } else if (activeTab === 'schedules') {
+          void loadSchedules();
         } else {
           void loadIntakes(showArchived);
         }
       }
-    }, [user, activeTab, showArchived, loadIntakes, loadTemplates])
+    }, [user, activeTab, showArchived, loadIntakes, loadTemplates, loadSchedules])
   );
 
   const handleRefresh = () => {
@@ -278,6 +336,10 @@ export default function IntakeListScreen() {
     setRefreshing(true);
     if (activeTab === 'templates') {
       loadTemplates().finally(() => setRefreshing(false));
+      return;
+    }
+    if (activeTab === 'schedules') {
+      void loadSchedules();
       return;
     }
     pageRef.current = 1;
@@ -290,6 +352,11 @@ export default function IntakeListScreen() {
     setActiveTab(tab);
     if (tab === 'templates') {
       loadTemplates();
+      return;
+    }
+    if (tab === 'schedules') {
+      setSchedulesLoaded(false);
+      void loadSchedules();
       return;
     }
     const archived = tab === 'archived';
@@ -365,6 +432,7 @@ export default function IntakeListScreen() {
     },
     tabsRow: {
       flexDirection: 'row',
+      flexWrap: 'wrap',
       paddingHorizontal: 16,
       paddingTop: 12,
       paddingBottom: 4,
@@ -596,6 +664,91 @@ export default function IntakeListScreen() {
     );
   };
 
+  const renderSchedule = ({ item }: { item: IntakeScheduleListItem }) => {
+    const statusColor =
+      INTAKE_SCHEDULE_STATUS_COLORS[item.status] || INTAKE_SCHEDULE_STATUS_COLORS.completed;
+    const current = item.current_collection;
+    const nextLabel = item.next_run_at
+      ? (() => {
+          const ms = parseUtcMs(item.next_run_at);
+          if (Number.isNaN(ms)) return null;
+          try {
+            return new Date(ms).toLocaleString();
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+    const busy = scheduleBusyId === item.id;
+
+    return (
+      <TouchableOpacity
+        style={dynamicStyles.card}
+        onPress={() => router.push(`/intake/schedules/${item.id}` as any)}
+      >
+        <View style={dynamicStyles.cardTitleRow}>
+          <Text style={dynamicStyles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
+            {item.title}
+          </Text>
+          <View style={[dynamicStyles.badge, { backgroundColor: statusColor.bg }]}>
+            <Text style={[dynamicStyles.badgeText, { color: statusColor.text }]}>
+              {INTAKE_SCHEDULE_STATUS_LABELS[item.status] || item.status}
+            </Text>
+          </View>
+        </View>
+        <Text style={dynamicStyles.clientName} numberOfLines={2}>
+          {item.cadence_summary || item.frequency}
+          {item.client_name ? ` · ${item.client_name}` : ''}
+        </Text>
+        {current ? (
+          <Text style={dynamicStyles.metaText}>
+            Current: {current.period_label || current.title}
+            {current.progress ? ` — ${current.progress.percent}%` : ''}
+            {current.status ? ` (${current.status})` : ''}
+          </Text>
+        ) : null}
+        <Text style={[dynamicStyles.metaText, { marginTop: 4 }]}>
+          {item.collections_count ?? 0} collection{(item.collections_count ?? 0) === 1 ? '' : 's'}
+          {nextLabel ? ` · Next ${nextLabel}` : ''}
+        </Text>
+        {item.status !== 'completed' ? (
+          <View style={dynamicStyles.templateActions}>
+            {item.status === 'active' ? (
+              <FeedbackTouchable
+                style={dynamicStyles.templateActionBtn}
+                onPress={() => void patchScheduleStatus(item.id, 'paused')}
+                disabled={busy}
+                loading={busy}
+              >
+                <Text style={dynamicStyles.templateActionText}>Pause</Text>
+              </FeedbackTouchable>
+            ) : null}
+            {item.status === 'paused' ? (
+              <FeedbackTouchable
+                style={[dynamicStyles.templateActionBtn, dynamicStyles.templateActionPrimary]}
+                onPress={() => void patchScheduleStatus(item.id, 'active')}
+                disabled={busy}
+                loading={busy}
+                spinnerColor="#fff"
+              >
+                <Text style={[dynamicStyles.templateActionText, dynamicStyles.templateActionTextPrimary]}>
+                  Resume
+                </Text>
+              </FeedbackTouchable>
+            ) : null}
+            <FeedbackTouchable
+              style={dynamicStyles.templateActionBtn}
+              onPress={() => void patchScheduleStatus(item.id, 'completed')}
+              disabled={busy}
+            >
+              <Text style={[dynamicStyles.templateActionText, { color: '#B91C1C' }]}>End</Text>
+            </FeedbackTouchable>
+          </View>
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
+
   const renderTemplate = ({ item }: { item: IntakeTemplate }) => (
     <View style={dynamicStyles.templateCard}>
       <Text style={dynamicStyles.templateName}>{item.name}</Text>
@@ -638,7 +791,7 @@ export default function IntakeListScreen() {
     </View>
   );
 
-  if (loading && !hasLoaded && activeTab !== 'templates') {
+  if (loading && !hasLoaded && activeTab !== 'templates' && activeTab !== 'schedules') {
     return (
       <SafeAreaView style={dynamicStyles.container}>
         <View style={dynamicStyles.header}>
@@ -678,6 +831,19 @@ export default function IntakeListScreen() {
         >
           <Text style={[dynamicStyles.tabButtonText, activeTab === 'active' && dynamicStyles.tabButtonTextActive]}>
             Active
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[dynamicStyles.tabButton, activeTab === 'schedules' && dynamicStyles.tabButtonActive]}
+          onPress={() => handleTabChange('schedules')}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={14}
+            color={activeTab === 'schedules' ? '#1D4ED8' : colors.textSecondary}
+          />
+          <Text style={[dynamicStyles.tabButtonText, activeTab === 'schedules' && dynamicStyles.tabButtonTextActive]}>
+            Schedules
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -732,6 +898,38 @@ export default function IntakeListScreen() {
             data={templates}
             renderItem={renderTemplate}
             keyExtractor={(item) => `template-${item.id}`}
+            contentContainerStyle={dynamicStyles.listContainer}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#007AFF" />
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        )
+      ) : activeTab === 'schedules' ? (
+        schedulesLoading && !schedulesLoaded ? (
+          <View style={dynamicStyles.centerContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={[dynamicStyles.loadingText, { marginTop: 12 }]}>Loading schedules...</Text>
+          </View>
+        ) : schedules.length === 0 ? (
+          <View style={dynamicStyles.emptyContainer}>
+            <Ionicons name="calendar-outline" size={64} color={colors.textLight} />
+            <Text style={dynamicStyles.emptyTitle}>No schedules yet</Text>
+            <Text style={dynamicStyles.emptyDescription}>
+              Create an Intake with Repeat or a future Start date to schedule recurring Collections.
+            </Text>
+            <TouchableOpacity
+              style={dynamicStyles.createButton}
+              onPress={() => router.push('/intake/create')}
+            >
+              <Text style={dynamicStyles.createButtonText}>New Intake</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={schedules}
+            renderItem={renderSchedule}
+            keyExtractor={(item) => `schedule-${item.id}`}
             contentContainerStyle={dynamicStyles.listContainer}
             refreshControl={
               <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#007AFF" />
