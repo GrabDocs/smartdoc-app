@@ -822,11 +822,14 @@ export default function EmailThreadScreen() {
           borderRadius: 10,
           paddingHorizontal: 14,
           paddingVertical: 10,
+          minWidth: 96,
+          alignItems: 'center',
         },
         generateBtnText: {
           color: colors.isDark ? '#111' : '#fff',
           fontWeight: '700',
           fontSize: 14,
+          textAlign: 'center',
         },
         undo: {
           position: 'absolute',

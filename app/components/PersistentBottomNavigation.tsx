@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { usePathname, useRouter } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, useColorScheme, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useThemeColors } from '../../hooks/useThemeColors';
 import { shouldShowPersistentBottomNav } from '../../utils/persistentBottomNavInset';
 import { isPrimaryShellRouteActive, navigatePrimaryShell } from '../../utils/tabNavigation';
 
@@ -49,7 +50,7 @@ const tabs: TabItem[] = [
 export default function PersistentBottomNavigation() {
   const router = useRouter();
   const pathname = usePathname();
-  const colorScheme = useColorScheme();
+  const colors = useThemeColors();
   const insets = useSafeAreaInsets();
 
   if (!shouldShowPersistentBottomNav(pathname)) {
@@ -61,19 +62,23 @@ export default function PersistentBottomNavigation() {
     navigatePrimaryShell(router, route, pathname);
   };
 
+  const activeColor = colors.isDark ? '#fff' : '#007AFF';
+  const inactiveColor = colors.isDark ? colors.textLight : '#999';
+
   return (
     <View
       style={[
         styles.container,
         {
-          backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff',
-          borderTopColor: colorScheme === 'dark' ? '#333' : '#e0e0e0',
+          backgroundColor: colors.isDark ? colors.headerBackground : '#fff',
+          borderTopColor: colors.border,
           paddingBottom: Math.max(insets.bottom, 5),
         },
       ]}
     >
       {tabs.map((tab) => {
         const active = isPrimaryShellRouteActive(pathname, tab.route);
+        const color = active ? activeColor : inactiveColor;
         return (
           <TouchableOpacity
             key={tab.name}
@@ -84,20 +89,8 @@ export default function PersistentBottomNavigation() {
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
           >
-            <Ionicons
-              name={tab.icon as any}
-              size={22}
-              color={active ? (colorScheme === 'dark' ? '#fff' : '#007AFF') : colorScheme === 'dark' ? '#666' : '#999'}
-            />
-            <Text
-              style={[
-                styles.label,
-                {
-                  color: active ? (colorScheme === 'dark' ? '#fff' : '#007AFF') : colorScheme === 'dark' ? '#666' : '#999',
-                },
-              ]}
-              numberOfLines={1}
-            >
+            <Ionicons name={tab.icon as any} size={22} color={color} />
+            <Text style={[styles.label, { color }]} numberOfLines={1}>
               {tab.label}
             </Text>
           </TouchableOpacity>
