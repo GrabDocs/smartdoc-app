@@ -12,7 +12,6 @@ import {
     Alert,
     Animated,
     Dimensions,
-    findNodeHandle,
     FlatList,
     Keyboard,
     KeyboardAvoidingView,
@@ -818,7 +817,6 @@ export default function ChatsScreen() {
   const chatSwipeableRefs = useRef<Map<number, Swipeable>>(new Map());
   // Separate ref map for swipeables inside the history modal (avoids conflicts with main list)
   const historySwipeableRefs = useRef<Map<number, Swipeable>>(new Map());
-  const historyRowRefs = useRef<Map<number, View>>(new Map());
   const swipingChatId = useRef<number | null>(null);
   const [menuChatId, setMenuChatId] = useState<number | null>(null);
   const [favoriteChatIds, setFavoriteChatIds] = useState<Set<number>>(new Set());
@@ -900,16 +898,6 @@ export default function ChatsScreen() {
 
   // Chat history bottom sheet (shown from chat messages view)
   const historySheet = useMinimizableSheet();
-
-  useEffect(() => {
-    if (menuChatId == null || !historySheet.visible) return;
-    const row = historyRowRefs.current.get(menuChatId);
-    if (!row) return;
-    const handle = findNodeHandle(row);
-    if (handle) {
-      AccessibilityInfo.setAccessibilityFocus(handle);
-    }
-  }, [menuChatId, historySheet.visible]);
 
   // Mention system state
   const [showMentionModal, setShowMentionModal] = useState(false);
@@ -8068,7 +8056,6 @@ export default function ChatsScreen() {
           ) : (
             <FlatList
               data={filteredChats}
-              extraData={`${menuChatId ?? ''}:${selectedChat?.id ?? ''}:${[...favoriteChatIds].join(',')}`}
               keyExtractor={(item, index) => item ? `history-${item.type}-${item.id}-${index}` : `history-${index}`}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 88 }}
@@ -8099,29 +8086,18 @@ export default function ChatsScreen() {
                 };
                 const { name: iconName, color } = getChatIconForHistory();
                 const isActive = selectedChat?.id === item.id;
-                const isMenuFocused = menuChatId === item.id;
                 // Skip swipe for virtual/placeholder chats (id < 0)
                 const canSwipe = item.id > 0;
                 const rowContent = (
-                  <View
-                    ref={(ref) => {
-                      if (ref) historyRowRefs.current.set(item.id, ref);
-                      else historyRowRefs.current.delete(item.id);
-                    }}
-                    collapsable={false}
-                    accessible
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive || isMenuFocused }}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 16,
-                      paddingVertical: 12,
-                      backgroundColor: isMenuFocused ? `${color}30` : isActive ? `${color}15` : colors.card,
-                      borderLeftWidth: isMenuFocused ? 4 : isActive ? 3 : 0,
-                      borderLeftColor: isMenuFocused || isActive ? color : 'transparent',
-                    }}
-                  >
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    backgroundColor: isActive ? `${color}15` : colors.card,
+                    borderLeftWidth: isActive ? 3 : 0,
+                    borderLeftColor: isActive ? color : 'transparent',
+                  }}>
                     <View style={{
                       width: 42,
                       height: 42,

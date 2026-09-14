@@ -1,6 +1,6 @@
 import { WebView } from 'react-native-webview';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Dimensions, StyleSheet, Text, View } from 'react-native';
 
 /** Match web `.email-body-html`: always light “paper” so HTML emails keep contrast. */
 const PAPER_TEXT = '#111827';
@@ -22,6 +22,7 @@ export function EmailHtmlBody({
   background: _background,
   isDark: _isDark,
   expanded,
+  tall,
 }: {
   html?: string | null;
   text?: string | null;
@@ -32,6 +33,8 @@ export function EmailHtmlBody({
   /** @deprecated Ignored — HTML bodies always use light paper (same as web). */
   isDark?: boolean;
   expanded?: boolean;
+  /** View-only / dismissed: use more of the screen for the email body. */
+  tall?: boolean;
 }) {
   const sourceHtml = useMemo(() => {
     const inner = (html || '').trim()
@@ -49,12 +52,20 @@ ${themeCss}
 </style></head><body>${inner}</body></html>`;
   }, [html, text]);
 
+  const winH = Dimensions.get('window').height;
+  const minH = tall ? (expanded ? 280 : 200) : expanded ? 220 : 88;
+  const maxH = tall
+    ? Math.round(winH * (expanded ? 0.72 : 0.58))
+    : expanded
+      ? 480
+      : 200;
+
   if (!(html || '').trim() && !(text || '').trim()) {
     return <Text style={{ color: PAPER_TEXT, opacity: 0.6, padding: 8 }}>(empty)</Text>;
   }
 
   return (
-    <View style={[styles.wrap, expanded ? styles.wrapExpanded : styles.wrapCollapsed]}>
+    <View style={[styles.wrap, { minHeight: minH, maxHeight: maxH }]}>
       <WebView
         originWhitelist={['*']}
         source={{ html: sourceHtml }}
@@ -75,7 +86,5 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#E5E7EB',
   },
-  wrapCollapsed: { minHeight: 88, maxHeight: 200 },
-  wrapExpanded: { minHeight: 220, maxHeight: 480 },
   web: { flex: 1 },
 });

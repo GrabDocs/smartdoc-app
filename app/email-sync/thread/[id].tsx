@@ -487,6 +487,13 @@ export default function EmailThreadScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, dismissed, threadId, isNewCompose]);
 
+  // View-only (Dismissed / View email): expand the latest message so the body uses more of the screen.
+  useEffect(() => {
+    if (!dismissed || !messages.length) return;
+    const last = messages[messages.length - 1];
+    if (last?.id) setExpandedId(last.id);
+  }, [dismissed, messages]);
+
   useEffect(() => {
     if (!wantCompose || loading || dismissed) return;
     if (!autoComposeRef.current) {
@@ -815,6 +822,23 @@ export default function EmailThreadScreen() {
           borderRadius: 10,
           paddingHorizontal: 14,
           paddingVertical: 10,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 6,
+        },
+        generateSpinnerSlot: {
+          width: 16,
+          height: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+        generateBtnText: {
+          color: colors.isDark ? '#111' : '#fff',
+          fontWeight: '700',
+          fontSize: 14,
+          width: 68,
+          textAlign: 'center',
         },
         undo: {
           position: 'absolute',
@@ -1047,6 +1071,7 @@ export default function EmailThreadScreen() {
                   html={m.body_html}
                   text={m.body_text}
                   expanded={expanded}
+                  tall={dismissed}
                 />
                 <AttachmentNamesRow
                   attachments={m.attachments}
@@ -1203,17 +1228,21 @@ export default function EmailThreadScreen() {
                   </TouchableOpacity>
                 ) : null}
                 <View style={{ flex: 1, minWidth: 4 }} />
-                {drafting && !workspaceGenerating ? (
-                  <Text style={{ fontSize: 12, color: colors.textSecondary, marginRight: 4 }} numberOfLines={1}>
-                    {generatingMessage}
-                  </Text>
-                ) : null}
                 <TouchableOpacity
                   style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
                   onPress={() => void generate()}
                   disabled={drafting || busy || !sendReady}
+                  accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
                 >
-                  <Text style={{ color: colors.isDark ? '#111' : '#fff', fontWeight: '700', fontSize: 14 }}>Generate</Text>
+                  {/* Fixed spinner slot so Generate ↔ Drafting does not change button width */}
+                  <View style={styles.generateSpinnerSlot}>
+                    {drafting ? (
+                      <ActivityIndicator size="small" color={colors.isDark ? '#111' : '#fff'} />
+                    ) : null}
+                  </View>
+                  <Text style={styles.generateBtnText}>
+                    {drafting ? 'Drafting' : 'Generate'}
+                  </Text>
                 </TouchableOpacity>
               </View>
               </>
@@ -1320,7 +1349,7 @@ export default function EmailThreadScreen() {
                       }}
                     >
                       <ActivityIndicator color="#007AFF" />
-                      <Text style={{ marginTop: 6, fontSize: 13, color: colors.textSecondary }}>{generatingMessage}</Text>
+                      <Text style={{ marginTop: 6, fontSize: 13, color: colors.textSecondary }}>Drafting</Text>
                     </View>
                   ) : null}
                   <TextInput
