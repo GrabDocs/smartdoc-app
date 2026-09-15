@@ -219,6 +219,8 @@ const MOBILE_ENDPOINTS = {
   WEB_INTAKE_SEND: (id: number) => `/api/v1/web/intakes/${id}/send`,
   WEB_INTAKE_REMIND: (id: number) => `/api/v1/web/intakes/${id}/remind`,
   WEB_INTAKE_UNARCHIVE: (id: number) => `/api/v1/web/intakes/${id}/unarchive`,
+  WEB_INTAKE_ITEMS: (intakeId: number) => `/api/v1/web/intakes/${intakeId}/items`,
+  WEB_INTAKE_ITEM_BY_ID: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}`,
   WEB_INTAKE_ITEM_CONFIRM: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/confirm`,
   WEB_INTAKE_ITEM_REJECT: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/reject`,
   WEB_INTAKE_ITEM_NOT_APPLICABLE: (intakeId: number, itemId: number) => `/api/v1/web/intakes/${intakeId}/items/${itemId}/not-applicable`,
@@ -5550,6 +5552,43 @@ class ApiService {
     } catch (error: any) {
       console.error('Update intake error:', error);
       throw new Error(error.response?.data?.message || 'Failed to update Intake');
+    }
+  }
+
+  async addIntakeItem(
+    intakeId: number,
+    data: { label: string; description?: string | null; required?: boolean },
+  ): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.WEB_INTAKE_ITEMS(intakeId), data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Add intake item error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to add checklist item');
+    }
+  }
+
+  async updateIntakeItem(
+    intakeId: number,
+    itemId: number,
+    data: { label?: string; description?: string | null; required?: boolean },
+  ): Promise<ApiResponse> {
+    try {
+      const response = await this.client.put(MOBILE_ENDPOINTS.WEB_INTAKE_ITEM_BY_ID(intakeId, itemId), data);
+      return response.data;
+    } catch (error: any) {
+      console.error('Update intake item error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to update checklist item');
+    }
+  }
+
+  async deleteIntakeItem(intakeId: number, itemId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.delete(MOBILE_ENDPOINTS.WEB_INTAKE_ITEM_BY_ID(intakeId, itemId));
+      return response.data;
+    } catch (error: any) {
+      console.error('Delete intake item error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to remove checklist item');
     }
   }
 

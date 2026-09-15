@@ -25,16 +25,17 @@ import { INTAKE_REMINDER_PRESETS, INTAKE_WEEKDAY_OPTIONS, type IntakeTemplate, t
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import {
+  hasSenderEmail,
+  prefillSendersWithEmail,
+  primaryEmailFromSenders,
+  type IntakeSenderForm,
+} from '../../utils/intakeSenders';
 
 interface ChecklistItemForm {
   label: string;
   description: string;
   required: boolean;
-}
-
-interface AuthorizedSenderForm {
-  name: string;
-  email: string;
 }
 
 interface FolderOption {
@@ -79,8 +80,7 @@ export default function CreateIntakeScreen() {
 
   const [title, setTitle] = useState('');
   const [clientName, setClientName] = useState('');
-  const [clientPrimaryEmail, setClientPrimaryEmail] = useState('');
-  const [authorizedSenders, setAuthorizedSenders] = useState<AuthorizedSenderForm[]>([{ name: '', email: '' }]);
+  const [authorizedSenders, setAuthorizedSenders] = useState<IntakeSenderForm[]>([{ name: '', email: '' }]);
   const [items, setItems] = useState<ChecklistItemForm[]>([{ label: '', description: '', required: true }]);
   const [dueAt, setDueAt] = useState('');
   const [destinationFolderId, setDestinationFolderId] = useState<number | null>(null);
@@ -325,7 +325,7 @@ export default function CreateIntakeScreen() {
       const payload: Parameters<typeof apiService.createIntake>[0] = {
         title: title.trim(),
         client_name: clientName.trim() || null,
-        client_primary_email: clientPrimaryEmail.trim() || null,
+        client_primary_email: primaryEmailFromSenders(validSenders),
         authorized_senders: validSenders,
         items: validItems.map((i) => ({
           label: i.label.trim(),
@@ -632,12 +632,12 @@ export default function CreateIntakeScreen() {
                 selectedClientIds={selectedClientIds}
                 onChange={async (ids) => {
                   setSelectedClientIds(ids);
-                  if (ids[0] && (!clientName.trim() || !clientPrimaryEmail.trim())) {
+                  if (ids[0] && (!clientName.trim() || !hasSenderEmail(authorizedSenders))) {
                     try {
                       const c = await getClient(ids[0]);
                       if (!clientName.trim()) setClientName(c.display_name);
                       const pe = primaryEmail(c);
-                      if (pe && !clientPrimaryEmail.trim()) setClientPrimaryEmail(pe);
+                      if (pe) setAuthorizedSenders((prev) => prefillSendersWithEmail(prev, pe));
                     } catch {
                       /* ignore */
                     }
@@ -676,25 +676,13 @@ export default function CreateIntakeScreen() {
               </View>
             ) : null}
           </View>
-          <View style={dynamicStyles.inputGroup}>
-            <Text style={dynamicStyles.label}>Primary client email</Text>
-            <TextInput
-              style={dynamicStyles.input}
-              value={clientPrimaryEmail}
-              onChangeText={setClientPrimaryEmail}
-              placeholder="client@example.com"
-              placeholderTextColor={colors.textLight}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-          </View>
         </View>
 
         <View style={dynamicStyles.section}>
           <Text style={dynamicStyles.sectionTitle}>Authorized senders</Text>
           <Text style={dynamicStyles.sectionSubtitle}>
             Files forwarded to your email (or synced from Gmail/Outlook) from these addresses are automatically
-            routed to this Intake. Also used to personalize reminder emails.
+            routed to this Intake. Also used for reminder emails.
           </Text>
           {authorizedSenders.map((sender, idx) => (
             <View key={idx} style={dynamicStyles.senderRow}>

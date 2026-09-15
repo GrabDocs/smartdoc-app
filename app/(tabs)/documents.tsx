@@ -3091,13 +3091,26 @@ export default function QuickFilesScreen() {
           setShowFolderMovePicker(true);
           break;
         case 'details': {
+          const pathLabel =
+            (folder.path_label || '').trim()
+            || (folder.breadcrumb || []).map((c) => c.name).filter(Boolean).join(' / ')
+            || folder.name;
+          const parentLabel =
+            folder.parent_folder_id != null
+              ? ((folder.parent_folder_name || '').trim() || '—')
+              : 'None (top-level)';
+          const workspaceLabel = (folder.workspace_name || '').trim() || '—';
           const lines = [
-            folder.path ? `Path: ${folder.path}` : null,
+            `Workspace: ${workspaceLabel}`,
+            `Parent folder: ${parentLabel}`,
+            `Path: ${pathLabel}`,
             `Subfolders: ${folder.subfolder_count ?? 0}`,
             `Files: ${folder.file_count ?? 0}`,
-            folder.workspace_id != null ? `Workspace: ${folder.workspace_id}` : null,
             folder.created_at
               ? `Created: ${new Date(folder.created_at).toLocaleString()}`
+              : null,
+            folder.updated_at
+              ? `Last updated: ${new Date(folder.updated_at).toLocaleString()}`
               : null,
           ].filter(Boolean);
           Alert.alert(folder.name, lines.join('\n'));

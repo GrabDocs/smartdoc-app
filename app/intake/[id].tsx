@@ -36,7 +36,17 @@ import { intakeDetailScreenKey, intakesListScreenKey } from '../../services/user
 import { useFileStore } from '../../stores/fileStore';
 import { screenCache } from '../../utils/screenCache';
 import { sanitizeDisplayFilename } from '../../utils/displayFilename';
+import {
+  buildIntakeSenderList,
+  checklistItemsFromIntake,
+  hasSenderEmail,
+  prefillSendersWithEmail,
+  primaryEmailFromSenders,
+  syncIntakeChecklistItems,
+  type IntakeChecklistEditItem,
+} from '../../utils/intakeSenders';
 import { checklistFileStillClassifying, getFullPublicUploadUrl, getUploadToBaseUrl } from '../../utils/uploadLinkHelpers';
+import { getClient, primaryEmail, setItemClients, getClientsForItem } from '../../services/clientsApi';
 import {
   INTAKE_ACTIVE_POLL_STATUSES,
   INTAKE_DUE_BADGE_LABELS,
@@ -134,7 +144,7 @@ export default function IntakeDetailScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editClientName, setEditClientName] = useState('');
-  const [editClientEmail, setEditClientEmail] = useState('');
+  const [editClientIds, setEditClientIds] = useState<number[]>([]);
   const [editDueAt, setEditDueAt] = useState('');
   const [editFolderId, setEditFolderId] = useState<number | null>(null);
   const [editReminderPreset, setEditReminderPreset] = useState<ReminderPreset>('standard');
@@ -142,6 +152,7 @@ export default function IntakeDetailScreen() {
   const [editReminderEnabled, setEditReminderEnabled] = useState(true);
   const [editAutoVerify, setEditAutoVerify] = useState(false);
   const [editSenders, setEditSenders] = useState<{ name: string; email: string }[]>([{ name: '', email: '' }]);
+  const [editItems, setEditItems] = useState<IntakeChecklistEditItem[]>([{ label: '', description: '', required: true }]);
   const [savingEdit, setSavingEdit] = useState(false);
 
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -743,7 +754,6 @@ export default function IntakeDetailScreen() {
     if (!intake) return;
     setEditTitle(intake.title);
     setEditClientName(intake.client_name || '');
-    setEditClientEmail(intake.client_primary_email || '');
     setEditDueAt(intake.due_at ? intake.due_at.slice(0, 10) : '');
     setEditFolderId(intake.destination_folder_id || null);
     const preset = (intake.reminder_preset || 'standard') as ReminderPreset;
@@ -755,12 +765,16 @@ export default function IntakeDetailScreen() {
     });
     setEditReminderEnabled(intake.reminder_enabled);
     setEditAutoVerify(intake.auto_verify_high_confidence);
-    setEditSenders(
-      intake.authorized_senders?.length
-        ? intake.authorized_senders.map((s) => ({ name: s.name || '', email: s.email || '' }))
-        : [{ name: '', email: '' }]
-    );
+    setEditSenders(buildIntakeSenderList(intake.authorized_senders, intake.client_primary_email));
+    setEditItems(checklistItemsFromIntake(intake.items));
+    setEditClientIds([]);
     setEditing(true);
+    try {
+      const linked = await getClientsForItem('intake', intake.id);
+      setEditClientIds(linked.map((c) => c.id));
+    } catch {
+      /* ignore */
+    }
     try {
       const response = await apiService.listFolders({ limit: 500 });
       if (response.success) {
@@ -826,6 +840,11 @@ export default function IntakeDetailScreen() {
       Alert.alert('Error', 'Title is required');
       return;
     }
+    const validEditItems = editItems.filter((i) => i.label.trim());
+    if (validEditItems.length === 0) {
+      Alert.alert('Error', 'Add at least one checklist item');
+      return;
+    }
     setSavingEdit(true);
     try {
       const reminderFields =
@@ -838,23 +857,48 @@ export default function IntakeDetailScreen() {
             }
           : { reminder_preset: editReminderPreset };
 
+      const validEditSenders = editSenders.filter((s) => s.email.trim());
       const response = await apiService.updateIntake(intake.id, {
         title: editTitle.trim(),
         client_name: editClientName.trim() || null,
-        client_primary_email: editClientEmail.trim() || null,
-        authorized_senders: editSenders.filter((s) => s.email.trim()),
+        client_primary_email: primaryEmailFromSenders(validEditSenders),
+        authorized_senders: validEditSenders,
         due_at: editDueAt || null,
         destination_folder_id: editFolderId,
         reminder_enabled: editReminderEnabled,
         auto_verify_high_confidence: editAutoVerify,
         ...reminderFields,
       });
-      if (response.success) {
-        setEditing(false);
-        reloadAfterMutation();
-      } else {
+      if (!response.success) {
         Alert.alert('Error', response.message || 'Failed to update Intake');
+        return;
       }
+
+      await syncIntakeChecklistItems(intake.id, intake.items || [], editItems, {
+        add: (id, data) => apiService.addIntakeItem(id, data),
+        update: (id, itemId, data) => apiService.updateIntakeItem(id, itemId, data),
+        remove: (id, itemId) => apiService.deleteIntakeItem(id, itemId),
+      });
+
+      try {
+        await setItemClients({
+          client_ids: editClientIds,
+          item_type: 'intake',
+          item_id: intake.id,
+        });
+        if (intake.upload_link_id) {
+          await setItemClients({
+            client_ids: editClientIds,
+            item_type: 'file_upload_link',
+            item_id: intake.upload_link_id,
+          });
+        }
+      } catch (linkErr) {
+        console.error('Error linking clients to intake:', linkErr);
+      }
+
+      setEditing(false);
+      reloadAfterMutation();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to update Intake');
     } finally {
@@ -1037,6 +1081,26 @@ export default function IntakeDetailScreen() {
     senderRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
     addLink: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
     addLinkText: { fontSize: 14, color: '#007AFF', fontWeight: '500', marginLeft: 4 },
+    itemCard: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 10,
+      padding: 10,
+      marginBottom: 10,
+    },
+    itemTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    requiredToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    requiredToggleText: { fontSize: 11, color: colors.textSecondary },
+    descInput: {
+      backgroundColor: colors.background,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 13,
+      color: colors.textSecondary,
+    },
     pickerButton: {
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -1510,7 +1574,27 @@ export default function IntakeDetailScreen() {
           </View>
           <ScrollView contentContainerStyle={dynamicStyles.editContent}>
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Title *</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <Text style={[dynamicStyles.label, { marginBottom: 0 }]}>Title *</Text>
+                <ClientsButton
+                  selectedClientIds={editClientIds}
+                  onChange={async (ids) => {
+                    setEditClientIds(ids);
+                    if (ids[0] && (!editClientName.trim() || !hasSenderEmail(editSenders))) {
+                      try {
+                        const c = await getClient(ids[0]);
+                        if (!editClientName.trim()) setEditClientName(c.display_name);
+                        const pe = primaryEmail(c);
+                        if (pe) setEditSenders((prev) => prefillSendersWithEmail(prev, pe));
+                      } catch {
+                        /* ignore */
+                      }
+                    }
+                  }}
+                  allowCreate
+                  compact
+                />
+              </View>
               <TextInput style={dynamicStyles.input} value={editTitle} onChangeText={setEditTitle} placeholderTextColor={colors.textLight} />
             </View>
             <View style={dynamicStyles.row}>
@@ -1526,18 +1610,6 @@ export default function IntakeDetailScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Primary client email</Text>
-              <TextInput
-                style={dynamicStyles.input}
-                value={editClientEmail}
-                onChangeText={setEditClientEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                placeholderTextColor={colors.textLight}
-              />
-            </View>
-
             <View style={dynamicStyles.inputGroup}>
               <Text style={dynamicStyles.label}>Authorized senders</Text>
               {editSenders.map((sender, idx) => (
@@ -1566,6 +1638,59 @@ export default function IntakeDetailScreen() {
               <TouchableOpacity style={dynamicStyles.addLink} onPress={() => setEditSenders((prev) => [...prev, { name: '', email: '' }])}>
                 <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
                 <Text style={dynamicStyles.addLinkText}>Add sender</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={dynamicStyles.inputGroup}>
+              <Text style={dynamicStyles.label}>Checklist</Text>
+              {editItems.map((item, idx) => (
+                <View key={item.id ?? `new-${idx}`} style={dynamicStyles.itemCard}>
+                  <View style={dynamicStyles.itemTopRow}>
+                    <TextInput
+                      style={[dynamicStyles.smallInput, { flex: 1 }]}
+                      value={item.label}
+                      onChangeText={(v) =>
+                        setEditItems((prev) => prev.map((it, i) => (i === idx ? { ...it, label: v } : it)))
+                      }
+                      placeholder="e.g. Bank Statement (last 3 months)"
+                      placeholderTextColor={colors.textLight}
+                    />
+                    <View style={dynamicStyles.requiredToggle}>
+                      <Text style={dynamicStyles.requiredToggleText}>Required</Text>
+                      <Switch
+                        value={item.required}
+                        onValueChange={(v) =>
+                          setEditItems((prev) => prev.map((it, i) => (i === idx ? { ...it, required: v } : it)))
+                        }
+                        trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+                        thumbColor={colors.switchThumbAndroid(item.required)}
+                        ios_backgroundColor={colors.switchTrackOff}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setEditItems((prev) => prev.filter((_, i) => i !== idx))}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.textLight} />
+                    </TouchableOpacity>
+                  </View>
+                  <TextInput
+                    style={dynamicStyles.descInput}
+                    value={item.description}
+                    onChangeText={(v) =>
+                      setEditItems((prev) => prev.map((it, i) => (i === idx ? { ...it, description: v } : it)))
+                    }
+                    placeholder="Describe what this document looks like (optional)"
+                    placeholderTextColor={colors.textLight}
+                  />
+                </View>
+              ))}
+              <TouchableOpacity
+                style={dynamicStyles.addLink}
+                onPress={() => setEditItems((prev) => [...prev, { label: '', description: '', required: true }])}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
+                <Text style={dynamicStyles.addLinkText}>Add checklist item</Text>
               </TouchableOpacity>
             </View>
 

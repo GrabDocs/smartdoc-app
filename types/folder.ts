@@ -3,12 +3,18 @@ export interface FolderRowModel {
   id: number;
   name: string;
   parent_folder_id: number | null;
+  parent_folder_name?: string | null;
   path: string;
+  /** Human-readable path, e.g. "Tax / 2024 / Email imports" */
+  path_label?: string | null;
   workspace_id?: number;
+  workspace_name?: string | null;
+  breadcrumb?: { id: number; name: string }[];
   created_at?: string;
   updated_at?: string;
   subfolder_count?: number;
   file_count?: number;
+  locked_file_count?: number;
 }
 
 export interface BreadcrumbItem {

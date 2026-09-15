@@ -453,7 +453,6 @@ export default function IntakeListScreen() {
       fontSize: 13,
       fontWeight: '500',
       color: colors.textSecondary,
-      marginLeft: 4,
     },
     tabButtonTextActive: {
       color: '#1D4ED8',
@@ -837,11 +836,6 @@ export default function IntakeListScreen() {
           style={[dynamicStyles.tabButton, activeTab === 'schedules' && dynamicStyles.tabButtonActive]}
           onPress={() => handleTabChange('schedules')}
         >
-          <Ionicons
-            name="calendar-outline"
-            size={14}
-            color={activeTab === 'schedules' ? '#1D4ED8' : colors.textSecondary}
-          />
           <Text style={[dynamicStyles.tabButtonText, activeTab === 'schedules' && dynamicStyles.tabButtonTextActive]}>
             Schedules
           </Text>
@@ -850,11 +844,6 @@ export default function IntakeListScreen() {
           style={[dynamicStyles.tabButton, activeTab === 'archived' && dynamicStyles.tabButtonActive]}
           onPress={() => handleTabChange('archived')}
         >
-          <Ionicons
-            name="archive-outline"
-            size={14}
-            color={activeTab === 'archived' ? '#1D4ED8' : colors.textSecondary}
-          />
           <Text style={[dynamicStyles.tabButtonText, activeTab === 'archived' && dynamicStyles.tabButtonTextActive]}>
             Archived
           </Text>
@@ -863,11 +852,6 @@ export default function IntakeListScreen() {
           style={[dynamicStyles.tabButton, activeTab === 'templates' && dynamicStyles.tabButtonActive]}
           onPress={() => handleTabChange('templates')}
         >
-          <Ionicons
-            name="copy-outline"
-            size={14}
-            color={activeTab === 'templates' ? '#1D4ED8' : colors.textSecondary}
-          />
           <Text style={[dynamicStyles.tabButtonText, activeTab === 'templates' && dynamicStyles.tabButtonTextActive]}>
             Templates
           </Text>
