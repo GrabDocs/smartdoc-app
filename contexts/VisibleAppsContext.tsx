@@ -14,19 +14,28 @@ import { useAuth } from '../app/context/auth';
 import { apiClient } from '../services/api';
 import { scopedStorageKey } from '../services/userScopedCache';
 import {
+  buildMobileAppChoices,
   extractAppPreferencesPayload,
+  extractRegistryFromPayload,
+  FALLBACK_REGISTRY,
   hiddenPatchForToggle,
   isMobileHomeAppVisible,
+  normalizeAppRegistry,
   normalizePreferenceMap,
   showAllHiddenPatch,
+  systemWebKeysFromRegistry,
   visibleAppsSummary,
   webKeyForMobileApp,
+  type AppFeatureFromApi,
   type AppPreferencesPayload,
+  type VisibleAppChoice,
 } from '../utils/visibleApps';
 
 type VisibleAppsContextValue = {
   hiddenApps: Record<string, boolean>;
   disabledApps: Record<string, boolean>;
+  registry: AppFeatureFromApi[];
+  appChoices: VisibleAppChoice[];
   loading: boolean;
   saving: boolean;
   summaryLabel: string;
@@ -41,6 +50,7 @@ const VisibleAppsContext = createContext<VisibleAppsContextValue | undefined>(un
 type CachedPrefs = {
   hiddenApps: Record<string, boolean>;
   disabledApps: Record<string, boolean>;
+  registry?: AppFeatureFromApi[];
 };
 
 function parseCachedPrefs(raw: string | null): CachedPrefs | null {
@@ -50,6 +60,7 @@ function parseCachedPrefs(raw: string | null): CachedPrefs | null {
     return {
       hiddenApps: normalizePreferenceMap(parsed.hiddenApps),
       disabledApps: normalizePreferenceMap(parsed.disabledApps),
+      registry: normalizeAppRegistry(parsed.registry),
     };
   } catch {
     return null;
@@ -66,17 +77,31 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [hiddenApps, setHiddenApps] = useState<Record<string, boolean>>({});
   const [disabledApps, setDisabledApps] = useState<Record<string, boolean>>({});
+  const [registry, setRegistry] = useState<AppFeatureFromApi[]>(FALLBACK_REGISTRY);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const registryRef = React.useRef(registry);
+  registryRef.current = registry;
+
+  const systemWebKeys = useMemo(() => systemWebKeysFromRegistry(registry), [registry]);
+  const appChoices = useMemo(() => buildMobileAppChoices(registry), [registry]);
 
   const persistCache = useCallback(
-    async (nextHidden: Record<string, boolean>, nextDisabled: Record<string, boolean>) => {
+    async (
+      nextHidden: Record<string, boolean>,
+      nextDisabled: Record<string, boolean>,
+      nextRegistry: AppFeatureFromApi[],
+    ) => {
       const key = scopedStorageKey(user?.id, STORAGE_KEYS.HIDDEN_APPS);
       if (!key) return;
       try {
         await AsyncStorage.setItem(
           key,
-          JSON.stringify({ hiddenApps: nextHidden, disabledApps: nextDisabled }),
+          JSON.stringify({
+            hiddenApps: nextHidden,
+            disabledApps: nextDisabled,
+            registry: nextRegistry,
+          }),
         );
       } catch {
         /* ignore */
@@ -89,9 +114,17 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     async (payload: AppPreferencesPayload) => {
       const nextHidden = normalizePreferenceMap(payload.hiddenApps ?? payload.hidden_apps);
       const nextDisabled = extractDisabledApps(payload.companyPolicy);
+      const fromPayload = extractRegistryFromPayload(payload);
+      const nextRegistry = fromPayload.length
+        ? fromPayload
+        : registryRef.current.length
+          ? registryRef.current
+          : FALLBACK_REGISTRY;
+
       setHiddenApps(nextHidden);
       setDisabledApps(nextDisabled);
-      await persistCache(nextHidden, nextDisabled);
+      if (fromPayload.length) setRegistry(fromPayload);
+      await persistCache(nextHidden, nextDisabled, nextRegistry);
     },
     [persistCache],
   );
@@ -126,6 +159,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     if (!user?.id) {
       setHiddenApps({});
       setDisabledApps({});
+      setRegistry(FALLBACK_REGISTRY);
       return;
     }
     try {
@@ -147,6 +181,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     if (!user?.id) {
       setHiddenApps({});
       setDisabledApps({});
+      setRegistry(FALLBACK_REGISTRY);
       setLoading(false);
       return;
     }
@@ -160,6 +195,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
           if (!cancelled && cached) {
             setHiddenApps(cached.hiddenApps);
             setDisabledApps(cached.disabledApps);
+            if (cached.registry?.length) setRegistry(cached.registry);
           }
         } catch {
           /* ignore */
@@ -173,7 +209,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
           return;
         }
       } catch {
-        /* fall through to auth-check / profile — same DB as web */
+        /* fall through */
       }
       if (cancelled) return;
       if (await loadFromAuthCheck()) return;
@@ -197,14 +233,16 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   }, [user?.id, refresh]);
 
   const isHomeAppVisible = useCallback(
-    (mobileKey: string) => isMobileHomeAppVisible(mobileKey, hiddenApps, disabledApps),
-    [hiddenApps, disabledApps],
+    (mobileKey: string) =>
+      isMobileHomeAppVisible(mobileKey, hiddenApps, disabledApps, systemWebKeys),
+    [hiddenApps, disabledApps, systemWebKeys],
   );
 
   const toggleApp = useCallback(
     async (mobileKey: string, visible: boolean) => {
       const webKey = webKeyForMobileApp(mobileKey);
       if (!webKey) return;
+      if (systemWebKeys.has(webKey)) return;
       const patch = hiddenPatchForToggle(webKey, visible);
       const prevHidden = hiddenApps;
       const optimistic = { ...hiddenApps };
@@ -216,7 +254,11 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
         const res = await apiClient.updateAppPreferences(patch);
         const payload = extractAppPreferencesPayload(res);
         if (payload) await applyServerPayload(payload);
-        else await applyServerPayload({ hiddenApps: optimistic, companyPolicy: { disabledApps } });
+        else await applyServerPayload({
+          hiddenApps: optimistic,
+          companyPolicy: { disabledApps },
+          appFeatures: registry,
+        });
       } catch (err) {
         setHiddenApps(prevHidden);
         throw err;
@@ -224,11 +266,11 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
         setSaving(false);
       }
     },
-    [hiddenApps, disabledApps, applyServerPayload],
+    [hiddenApps, disabledApps, registry, systemWebKeys, applyServerPayload],
   );
 
   const showAllApps = useCallback(async () => {
-    const patch = showAllHiddenPatch(hiddenApps, disabledApps);
+    const patch = showAllHiddenPatch(hiddenApps, disabledApps, appChoices);
     if (Object.keys(patch).length === 0) return;
     const prevHidden = hiddenApps;
     const optimistic = { ...hiddenApps };
@@ -239,24 +281,30 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       const res = await apiClient.updateAppPreferences(patch);
       const payload = extractAppPreferencesPayload(res);
       if (payload) await applyServerPayload(payload);
-      else await applyServerPayload({ hiddenApps: optimistic, companyPolicy: { disabledApps } });
+      else await applyServerPayload({
+        hiddenApps: optimistic,
+        companyPolicy: { disabledApps },
+        appFeatures: registry,
+      });
     } catch (err) {
       setHiddenApps(prevHidden);
       throw err;
     } finally {
       setSaving(false);
     }
-  }, [hiddenApps, disabledApps, applyServerPayload]);
+  }, [hiddenApps, disabledApps, appChoices, registry, applyServerPayload]);
 
   const summaryLabel = useMemo(
-    () => visibleAppsSummary(hiddenApps, disabledApps).label,
-    [hiddenApps, disabledApps],
+    () => visibleAppsSummary(hiddenApps, disabledApps, appChoices, systemWebKeys).label,
+    [hiddenApps, disabledApps, appChoices, systemWebKeys],
   );
 
   const value = useMemo(
     () => ({
       hiddenApps,
       disabledApps,
+      registry,
+      appChoices,
       loading,
       saving,
       summaryLabel,
@@ -268,6 +316,8 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     [
       hiddenApps,
       disabledApps,
+      registry,
+      appChoices,
       loading,
       saving,
       summaryLabel,

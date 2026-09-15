@@ -113,6 +113,7 @@ const MOBILE_ENDPOINTS = {
   USER: '/api/v1/mobile/user',
   USER_DEFAULT_HOME_PATH: '/api/v1/mobile/user/default-home-path',
   USER_APP_PREFERENCES: '/api/v1/mobile/user/app-preferences',
+  APP_FEATURES: '/api/v1/mobile/app-features',
   
   // Files (all operations go through backend encryption)
   FILES: '/api/v1/mobile/files',
@@ -761,6 +762,8 @@ class ApiService {
       hiddenApps?: Record<string, boolean>;
       hidden_apps?: Record<string, boolean>;
       companyPolicy?: { disabledApps?: Record<string, boolean> };
+      appFeatures?: any[];
+      apps?: any[];
     }
   > {
     try {
@@ -768,6 +771,15 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to load app preferences');
+    }
+  }
+
+  async getAppFeatures(): Promise<ApiResponse & { apps?: any[]; appFeatures?: any[] }> {
+    try {
+      const response = await this.client.get(MOBILE_ENDPOINTS.APP_FEATURES);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to load app features');
     }
   }
 

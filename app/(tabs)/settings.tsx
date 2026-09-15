@@ -45,7 +45,6 @@ import { screenCache } from '../../utils/screenCache';
 import { parseAsUTC } from '../../utils/timeFormatting';
 import {
   isMobileAppToggleLocked,
-  MOBILE_APP_CHOICES,
 } from '../../utils/visibleApps';
 import {
   dialogSurfaceBorder,
@@ -97,6 +96,7 @@ export default function SettingsScreen() {
   } = useUserPreferences();
   const {
     disabledApps,
+    appChoices,
     saving: visibleAppsSaving,
     summaryLabel: visibleAppsSummaryLabel,
     isHomeAppVisible,
@@ -2047,7 +2047,7 @@ export default function SettingsScreen() {
         visible={chooseAppsPickerOpen}
         onClose={() => !visibleAppsSaving && setChooseAppsPickerOpen(false)}
         title="Choose your apps"
-        itemCount={MOBILE_APP_CHOICES.length}
+        itemCount={appChoices.length}
         footer={
           <TouchableOpacity
             style={dynamicStyles.chooseAppsShowAll}
@@ -2059,11 +2059,11 @@ export default function SettingsScreen() {
         }
       >
         <Text style={dynamicStyles.chooseAppsHint}>
-          Always-on apps stay available. Turn off apps you do not want in the Home Apps list.
-          Upload is a utility on Quick actions and is not listed here.
+          Always-on apps follow the shared app registry. Turn off apps you do not want in the
+          Home Apps list. Upload is a utility on Quick actions and is not listed here.
         </Text>
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Always on</Text>
-        {MOBILE_APP_CHOICES.filter((app) => app.section === 'always-on').map((app) => (
+        {appChoices.filter((app) => app.section === 'always-on').map((app) => (
           <View key={app.key} style={dynamicStyles.chooseAppsRow}>
             <View style={dynamicStyles.chooseAppsRowText}>
               <Text style={dynamicStyles.chooseAppsRowLabel}>{app.title}</Text>
@@ -2079,8 +2079,8 @@ export default function SettingsScreen() {
           </View>
         ))}
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Apps</Text>
-        {MOBILE_APP_CHOICES.filter((app) => app.section === 'apps').map((app) => {
-          const locked = isMobileAppToggleLocked(app.key, disabledApps);
+        {appChoices.filter((app) => app.section === 'apps').map((app) => {
+          const locked = app.alwaysOn || isMobileAppToggleLocked(app.key, disabledApps);
           const companyDisabled = Boolean(disabledApps[app.webKey]);
           const visible = isHomeAppVisible(app.key);
           return (
