@@ -34,7 +34,8 @@ export function dialogSurfaceShadow(isDarkMode: boolean): Pick<
 export function anchoredPopoverOverlayStyle(isDarkMode: boolean): ViewStyle {
   return {
     flex: 1,
-    ...(isDarkMode ? {} : { backgroundColor: 'rgba(0, 0, 0, 0.05)' }),
+    // Light: subtle dim. Dark: stronger scrim so the card lifts off near-black screens.
+    backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.05)',
   };
 }
 
