@@ -16,6 +16,7 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useAppLock } from '../../contexts/AppLockContext';
 import { MAX_SCALE, MIN_SCALE, useDisplayScale } from '../../contexts/DisplayScaleContext';
@@ -28,6 +29,7 @@ import { getMyPlan, getSettingsUsageStats } from '../../services/subscriptionApi
 import { userProfileScreenKey } from '../../services/userScopedCache';
 import deviceSecurityService from '../../services/deviceSecurity';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
+import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import type { UserPreferences } from '../../utils/userPreferences';
 import {
   DEFAULT_HOME_SCREEN_OPTIONS,
@@ -41,6 +43,10 @@ import {
 } from '../../utils/defaultHomePath';
 import { screenCache } from '../../utils/screenCache';
 import { parseAsUTC } from '../../utils/timeFormatting';
+import {
+  isMobileAppToggleLocked,
+  MOBILE_APP_CHOICES,
+} from '../../utils/visibleApps';
 import {
   dialogSurfaceBorder,
   dialogSurfaceShadow,
@@ -90,6 +96,15 @@ export default function SettingsScreen() {
     togglePreference: toggleStoredPreference,
   } = useUserPreferences();
   const {
+    disabledApps,
+    saving: visibleAppsSaving,
+    summaryLabel: visibleAppsSummaryLabel,
+    isHomeAppVisible,
+    refresh: refreshVisibleApps,
+    toggleApp: toggleVisibleApp,
+    showAllApps,
+  } = useVisibleApps();
+  const {
     appLockEnabled,
     setAppLockEnabled,
     checkHasPinSet, // still used in loadSettings; returns false (PIN hidden)
@@ -111,6 +126,7 @@ export default function SettingsScreen() {
     normalizeWebDefaultHomePath(MOBILE_MAIN_HOME_WEB_ALIAS),
   );
   const [defaultHomePickerOpen, setDefaultHomePickerOpen] = useState(false);
+  const [chooseAppsPickerOpen, setChooseAppsPickerOpen] = useState(false);
   const [defaultHomeSaving, setDefaultHomeSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [clearingDeviceTrust, setClearingDeviceTrust] = useState(false);
@@ -202,6 +218,7 @@ export default function SettingsScreen() {
         api.getUserProfile(),
         loadPersistedDefaultHomeWebPath(),
         api.checkAuth().catch(() => null),
+        refreshVisibleApps().catch(() => undefined),
       ]);
 
       if (profileResponse.success && profileResponse.data) {
@@ -399,6 +416,22 @@ export default function SettingsScreen() {
       Alert.alert('Error', e?.message || 'Could not update default screen');
     } finally {
       setDefaultHomeSaving(false);
+    }
+  };
+
+  const applyVisibleAppToggle = async (mobileKey: string, visible: boolean) => {
+    try {
+      await toggleVisibleApp(mobileKey, visible);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not update apps');
+    }
+  };
+
+  const applyShowAllApps = async () => {
+    try {
+      await showAllApps();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not update apps');
     }
   };
 
@@ -1047,6 +1080,53 @@ export default function SettingsScreen() {
       flex: 1,
       paddingRight: 8,
     },
+    chooseAppsHint: {
+      fontSize: scaledFontSize(13),
+      color: colors.textSecondary,
+      paddingHorizontal: 4,
+      paddingBottom: 8,
+    },
+    chooseAppsGroupLabel: {
+      fontSize: scaledFontSize(12),
+      fontWeight: '700' as const,
+      color: colors.textSecondary,
+      textTransform: 'uppercase' as const,
+      letterSpacing: 0.4,
+      marginTop: 8,
+      marginBottom: 4,
+      paddingHorizontal: 4,
+    },
+    chooseAppsRow: {
+      flexDirection: 'row' as const,
+      alignItems: 'center' as const,
+      justifyContent: 'space-between' as const,
+      paddingVertical: 10,
+      paddingHorizontal: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    chooseAppsRowText: {
+      flex: 1,
+      paddingRight: 12,
+    },
+    chooseAppsRowLabel: {
+      fontSize: scaledFontSize(15),
+      color: colors.text,
+    },
+    chooseAppsRowHint: {
+      fontSize: scaledFontSize(12),
+      color: colors.textSecondary,
+      marginTop: 2,
+    },
+    chooseAppsShowAll: {
+      paddingVertical: 14,
+      alignItems: 'center' as const,
+    },
+    chooseAppsShowAllText: {
+      fontSize: scaledFontSize(15),
+      color: '#007AFF',
+      fontWeight: '600' as const,
+    },
   }), [colors, scaledFontSize]);
 
   if (loading) {
@@ -1544,6 +1624,34 @@ export default function SettingsScreen() {
                 )}
               </View>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={dynamicStyles.infoItem}
+              onPress={() => !visibleAppsSaving && setChooseAppsPickerOpen(true)}
+              disabled={visibleAppsSaving}
+            >
+              <View style={dynamicStyles.settingIcon}>
+                <Ionicons name="apps-outline" size={20} color={colors.textSecondary} />
+              </View>
+              <View style={dynamicStyles.settingContent}>
+                <Text style={dynamicStyles.settingTitle}>Choose your apps</Text>
+                <Text style={dynamicStyles.settingSubtitle}>
+                  Pick which apps appear on Home
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {visibleAppsSaving ? (
+                  <ActivityIndicator size="small" color="#007AFF" />
+                ) : (
+                  <>
+                    <Text style={[dynamicStyles.settingValue, { marginRight: 4 }]} numberOfLines={1}>
+                      {visibleAppsSummaryLabel}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                  </>
+                )}
+              </View>
+            </TouchableOpacity>
             
             {/* Display Scale Control */}
             <View style={dynamicStyles.settingItem}>
@@ -1934,6 +2042,67 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <AdaptiveListPickerModal
+        visible={chooseAppsPickerOpen}
+        onClose={() => !visibleAppsSaving && setChooseAppsPickerOpen(false)}
+        title="Choose your apps"
+        itemCount={MOBILE_APP_CHOICES.length}
+        footer={
+          <TouchableOpacity
+            style={dynamicStyles.chooseAppsShowAll}
+            onPress={() => void applyShowAllApps()}
+            disabled={visibleAppsSaving}
+          >
+            <Text style={dynamicStyles.chooseAppsShowAllText}>Show all apps</Text>
+          </TouchableOpacity>
+        }
+      >
+        <Text style={dynamicStyles.chooseAppsHint}>
+          Always-on apps stay available. Turn off apps you do not want in the Home Apps list.
+          Upload is a utility on Quick actions and is not listed here.
+        </Text>
+        <Text style={dynamicStyles.chooseAppsGroupLabel}>Always on</Text>
+        {MOBILE_APP_CHOICES.filter((app) => app.section === 'always-on').map((app) => (
+          <View key={app.key} style={dynamicStyles.chooseAppsRow}>
+            <View style={dynamicStyles.chooseAppsRowText}>
+              <Text style={dynamicStyles.chooseAppsRowLabel}>{app.title}</Text>
+              <Text style={dynamicStyles.chooseAppsRowHint}>Always on</Text>
+            </View>
+            <Switch
+              value={true}
+              disabled
+              trackColor={{ false: colors.switchTrackOff, true: colors.success }}
+              thumbColor={colors.switchThumbAndroid(true)}
+              ios_backgroundColor={colors.switchTrackOff}
+            />
+          </View>
+        ))}
+        <Text style={dynamicStyles.chooseAppsGroupLabel}>Apps</Text>
+        {MOBILE_APP_CHOICES.filter((app) => app.section === 'apps').map((app) => {
+          const locked = isMobileAppToggleLocked(app.key, disabledApps);
+          const companyDisabled = Boolean(disabledApps[app.webKey]);
+          const visible = isHomeAppVisible(app.key);
+          return (
+            <View key={app.key} style={dynamicStyles.chooseAppsRow}>
+              <View style={dynamicStyles.chooseAppsRowText}>
+                <Text style={dynamicStyles.chooseAppsRowLabel}>{app.title}</Text>
+                {companyDisabled ? (
+                  <Text style={dynamicStyles.chooseAppsRowHint}>Disabled by company</Text>
+                ) : null}
+              </View>
+              <Switch
+                value={visible}
+                onValueChange={(next) => void applyVisibleAppToggle(app.key, next)}
+                disabled={locked || visibleAppsSaving}
+                trackColor={{ false: colors.switchTrackOff, true: colors.success }}
+                thumbColor={colors.switchThumbAndroid(visible)}
+                ios_backgroundColor={colors.switchTrackOff}
+              />
+            </View>
+          );
+        })}
+      </AdaptiveListPickerModal>
 
       {/* GrabDocs Set/Change PIN modal - commented out; app lock uses biometric + device passcode only
       <Modal visible={showSetPinModal} ...>

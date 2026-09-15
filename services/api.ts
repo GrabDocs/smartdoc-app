@@ -112,6 +112,7 @@ const MOBILE_ENDPOINTS = {
   // User
   USER: '/api/v1/mobile/user',
   USER_DEFAULT_HOME_PATH: '/api/v1/mobile/user/default-home-path',
+  USER_APP_PREFERENCES: '/api/v1/mobile/user/app-preferences',
   
   // Files (all operations go through backend encryption)
   FILES: '/api/v1/mobile/files',
@@ -752,6 +753,40 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to update default home path');
+    }
+  }
+
+  async getAppPreferences(): Promise<
+    ApiResponse & {
+      hiddenApps?: Record<string, boolean>;
+      hidden_apps?: Record<string, boolean>;
+      companyPolicy?: { disabledApps?: Record<string, boolean> };
+    }
+  > {
+    try {
+      const response = await this.client.get(MOBILE_ENDPOINTS.USER_APP_PREFERENCES);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to load app preferences');
+    }
+  }
+
+  async updateAppPreferences(patch: Record<string, boolean>): Promise<
+    ApiResponse & {
+      hiddenApps?: Record<string, boolean>;
+      hidden_apps?: Record<string, boolean>;
+      companyPolicy?: { disabledApps?: Record<string, boolean> };
+      defaultHomePath?: string | null;
+    }
+  > {
+    try {
+      const response = await this.client.put(MOBILE_ENDPOINTS.USER_APP_PREFERENCES, {
+        hidden_apps: patch,
+        hiddenApps: patch,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to update app preferences');
     }
   }
 

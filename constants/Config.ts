@@ -275,6 +275,8 @@ export const STORAGE_KEYS = {
   CONTEXT_REMOVED_CHAT_IDS: 'context_removed_chat_ids',
   /** Default landing path from web (`/upload` = ChatGD, `/files`, etc.); may use '/' for mobile-only Main Home. */
   DEFAULT_HOME_WEB_PATH: 'default_home_web_path',
+  /** Cached User.hidden_apps + company disabled apps (scoped per user at read/write time). */
+  HIDDEN_APPS: 'hidden_apps',
   /** Calendar home: `calendar` vs `list` segmented control. */
   CALENDAR_LAYOUT_MODE: 'calendar_layout_mode',
   /** Device-scoped AI File Manager session correlation id */

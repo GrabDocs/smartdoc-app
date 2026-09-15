@@ -21,6 +21,7 @@ import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { SignatureIcon } from '../../components/SignatureIcon';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import { apiClient } from '../../services/api';
 import {
   getAttentionQueue,
@@ -34,6 +35,7 @@ import { expoHrefForWebDefaultHome } from '../../utils/defaultHomePath';
 import { getRecentApps, trackRecentApp } from '../../utils/recentApps';
 import { screenCache } from '../../utils/screenCache';
 import { navigatePrimaryShell } from '../../utils/tabNavigation';
+import { QUICK_ACTION_APP_KEY_SET } from '../../utils/visibleApps';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
@@ -91,6 +93,7 @@ function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { user, signOut } = useAuth();
+  const { isHomeAppVisible, refresh: refreshVisibleApps } = useVisibleApps();
   const { uploadFromGallery, uploadFromDocuments } = useFileStore();
   const colors = useThemeColors();
   const [fontsLoaded] = useFonts({ SpaceGrotesk_500Medium });
@@ -187,6 +190,11 @@ function DashboardScreen() {
       /* keep prior */
     }
     try {
+      await refreshVisibleApps();
+    } catch {
+      /* keep prior visibility */
+    }
+    try {
       const count = await getClientsCount();
       setClientsCount(count);
       if (count > 0) {
@@ -198,7 +206,7 @@ function DashboardScreen() {
     } catch {
       /* keep prior attention rather than flashing an empty block */
     }
-  }, []);
+  }, [refreshVisibleApps]);
 
   const loadDashboardData = useCallback(async (forceRefresh = false) => {
     // console.log('🏠 Starting dashboard data load...');
@@ -707,7 +715,7 @@ function DashboardScreen() {
       { key: 'bookmarks', title: 'Bookmarks', icon: 'bookmark', color: '#FF9500', action: 'bookmarks' },
       { key: 'chat', title: 'Secure Messaging', icon: 'chatbubbles', color: '#FF2D55', action: 'chat' },
       { key: 'email-sync', title: 'Email Replies', subtitle: 'Draft reply with AI', icon: 'mail-outline', color: '#007AFF', action: 'email-sync' },
-      { key: 'analytics', title: 'Financials', icon: 'analytics', color: '#FF9500', action: 'analytics' },
+      { key: 'analytics', title: 'Financials', subtitle: 'Manage expenses', icon: 'analytics', color: '#FF9500', action: 'analytics' },
     ],
     [reachInMeeting]
   );
@@ -720,15 +728,16 @@ function DashboardScreen() {
 
   const recentApps = useMemo(() => {
     const keys = recentAppKeys.length ? recentAppKeys : ['upload', 'clients', 'chatgd', 'intake'];
-    return keys.map((k) => appByKey.get(k)).filter(Boolean) as HomeAppDef[];
-  }, [recentAppKeys, appByKey]);
+    return keys
+      .map((k) => appByKey.get(k))
+      .filter((a): a is HomeAppDef => a != null && isHomeAppVisible(a.key));
+  }, [recentAppKeys, appByKey, isHomeAppVisible]);
 
   const moreApps = useMemo(() => {
     // Quick-action tiles — omit from Apps to avoid duplicating the grid above.
     // Recent is shortcuts only; do not remove those apps from this list.
-    const coreKeys = new Set(['upload', 'chatgd', 'analytics', 'email-sync']);
-    return ALL_APPS.filter((a) => !coreKeys.has(a.key));
-  }, [ALL_APPS]);
+    return ALL_APPS.filter((a) => !QUICK_ACTION_APP_KEY_SET.has(a.key) && isHomeAppVisible(a.key));
+  }, [ALL_APPS, isHomeAppVisible]);
 
   const hasPendingAttention = attentionItems.some(
     (i) =>
@@ -1159,12 +1168,12 @@ function DashboardScreen() {
           </View>
           <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
             <StatCard
-              key="stat-analytics"
-              title="Financials"
-              icon="analytics"
-              color="#FF9500"
-              subtitle="Manage expenses"
-              onPress={() => handleQuickAction('analytics')}
+              key="stat-intake"
+              title="Intake"
+              icon="checkbox-outline"
+              color="#14B8A6"
+              subtitle="Document checklists"
+              onPress={() => handleQuickAction('intake')}
             />
             <StatCard
               key="stat-email-replies"
@@ -1178,6 +1187,7 @@ function DashboardScreen() {
         </View>
 
         {/* Recently used — horizontal */}
+        {recentApps.length ? (
         <View style={{ paddingTop: 8 }}>
           <Text style={[dynamicStyles.sectionTitle, { marginHorizontal: 16, marginBottom: 10 }]}>
             Recently used
@@ -1222,24 +1232,42 @@ function DashboardScreen() {
             ))}
           </ScrollView>
         </View>
+        ) : null}
 
         {/* Apps */}
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
           <Text style={[dynamicStyles.sectionTitle, { marginBottom: 10 }]}>Apps</Text>
-          <View style={dynamicStyles.quickActionsContainer}>
-            {moreApps.map((app) => (
-              <QuickActionCard
-                key={`app-${app.key}`}
-                title={app.title}
-                subtitle={app.subtitle || 'Open'}
-                icon={app.icon}
-                iconElement={app.iconElement}
-                color={app.color}
-                onPress={() => handleQuickAction(app.action)}
-                showLiveMeetingIndicator={app.showLive}
-              />
-            ))}
-          </View>
+          {moreApps.length ? (
+            <View style={dynamicStyles.quickActionsContainer}>
+              {moreApps.map((app) => (
+                <QuickActionCard
+                  key={`app-${app.key}`}
+                  title={app.title}
+                  subtitle={app.subtitle || 'Open'}
+                  icon={app.icon}
+                  iconElement={app.iconElement}
+                  color={app.color}
+                  onPress={() => handleQuickAction(app.action)}
+                  showLiveMeetingIndicator={app.showLive}
+                />
+              ))}
+            </View>
+          ) : (
+            <View
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: 12,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.border,
+                padding: 14,
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '600' }}>No extra apps</Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
+                Turn apps back on in Settings → Display → Choose your apps.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Add some padding at the bottom for better scrolling */}

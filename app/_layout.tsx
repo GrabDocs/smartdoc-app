@@ -31,6 +31,7 @@ import { AppLockProvider, useAppLock } from '../contexts/AppLockContext';
 import { DisplayScaleProvider } from '../contexts/DisplayScaleContext';
 import { Enhanced2FAAuthProvider } from '../contexts/Enhanced2FAAuthContext';
 import { UserPreferencesProvider } from '../contexts/UserPreferencesContext';
+import { VisibleAppsProvider } from '../contexts/VisibleAppsContext';
 import ChatGDBottomSheetHost from '../components/chatgd/ChatGDBottomSheet';
 import ActionMenuModal, { type ActionMenuItem } from '../components/ActionMenuModal';
 import { ChatGDSheetProvider } from '../contexts/ChatGDSheetContext';
@@ -805,11 +806,13 @@ export default function RootLayout() {
           <DisplayScaleProvider>
             <UserPreferencesProvider>
             <AuthProvider>
+              <VisibleAppsProvider>
               <Enhanced2FAAuthProvider>
                 <AppLockProvider>
                   <AuthWrapper />
                 </AppLockProvider>
               </Enhanced2FAAuthProvider>
+              </VisibleAppsProvider>
             </AuthProvider>
             </UserPreferencesProvider>
           </DisplayScaleProvider>

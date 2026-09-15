@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   getClientsCount,
@@ -32,6 +33,8 @@ export default function ClientsButton({
   label = 'Clients',
 }: ClientsButtonProps) {
   const colors = useThemeColors();
+  const { isHomeAppVisible } = useVisibleApps();
+  const clientsFeatureVisible = isHomeAppVisible('clients');
   const [count, setCount] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
   const [ids, setIds] = useState<number[]>(selectedClientIds || []);
@@ -46,6 +49,10 @@ export default function ClientsButton({
   }, [selectedClientIds]);
 
   useEffect(() => {
+    if (!clientsFeatureVisible) {
+      setCount(null);
+      return;
+    }
     let cancelled = false;
     void prefetchClientsPicker()
       .then((data) => {
@@ -63,7 +70,7 @@ export default function ClientsButton({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [clientsFeatureVisible]);
 
   const loadLinked = useCallback(async () => {
     if (!itemType || itemId == null) return;
@@ -78,10 +85,11 @@ export default function ClientsButton({
   }, [itemType, itemId]);
 
   useEffect(() => {
+    if (!clientsFeatureVisible) return;
     if (!itemType || itemId == null) return;
     if (controlledRef.current && selectedClientIds && selectedClientIds.length > 0) return;
     void loadLinked();
-  }, [itemType, itemId, loadLinked, selectedClientIds]);
+  }, [clientsFeatureVisible, itemType, itemId, loadLinked, selectedClientIds]);
 
   const handleSave = async (nextIds: number[]) => {
     setIds(nextIds);
@@ -100,6 +108,7 @@ export default function ClientsButton({
     }
   };
 
+  if (!clientsFeatureVisible) return null;
   if (count === null) return null;
   if (count === 0 && !allowCreate) return null;
 
