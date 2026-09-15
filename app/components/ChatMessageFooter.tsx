@@ -1,11 +1,12 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 import FileNameText from '../../components/FileNameText';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { dedupeCitations } from '../../utils/dedupeCitations';
 
 export interface CitationItem {
   source_type?: string;
@@ -103,7 +104,10 @@ export function ChatMessageFooter({
   const [feedbackScore, setFeedbackScore] = useState<number | null>(initialFeedbackScore ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSourcesModal, setShowSourcesModal] = useState(false);
-  const sourceList = citations && citations.length > 0 ? citations : [];
+  const sourceList = useMemo(
+    () => (citations && citations.length > 0 ? dedupeCitations(citations) : []),
+    [citations],
+  );
 
   const handleCopyResponse = async () => {
     if (!responseText) return;

@@ -19,6 +19,7 @@ import {
 } from '../utils/chatFormatting';
 import { formatDocumentOpenLinkLabel } from '../utils/chatLinkLabels';
 import { localizeUtcDatesInAssistantText } from '../utils/chatUtcDisplay';
+import { dedupeCitations } from '../utils/dedupeCitations';
 import { validateAndSanitizeUrl } from '../utils/linkSecurity';
 import type { SermonCitationType } from '../utils/sermonParagraphLinks';
 import {
@@ -243,6 +244,11 @@ export default function AssistantMessageBody({
   const blocks = useMemo(() => parseBlocks(normalized), [normalized]);
 
   const citeList = citations || [];
+  // Display only — keep full citeList for inline [[cite:N]] / paragraph link resolution.
+  const displayCiteList = useMemo(
+    () => dedupeCitations(citations || []),
+    [citations],
+  );
   const color = isPreview ? previewColor || textColor : textColor;
   const linkColor = '#007AFF';
   const codeBg = colors.isDark ? '#374151' : '#f3f4f6';
@@ -395,7 +401,7 @@ export default function AssistantMessageBody({
     return null;
   };
 
-  const hasCitations = citeList.length > 0;
+  const hasCitations = displayCiteList.length > 0;
 
   return (
     <View style={styles.wrap}>
@@ -414,12 +420,12 @@ export default function AssistantMessageBody({
               color={colors.textSecondary}
             />
             <Text style={[styles.referencesTitle, { color: colors.text }]}>
-              References ({citeList.length})
+              References ({displayCiteList.length})
             </Text>
           </TouchableOpacity>
           {referencesExpanded && (
             <View style={styles.referencesList}>
-              {citeList.map((cit, idx) => {
+              {displayCiteList.map((cit, idx) => {
                 const c = typeof cit === 'object' ? cit : null;
                 const name =
                   c?.source_name || c?.filename || c?.source_type || `Source ${idx + 1}`;
@@ -428,7 +434,7 @@ export default function AssistantMessageBody({
                   c?.paragraph_start ??
                   (c?.paragraph ? parseInt(String(c.paragraph), 10) : undefined);
                 const paraEnd = c?.paragraph_end;
-                const isLast = idx === citeList.length - 1;
+                const isLast = idx === displayCiteList.length - 1;
                 const canOpen = docId != null;
                 const numericId = docId != null
                   ? (typeof docId === 'string' ? parseInt(docId, 10) : docId)
