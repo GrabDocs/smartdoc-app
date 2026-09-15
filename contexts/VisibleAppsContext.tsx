@@ -14,12 +14,14 @@ import { useAuth } from '../app/context/auth';
 import { apiClient } from '../services/api';
 import { scopedStorageKey } from '../services/userScopedCache';
 import {
+  extractAppPreferencesPayload,
   hiddenPatchForToggle,
   isMobileHomeAppVisible,
   normalizePreferenceMap,
   showAllHiddenPatch,
   visibleAppsSummary,
   webKeyForMobileApp,
+  type AppPreferencesPayload,
 } from '../utils/visibleApps';
 
 type VisibleAppsContextValue = {
@@ -84,11 +86,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   );
 
   const applyServerPayload = useCallback(
-    async (payload: {
-      hiddenApps?: Record<string, boolean>;
-      hidden_apps?: Record<string, boolean>;
-      companyPolicy?: { disabledApps?: Record<string, boolean> };
-    }) => {
+    async (payload: AppPreferencesPayload) => {
       const nextHidden = normalizePreferenceMap(payload.hiddenApps ?? payload.hidden_apps);
       const nextDisabled = extractDisabledApps(payload.companyPolicy);
       setHiddenApps(nextHidden);
@@ -98,6 +96,32 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     [persistCache],
   );
 
+  const loadFromAuthCheck = useCallback(async (): Promise<boolean> => {
+    try {
+      const raw = await apiClient.checkAuth();
+      const payload = extractAppPreferencesPayload(raw);
+      if (!payload) return false;
+      await applyServerPayload(payload);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [applyServerPayload]);
+
+  const loadFromUserProfile = useCallback(async (): Promise<boolean> => {
+    try {
+      const raw = await apiClient.getUserProfile();
+      const payload =
+        extractAppPreferencesPayload(raw) ||
+        extractAppPreferencesPayload((raw as { data?: unknown })?.data);
+      if (!payload) return false;
+      await applyServerPayload(payload);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [applyServerPayload]);
+
   const refresh = useCallback(async () => {
     if (!user?.id) {
       setHiddenApps({});
@@ -106,11 +130,17 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     }
     try {
       const res = await apiClient.getAppPreferences();
-      await applyServerPayload(res);
+      const payload = extractAppPreferencesPayload(res);
+      if (payload) {
+        await applyServerPayload(payload);
+        return;
+      }
     } catch {
-      /* keep cache */
+      /* fall through */
     }
-  }, [user?.id, applyServerPayload]);
+    if (await loadFromAuthCheck()) return;
+    await loadFromUserProfile();
+  }, [user?.id, applyServerPayload, loadFromAuthCheck, loadFromUserProfile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,18 +167,26 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       }
       try {
         const res = await apiClient.getAppPreferences();
-        if (!cancelled) await applyServerPayload(res);
+        const payload = extractAppPreferencesPayload(res);
+        if (!cancelled && payload) {
+          await applyServerPayload(payload);
+          return;
+        }
       } catch {
-        /* keep cache */
-      } finally {
-        if (!cancelled) setLoading(false);
+        /* fall through to auth-check / profile — same DB as web */
       }
-    })();
+      if (cancelled) return;
+      if (await loadFromAuthCheck()) return;
+      if (!cancelled) await loadFromUserProfile();
+    })()
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [user?.id, applyServerPayload]);
+  }, [user?.id, applyServerPayload, loadFromAuthCheck, loadFromUserProfile]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -176,7 +214,9 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       setSaving(true);
       try {
         const res = await apiClient.updateAppPreferences(patch);
-        await applyServerPayload(res);
+        const payload = extractAppPreferencesPayload(res);
+        if (payload) await applyServerPayload(payload);
+        else await applyServerPayload({ hiddenApps: optimistic, companyPolicy: { disabledApps } });
       } catch (err) {
         setHiddenApps(prevHidden);
         throw err;
@@ -184,7 +224,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
         setSaving(false);
       }
     },
-    [hiddenApps, applyServerPayload],
+    [hiddenApps, disabledApps, applyServerPayload],
   );
 
   const showAllApps = useCallback(async () => {
@@ -197,7 +237,9 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     setSaving(true);
     try {
       const res = await apiClient.updateAppPreferences(patch);
-      await applyServerPayload(res);
+      const payload = extractAppPreferencesPayload(res);
+      if (payload) await applyServerPayload(payload);
+      else await applyServerPayload({ hiddenApps: optimistic, companyPolicy: { disabledApps } });
     } catch (err) {
       setHiddenApps(prevHidden);
       throw err;

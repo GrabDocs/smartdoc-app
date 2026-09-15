@@ -162,3 +162,25 @@ export function showAllHiddenPatch(
   }
   return patch;
 }
+
+export type AppPreferencesPayload = {
+  hiddenApps?: Record<string, boolean>;
+  hidden_apps?: Record<string, boolean>;
+  companyPolicy?: { disabledApps?: Record<string, boolean>; disabled_apps?: Record<string, boolean> };
+};
+
+/** Accept top-level or nested `{ data: ... }` mobile API envelopes. */
+export function extractAppPreferencesPayload(raw: unknown): AppPreferencesPayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const root = raw as AppPreferencesPayload & { data?: AppPreferencesPayload };
+  const nested = root.data && typeof root.data === 'object' ? root.data : null;
+  const candidate = nested ?? root;
+  if (
+    'hiddenApps' in candidate ||
+    'hidden_apps' in candidate ||
+    'companyPolicy' in candidate
+  ) {
+    return candidate;
+  }
+  return null;
+}
