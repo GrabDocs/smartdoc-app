@@ -2060,7 +2060,7 @@ export default function SettingsScreen() {
       >
         <Text style={dynamicStyles.chooseAppsHint}>
           Always-on apps follow the shared app registry. Turn off apps you do not want in the
-          Home Apps list. Upload is a utility on Quick actions and is not listed here.
+          Home Apps list.
         </Text>
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Always on</Text>
         {appChoices.filter((app) => app.section === 'always-on').map((app) => (
