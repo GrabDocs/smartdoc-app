@@ -142,6 +142,7 @@ export default function EditIntakeTemplateScreen() {
     content: { padding: 16 },
     section: { marginBottom: 20 },
     sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 10 },
+    sectionSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: -6, marginBottom: 12 },
     inputGroup: { marginBottom: 12 },
     label: { fontSize: 14, fontWeight: '500', color: colors.text, marginBottom: 6 },
     input: {
@@ -222,6 +223,9 @@ export default function EditIntakeTemplateScreen() {
 
         <View style={dynamicStyles.section}>
           <Text style={dynamicStyles.sectionTitle}>Checklist items</Text>
+          <Text style={dynamicStyles.sectionSubtitle}>
+            Specify the documents you want to collect.
+          </Text>
           {items.map((item, idx) => (
             <View key={idx} style={dynamicStyles.itemCard}>
               <View style={dynamicStyles.itemHeader}>

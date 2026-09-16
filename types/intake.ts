@@ -95,6 +95,13 @@ export interface Intake {
   unmatched?: IntakeFileRow[];
   arrival_history?: IntakeFileRow[];
   last_file_received_at?: string | null;
+  schedule_id?: number | null;
+  schedule?: {
+    id?: number;
+    status?: string;
+    cadence_summary?: string;
+    frequency?: string;
+  } | null;
 }
 
 export interface IntakeTemplateItem {
@@ -254,7 +261,7 @@ export interface CreateIntakeSchedulePayload {
 export const INTAKE_SCHEDULE_STATUS_LABELS: Record<string, string> = {
   active: 'Active',
   paused: 'Paused',
-  completed: 'Completed',
+  completed: 'Ended',
 };
 
 export const INTAKE_SCHEDULE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {

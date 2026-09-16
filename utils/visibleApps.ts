@@ -122,7 +122,7 @@ export const FALLBACK_REGISTRY: AppFeatureFromApi[] = [
   { key: 'forms', name: 'Forms', system: true, sortOrder: 70 },
   { key: 'signatures', name: 'Signatures', system: false, sortOrder: 80 },
   { key: 'chat', name: 'Secure Messaging', system: false, sortOrder: 90 },
-  { key: 'workspace', name: 'Workspace', system: true, sortOrder: 100 },
+  { key: 'workspace', name: 'Workspace', description: 'Collaborate with a team', system: true, sortOrder: 100 },
   { key: 'financials', name: 'Financials', system: false, sortOrder: 110 },
   { key: 'trends', name: 'Trends', system: false, sortOrder: 120 },
   { key: 'categories', name: 'Categories', system: false, sortOrder: 130 },

@@ -941,6 +941,26 @@ export default function IntakeDetailScreen() {
     actionButtonText: { fontSize: 13, fontWeight: '500', color: colors.text, marginLeft: 6 },
     actionButtonTextPrimary: { color: '#fff' },
     actionButtonTextRestore: { color: '#1D4ED8' },
+    scheduleBanner: {
+      marginBottom: 16,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.isDark ? '#1E40AF' : '#DBEAFE',
+      backgroundColor: colors.isDark ? 'rgba(59, 130, 246, 0.2)' : '#EFF6FF',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    scheduleBannerText: {
+      fontSize: 13,
+      color: colors.isDark ? '#BFDBFE' : '#1E3A8A',
+    },
+    scheduleBannerLink: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: colors.isDark ? '#93C5FD' : '#1D4ED8',
+      textDecorationLine: 'underline',
+      marginTop: 6,
+    },
     card: {
       backgroundColor: colors.card,
       borderRadius: 12,
@@ -1056,6 +1076,7 @@ export default function IntakeDetailScreen() {
     editContent: { padding: 16 },
     inputGroup: { marginBottom: 16 },
     label: { fontSize: 14, fontWeight: '500', color: colors.text, marginBottom: 6 },
+    labelHint: { fontSize: 12, color: colors.textSecondary, marginTop: -2, marginBottom: 10 },
     input: {
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -1291,6 +1312,26 @@ export default function IntakeDetailScreen() {
             </FeedbackTouchable>
           )}
         </View>
+
+        {intake.schedule?.cadence_summary ? (
+          <View style={dynamicStyles.scheduleBanner}>
+            <Text style={dynamicStyles.scheduleBannerText}>
+              Schedule: {intake.schedule.cadence_summary}
+              {intake.schedule.status === 'completed' ? ' (ended)' : ''}
+            </Text>
+            {(intake.schedule_id || intake.schedule.id) ? (
+              <TouchableOpacity
+                onPress={() =>
+                  router.push(`/intake/schedules/${intake.schedule_id || intake.schedule?.id}` as any)
+                }
+                accessibilityRole="button"
+                accessibilityLabel="View schedule"
+              >
+                <Text style={dynamicStyles.scheduleBannerLink}>View schedule</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* Progress */}
         <View style={dynamicStyles.card}>
@@ -1643,6 +1684,9 @@ export default function IntakeDetailScreen() {
 
             <View style={dynamicStyles.inputGroup}>
               <Text style={dynamicStyles.label}>Checklist</Text>
+              <Text style={dynamicStyles.labelHint}>
+                Specify the documents you want to collect.
+              </Text>
               {editItems.map((item, idx) => (
                 <View key={item.id ?? `new-${idx}`} style={dynamicStyles.itemCard}>
                   <View style={dynamicStyles.itemTopRow}>

@@ -714,12 +714,15 @@ export default function CreateIntakeScreen() {
         </View>
 
         <View style={dynamicStyles.section}>
-          <View style={dynamicStyles.sectionHeaderRow}>
+          <View style={[dynamicStyles.sectionHeaderRow, { marginBottom: 0 }]}>
             <Text style={[dynamicStyles.sectionTitle, { marginBottom: 0 }]}>Checklist</Text>
             <TouchableOpacity onPress={() => setShowSaveTemplateModal(true)}>
               <Text style={dynamicStyles.linkText}>Template</Text>
             </TouchableOpacity>
           </View>
+          <Text style={[dynamicStyles.sectionSubtitle, { marginTop: 4 }]}>
+            Specify the documents you want to collect.
+          </Text>
           {items.map((item, idx) => (
             <View key={idx} style={dynamicStyles.itemCard}>
               <View style={dynamicStyles.itemTopRow}>

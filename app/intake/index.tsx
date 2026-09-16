@@ -625,6 +625,14 @@ export default function IntakeListScreen() {
     const statusColor = STATUS_COLORS[item.status] || STATUS_COLORS.draft;
     const dueColor = item.due_badge ? DUE_BADGE_COLORS[item.due_badge] : null;
     const lastFile = timeAgo(item.last_file_received_at);
+    const scheduleStatus = item.schedule?.status;
+    const scheduleColor = scheduleStatus
+      ? INTAKE_SCHEDULE_STATUS_COLORS[scheduleStatus] || INTAKE_SCHEDULE_STATUS_COLORS.active
+      : null;
+    const scheduleLabel = scheduleStatus
+      ? `Scheduled · ${INTAKE_SCHEDULE_STATUS_LABELS[scheduleStatus] || scheduleStatus}`
+      : null;
+    const subtitle = [item.client_name, item.schedule?.cadence_summary].filter(Boolean).join(' · ');
 
     return (
       <TouchableOpacity style={dynamicStyles.card} onPress={() => router.push(`/intake/${item.id}`)}>
@@ -642,10 +650,17 @@ export default function IntakeListScreen() {
               </Text>
             </View>
           )}
+          {scheduleLabel && scheduleColor ? (
+            <View style={[dynamicStyles.badge, { backgroundColor: scheduleColor.bg }]}>
+              <Text style={[dynamicStyles.badgeText, { color: scheduleColor.text }]}>
+                {scheduleLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
-        {item.client_name && (
-          <Text style={dynamicStyles.clientName} numberOfLines={1}>{item.client_name}</Text>
-        )}
+        {subtitle ? (
+          <Text style={dynamicStyles.clientName} numberOfLines={1}>{subtitle}</Text>
+        ) : null}
         <View style={dynamicStyles.progressRow}>
           <View style={dynamicStyles.progressBarBg}>
             <View style={[dynamicStyles.progressBarFill, { width: `${item.progress?.percent ?? 0}%` }]} />
