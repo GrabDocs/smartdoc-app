@@ -6614,6 +6614,7 @@ export default function ChatsScreen() {
     if (lastAtIndex === -1) {
       setShowMentionModal(false);
       setMentionQuery('');
+      setMentionStartIndex(-1);
       return;
     }
 
@@ -6630,10 +6631,12 @@ export default function ChatsScreen() {
     if (queryAfterAt.includes(' ')) {
       setShowMentionModal(false);
       setMentionQuery('');
+      setMentionStartIndex(-1);
       return;
     }
 
     setMentionQuery(queryAfterAt);
+    setMentionStartIndex(lastAtIndex);
     setShowMentionModal(true);
 
     // Reload users / workspaces / bookmarks if still empty — these are locally filtered
@@ -6702,18 +6705,29 @@ export default function ChatsScreen() {
   };
 
   const selectMention = (item: any) => {
-    // Set the selected mention (replace any previous one)
+    // Pin immediately in the chip above the composer
     setSelectedMention({
       type: item.type,
       id: item.id,
       name: item.name,
       data: item.data
     });
-    
-    // Clear the textbox since the mention is now shown in the chip above
-    setNewMessage('');
+
+    // Strip the @token from the textbox; keep any message the user already typed
+    const text = newMessageRef.current || newMessage;
+    const atIndex = mentionStartIndex >= 0 ? mentionStartIndex : text.lastIndexOf('@');
+    if (atIndex !== -1) {
+      let end = atIndex + 1;
+      while (end < text.length && text[end] !== ' ' && text[end] !== '\n') {
+        end += 1;
+      }
+      const next = `${text.slice(0, atIndex)}${text.slice(end)}`;
+      newMessageRef.current = next;
+      setNewMessage(next);
+    }
     setShowMentionModal(false);
     setMentionQuery('');
+    setMentionStartIndex(-1);
   };
 
   const removeMention = () => {

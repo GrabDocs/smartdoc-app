@@ -173,6 +173,8 @@ const MOBILE_ENDPOINTS = {
   USER_CHATS: '/api/v1/mobile/user-chat/chats',
   USER_CHAT_MESSAGES: (chatId: number) => `/api/v1/web/user-chat/chats/${chatId}/messages`,
   USER_CHAT_SEND: (chatId: number) => `/api/v1/web/user-chat/chats/${chatId}/send`,
+  USER_CHAT_DELIVERED: (chatId: number) => `/api/v1/web/user-chat/chats/${chatId}/delivered`,
+  USER_CHAT_READ: (chatId: number) => `/api/v1/web/user-chat/chats/${chatId}/read`,
   USER_CHAT_START: '/api/v1/web/user-chat/start-chat',
   USER_CHAT_SEARCH_USERS: '/api/v1/web/user-chat/search-users',
   USER_CHAT_INVITE: '/api/v1/mobile/user-chat/invite',
@@ -4734,6 +4736,36 @@ class ApiService {
       }
       
       throw new Error(errorMessage);
+    }
+  }
+
+  /**
+   * Advance delivery cursor for secure messaging (web receipt API).
+   */
+  async ackChatDelivered(chatId: number, throughMessageId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_CHAT_DELIVERED(chatId), {
+        through_message_id: throughMessageId,
+      });
+      return response.data;
+    } catch (error: any) {
+      console.debug('ackChatDelivered failed', error?.message || error);
+      throw error;
+    }
+  }
+
+  /**
+   * Advance read cursor for secure messaging (web receipt API).
+   */
+  async ackChatRead(chatId: number, throughMessageId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_CHAT_READ(chatId), {
+        through_message_id: throughMessageId,
+      });
+      return response.data;
+    } catch (error: any) {
+      console.debug('ackChatRead failed', error?.message || error);
+      throw error;
     }
   }
 

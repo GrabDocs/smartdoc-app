@@ -9,6 +9,7 @@ import {
     AccessibilityInfo,
     ActivityIndicator,
     Alert,
+    AppState,
     Dimensions,
     FlatList,
     Keyboard,
@@ -88,6 +89,8 @@ interface ChatMessage {
   created_at: string;
   /** Sender user id; used at render so sent messages always show on the right even before profile loads */
   sender_id?: number | null;
+  /** sent | delivered | read — own messages only */
+  receipt_status?: 'sent' | 'delivered' | 'read' | null;
 }
 
 export default function UserChatScreen() {
@@ -312,6 +315,7 @@ export default function UserChatScreen() {
                 is_own_message: isOwnMessage,
                 sender_id: senderId,
                 created_at: data.message.created_at,
+                receipt_status: data.message.receipt_status ?? (isOwnMessage ? 'sent' : null),
               };
               
               // Prevent duplicates and update existing messages with correct ownership
@@ -342,6 +346,40 @@ export default function UserChatScreen() {
             }
             return currentProfile;
           });
+          return currentChat;
+        });
+      });
+
+      socket.on('chat_receipts_updated', (data: any) => {
+        const chatId =
+          typeof data?.chat_id === 'string' ? parseInt(data.chat_id, 10) : data?.chat_id;
+        setSelectedChat((currentChat) => {
+          if (currentChat?.id == null || Number(chatId) !== Number(currentChat.id)) {
+            return currentChat;
+          }
+          void (async () => {
+            try {
+              const response = await api.getChatMessages(currentChat.id);
+              if (!response.success || !(response as any).messages) return;
+              const byId = new Map<number, any>(
+                (response as any).messages.map((m: any) => [Number(m.id), m])
+              );
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  const fresh = byId.get(Number(msg.id));
+                  if (!fresh) return msg;
+                  return {
+                    ...msg,
+                    receipt_status: msg.is_own_message
+                      ? fresh.receipt_status || msg.receipt_status || 'sent'
+                      : null,
+                  };
+                })
+              );
+            } catch {
+              /* non-fatal */
+            }
+          })();
           return currentChat;
         });
       });
@@ -775,9 +813,11 @@ export default function UserChatScreen() {
             is_own_message: isOwn,
             sender_id: senderId,
             created_at: msg.created_at || new Date().toISOString(),
+            receipt_status: isOwn ? (msg.receipt_status || 'sent') : null,
           };
         });
         setMessages(convertedMessages);
+        void ackReceiptsForOpenChat(chatId, convertedMessages);
       } else {
         console.warn(`⚠️ No messages found for chat ${chatId}`);
         setMessages([]);
@@ -803,6 +843,38 @@ export default function UserChatScreen() {
       }
     } finally {
       setMessagesLoading(false);
+    }
+  };
+
+  const ackThroughLatestMessageId = (msgs: ChatMessage[]): number | null => {
+    let best: ChatMessage | null = null;
+    for (const m of msgs) {
+      if (!m?.id) continue;
+      if (!best) {
+        best = m;
+        continue;
+      }
+      const t = new Date(m.created_at).getTime();
+      const bt = new Date(best.created_at).getTime();
+      if (t > bt || (t === bt && m.id > best.id)) best = m;
+    }
+    return best?.id ?? null;
+  };
+
+  const ackReceiptsForOpenChat = async (chatId: number, msgs: ChatMessage[]) => {
+    const throughId = ackThroughLatestMessageId(msgs);
+    if (!throughId) return;
+    try {
+      await api.ackChatDelivered(chatId, throughId);
+    } catch {
+      /* non-fatal */
+    }
+    if (AppState.currentState === 'active') {
+      try {
+        await api.ackChatRead(chatId, throughId);
+      } catch {
+        /* non-fatal */
+      }
     }
   };
 
@@ -1061,7 +1133,8 @@ export default function UserChatScreen() {
           sender: newMsg.sender,
           is_own_message: isOwnMessage,
           sender_id: newMsg.sender_id ?? (userId != null ? Number(userId) : undefined),
-          created_at: newMsg.created_at || new Date().toISOString()
+          created_at: newMsg.created_at || new Date().toISOString(),
+          receipt_status: isOwnMessage ? (newMsg.receipt_status || 'sent') : null,
         };
         
         // Add message locally (socket will also broadcast it, but we prevent duplicates)
@@ -1685,6 +1758,15 @@ export default function UserChatScreen() {
     otherMessageTime: {
       color: colors.textSecondary,
     },
+    receiptTick: {
+      fontSize: 11,
+      opacity: 0.85,
+      letterSpacing: -1,
+    },
+    receiptTickRead: {
+      color: '#7DD3FC',
+      opacity: 1,
+    },
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -2010,6 +2092,16 @@ export default function UserChatScreen() {
                           </Text>
                           <Text style={[dynamicStyles.messageTime, isOwnMessage ? dynamicStyles.myMessageTime : dynamicStyles.otherMessageTime]}>
                             {formatMessageTime(item.created_at)}
+                            {isOwnMessage ? (
+                              <Text
+                                style={[
+                                  dynamicStyles.receiptTick,
+                                  item.receipt_status === 'read' && dynamicStyles.receiptTickRead,
+                                ]}
+                              >
+                                {item.receipt_status === 'sent' || !item.receipt_status ? ' ✓' : ' ✓✓'}
+                              </Text>
+                            ) : null}
                           </Text>
                         </View>
                       </View>
@@ -2172,6 +2264,16 @@ export default function UserChatScreen() {
                           </Text>
                           <Text style={[dynamicStyles.messageTime, isOwnMessage ? dynamicStyles.myMessageTime : dynamicStyles.otherMessageTime]}>
                             {formatMessageTime(item.created_at)}
+                            {isOwnMessage ? (
+                              <Text
+                                style={[
+                                  dynamicStyles.receiptTick,
+                                  item.receipt_status === 'read' && dynamicStyles.receiptTickRead,
+                                ]}
+                              >
+                                {item.receipt_status === 'sent' || !item.receipt_status ? ' ✓' : ' ✓✓'}
+                              </Text>
+                            ) : null}
                           </Text>
                         </View>
                       </View>
