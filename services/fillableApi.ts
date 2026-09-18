@@ -71,7 +71,8 @@ export async function resolveFillableTemplateForFile(
 }
 
 const FILLABLE_READY_POLL_MS = 1500;
-const FILLABLE_READY_MAX_ATTEMPTS = 24;
+/** Office conversion can exceed ~36s; wait up to ~2 minutes. */
+const FILLABLE_READY_MAX_ATTEMPTS = 80;
 
 /**
  * Poll until page images exist for an existing fillable template (PDF/rasterization ready).
@@ -102,7 +103,7 @@ export async function waitForFillablePageImages(
       await new Promise((r) => setTimeout(r, FILLABLE_READY_POLL_MS));
     }
   }
-  throw lastError ?? new Error('Document preview is still being prepared. Try again in a moment.');
+  throw lastError ?? new Error('Document preview is still converting. Large Office files can take a couple of minutes — try again shortly.');
 }
 
 /**
@@ -124,6 +125,27 @@ export async function ensureFillableTemplateReady(
   }
   await waitForFillablePageImages(templateId);
   return { templateId };
+}
+
+export interface FillableTemplateFromLibrary {
+  id: number;
+  public_id?: string;
+  name: string;
+  file_id?: number;
+  updated_at?: string;
+}
+
+/** Active templates cloned from a My Files library file, newest first. */
+export async function listFillableTemplatesFromLibrary(fileId: number) {
+  try {
+    const { data } = await apiClient.client.get<{
+      success?: boolean;
+      templates?: FillableTemplateFromLibrary[];
+    }>(`${BASE}/from-library`, { params: { file_id: fileId } });
+    return data?.templates ?? [];
+  } catch (e: unknown) {
+    throw fillableApiError(e, 'Could not check existing fillable templates');
+  }
 }
 
 export async function listFillableTemplates(search?: string) {

@@ -97,12 +97,13 @@ export async function uploadFormDataWithGlobalProgress(
 }
 
 /**
- * Upload a PDF and create a fillable template for the prepare/fill step.
+ * Upload a document and create a fillable template for the prepare/fill step.
+ * PDF, Office, images, RTF, HTML, and text are converted server-side as needed.
  *
  * By default waits until page previews exist. Pass `{ waitForPages: false }` to
  * return as soon as the template id exists so document lists can update immediately.
  */
-export async function uploadPdfForSignature(
+export async function uploadDocumentForFillable(
   asset: { uri: string; name?: string | null; mimeType?: string | null },
   options?: { waitForPages?: boolean },
 ): Promise<{ fileId: number; templateId: number; displayName: string }> {

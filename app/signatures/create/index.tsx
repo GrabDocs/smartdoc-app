@@ -14,7 +14,7 @@ import ClientsButton from '../../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { UploadOptionsModal } from '../../components/UploadOptionsModal';
 import DocumentSourcePicker, {
-  pickDocumentsLikeFilesScreen,
+  pickDocumentsForFillable,
   pickGalleryImagesLikeFilesScreen } from '../../../components/signatures/DocumentSourcePicker';
 import { useEnvelopeDraft } from '../../../hooks/useEnvelopeDraft';
 import { useMinimizableSheet } from '../../../hooks/useMinimizableSheet';
@@ -22,7 +22,7 @@ import { useThemeColors } from '../../../hooks/useThemeColors';
 import { useAuth } from '../../context/auth';
 import { createEnvelope, getEnvelope, replaceDocuments, updateEnvelopeDraft } from '../../../services/envelopeApi';
 import { setItemClients } from '../../../services/clientsApi';
-import { uploadPdfForSignature } from '../../../services/uploadWithGlobalProgress';
+import { uploadDocumentForFillable } from '../../../services/uploadWithGlobalProgress';
 import type { SourceInput, WizardSourceDraft } from '../../../types/signature';
 import { saveDraftStep } from '../../../services/signatureSessionCache';
 import { useFileStore } from '../../../stores/fileStore';
@@ -103,7 +103,7 @@ export default function CreateEnvelopeScreen() {
       for (const asset of assets) {
         // Return as soon as the file + template exist so the Documents list updates
         // immediately — do not block on page-image rasterization.
-        const { templateId, displayName } = await uploadPdfForSignature(
+        const { templateId, displayName } = await uploadDocumentForFillable(
           {
             uri: asset.uri,
             name: asset.name ?? 'Document',
@@ -148,7 +148,7 @@ export default function CreateEnvelopeScreen() {
     try {
       setUploading(true);
       await useFileStore.getState().forceResetDocumentPicker();
-      const assets = await pickDocumentsLikeFilesScreen();
+      const assets = await pickDocumentsForFillable();
       if (!assets?.length) return;
       await addSignatureUploads(assets);
     } catch (e: unknown) {

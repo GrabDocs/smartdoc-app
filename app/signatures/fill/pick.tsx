@@ -18,7 +18,7 @@ import FileNameText from '../../../components/FileNameText';
 import { useFillDocumentPickList } from '../../../hooks/useFillDocumentPickList';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import type { FillPickFile } from '../../../services/fillDocumentListCache';
-import { ensureFillableTemplateReady } from '../../../services/fillableApi';
+import { ensureFillableTemplateReady, listFillableTemplatesFromLibrary } from '../../../services/fillableApi';
 import { formatDateToLocal } from '../../../utils/timeFormatting';
 import { hubFillEditorRoute } from '../../../utils/signatureRouteResolver';
 
@@ -70,16 +70,58 @@ export default function FillDocumentPickScreen() {
   const openFile = useCallback(
     async (file: FillPickFile) => {
       if (openingId != null) return;
+
+      const proceedNew = async () => {
+        setOpeningId(file.id);
+        setOpeningLabel('Preparing document…');
+        try {
+          const { templateId } = await ensureFillableTemplateReady(file.id, file.name);
+          router.replace(hubFillEditorRoute(templateId));
+        } catch (e: unknown) {
+          Alert.alert('Error', e instanceof Error ? e.message : 'Could not open document');
+          setOpeningId(null);
+          setOpeningLabel(null);
+        }
+      };
+
       setOpeningId(file.id);
-      setOpeningLabel('Preparing document…');
       try {
-        const { templateId } = await ensureFillableTemplateReady(file.id, file.name);
-        router.replace(hubFillEditorRoute(templateId));
+        let existing: Awaited<ReturnType<typeof listFillableTemplatesFromLibrary>> = [];
+        try {
+          existing = await listFillableTemplatesFromLibrary(file.id);
+        } catch {
+          existing = [];
+        }
+        if (existing.length > 0) {
+          const latest = existing[0];
+          const extraCount = existing.length - 1;
+          setOpeningId(null);
+          Alert.alert(
+            'Already prepared',
+            extraCount > 0
+              ? `You already have ${existing.length} fillable copies of "${file.name}". Open the latest, or make another?`
+              : `"${file.name}" already has a fillable template. Open it, or make another copy?`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Make another', onPress: () => void proceedNew() },
+              {
+                text: extraCount > 0 ? 'Open latest' : 'Open existing',
+                onPress: () => {
+                  router.replace(hubFillEditorRoute(latest.public_id || latest.id));
+                },
+              },
+            ],
+          );
+          return;
+        }
       } catch (e: unknown) {
         Alert.alert('Error', e instanceof Error ? e.message : 'Could not open document');
         setOpeningId(null);
         setOpeningLabel(null);
+        return;
       }
+
+      await proceedNew();
     },
     [openingId, router],
   );

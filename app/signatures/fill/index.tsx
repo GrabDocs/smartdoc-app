@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { pickDocumentForFill } from '../../../components/signatures/DocumentSourcePicker';
 import { useThemeColors } from '../../../hooks/useThemeColors';
-import { uploadPdfForSignature } from '../../../services/uploadWithGlobalProgress';
+import { uploadDocumentForFillable } from '../../../services/uploadWithGlobalProgress';
 import { hubFillEditorRoute, hubFillPickRoute } from '../../../utils/signatureRouteResolver';
 
 import AppBackButton from '../../../components/AppBackButton';
@@ -28,7 +28,7 @@ export default function FillEntryScreen() {
       setBusy(true);
       const asset = await pickDocumentForFill();
       if (!asset?.uri) return;
-      const { templateId } = await uploadPdfForSignature(asset);
+      const { templateId } = await uploadDocumentForFillable(asset);
       router.replace(hubFillEditorRoute(templateId));
     } catch (e: unknown) {
       Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again');
@@ -49,7 +49,7 @@ export default function FillEntryScreen() {
           <Ionicons name="create-outline" size={32} color={colors.primary} />
           <Text style={[styles.heroTitle, { color: colors.text }]}>Complete it yourself</Text>
           <Text style={[styles.heroText, { color: colors.textSecondary }]}>
-            Fill is for finishing a PDF on your own — signature, initials, text, and checkboxes.
+            Fill is for finishing a document on your own — signature, initials, text, and checkboxes.
             It is not the same as sending a document out for others to sign.
           </Text>
         </View>

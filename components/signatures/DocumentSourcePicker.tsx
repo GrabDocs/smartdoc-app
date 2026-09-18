@@ -61,7 +61,7 @@ export default function DocumentSourcePicker({
           </View>
           <Text style={[styles.emptyTitle, { color: colors.text }]}>Upload document</Text>
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-            PDF, images, or Word files
+            PDF, Office, images, or text
           </Text>
         </TouchableOpacity>
       ) : (
@@ -170,6 +170,25 @@ const FILES_SCREEN_DOCUMENT_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ] as const;
 
+/** Types Fill and signature-create accept (CSV/txt are covered by text/*). */
+export const FILLABLE_DOCUMENT_TYPES = [
+  'application/pdf',
+  'text/*',
+  'text/html',
+  'application/rtf',
+  'text/rtf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
+  'image/*',
+] as const;
+
 function enforceMobileUploadLimit(count: number): boolean {
   const isMobile = Platform.OS === 'ios' || Platform.OS === 'android';
   if (isMobile && count > 3) {
@@ -216,22 +235,24 @@ export async function pickGalleryImagesLikeFilesScreen(): Promise<
   }));
 }
 
-/** Pick a document for Fill — PDF, text, or office formats (converted server-side). */
+/** Pick a document for Fill — PDF, text, HTML, RTF, OpenDocument, or Office. */
 export async function pickDocumentForFill(): Promise<DocumentPicker.DocumentPickerAsset | null> {
   const result = await DocumentPicker.getDocumentAsync({
-    type: [
-      'application/pdf',
-      'text/*',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'image/*',
-    ],
+    type: [...FILLABLE_DOCUMENT_TYPES],
     copyToCacheDirectory: true,
   });
   if (result.canceled || !result.assets?.[0]) return null;
   return result.assets[0];
+}
+
+/** Same types as Fill, multiple selection — used by signature create (not intake). */
+export async function pickDocumentsForFillable(): Promise<DocumentPicker.DocumentPickerAsset[] | null> {
+  const result = await DocumentPicker.getDocumentAsync({
+    type: [...FILLABLE_DOCUMENT_TYPES],
+    multiple: true,
+    copyToCacheDirectory: true,
+  });
+  if (result.canceled || !result.assets?.length) return null;
+  if (!enforceMobileUploadLimit(result.assets.length)) return null;
+  return result.assets;
 }
