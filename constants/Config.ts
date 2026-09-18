@@ -285,6 +285,8 @@ export const STORAGE_KEYS = {
   WIFI_ONLY_UPLOAD: 'wifi_only_upload',
   /** Full mobile settings preferences blob (display, upload, privacy, etc.). */
   USER_PREFERENCES: 'user_app_preferences',
+  /** Epoch ms until Extra AI Credits banner may show again off Usage. */
+  EXTRA_AI_BANNER_DISMISS: 'extra_ai_credits_banner_dismiss_until',
 } as const;
 
 /** After API/network failures, wait this long before showing the orange offline banner (reduces flicker on brief outages). */

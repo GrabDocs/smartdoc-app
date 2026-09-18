@@ -32,6 +32,7 @@ import {
   topupPackPriceUsd,
   usagePercent,
   type BillingInvoice,
+  type ExtraAiCreditsInfo,
   type SettingsUsageStatsResponse,
   type TopupPack,
 } from '../../services/subscriptionApi';
@@ -39,6 +40,7 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ExtraAiCreditsBanner from '../../components/ExtraAiCreditsBanner';
 
 type Segment = 'usage' | 'billing';
 
@@ -55,6 +57,7 @@ type TransformedUsage = {
   billingAdminEmail?: string | null;
   billingStatusMessage?: string | null;
   memberBreakdown: NonNullable<SettingsUsageStatsResponse['member_breakdown']>;
+  extraAi: ExtraAiCreditsInfo | null;
   subscription?: SettingsUsageStatsResponse['subscription'];
   metrics: {
     key: string;
@@ -93,6 +96,7 @@ function transformStats(data: SettingsUsageStatsResponse): TransformedUsage {
     billingAdminEmail: data.billing_admin_email,
     billingStatusMessage: data.billing_status_message,
     memberBreakdown: Array.isArray(data.member_breakdown) ? data.member_breakdown : [],
+    extraAi: data.extra_ai_credits || null,
     subscription: data.subscription
       ? {
           ...data.subscription,
@@ -685,6 +689,14 @@ export default function BillingScreen() {
             </Text>
           ) : null}
         </View>
+
+        <ExtraAiCreditsBanner
+          extraAi={usage.extraAi}
+          canManageBilling={usage.canManageBilling}
+          billingAdminEmail={usage.billingAdminEmail}
+          persistent
+          userId={user?.id}
+        />
 
         {usage.metrics.map(renderMetric)}
 

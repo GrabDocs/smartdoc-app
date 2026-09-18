@@ -5,6 +5,16 @@ const client = () => apiClient.client;
 export const PRICING_URL = 'https://grabdocs.com/pricing';
 export const STRIPE_PORTAL_RETURN_URL = 'grabdocs://billing';
 
+export type ExtraAiCreditsInfo = {
+  in_extra_credits?: boolean;
+  used?: number;
+  tokens_overage?: number;
+  next_bill_cents?: number;
+  overage_amount_cents?: number;
+  rate?: number;
+  can_add_credits?: boolean;
+};
+
 export type UsageMetric = {
   used?: number;
   limit?: number;
@@ -51,6 +61,8 @@ export type SettingsUsageStatsResponse = {
   billing_status_message?: string | null;
   is_billing_admin?: boolean;
   can_manage_billing?: boolean;
+  extra_ai_credits?: ExtraAiCreditsInfo | null;
+  debug_info?: { user_id?: number };
   subscription?: {
     plan?: { display_name?: string };
     is_active?: boolean;

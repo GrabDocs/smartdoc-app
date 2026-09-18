@@ -42,6 +42,7 @@ import { io, Socket } from 'socket.io-client';
 import AssistantMessageBody from '../../components/AssistantMessageBody';
 import ChartImageModal from '../../components/ChartImageModal';
 import ChatConnectivityBanner from '../../components/ChatConnectivityBanner';
+import ExtraAiCreditsBanner from '../../components/ExtraAiCreditsBanner';
 import InAppWebViewModal, { shouldUseExternalLinking } from '../../components/InAppWebViewModal';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import GeneralFileViewerModal from '../../components/GeneralFileViewerModal';
@@ -8536,6 +8537,10 @@ export default function ChatsScreen() {
             </View>
           </View>
         )}
+
+        <View style={{ marginHorizontal: 12 }}>
+          <ExtraAiCreditsBanner userId={authUser?.id} />
+        </View>
 
         <ChatConnectivityBanner
           visible={offlineBannerVisible}
