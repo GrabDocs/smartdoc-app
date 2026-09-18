@@ -43,7 +43,6 @@ import {
   NUDGE_COMPRESS_MS,
 } from '../utils/fillable';
 import {
-  getFillableTemplate,
   saveFillableTemplateFields,
   waitForFillablePageImages,
 } from '../services/fillableApi';
@@ -66,6 +65,8 @@ export interface PrepareEditorState {
   isDirty: boolean;
   isSaving: boolean;
   isLoading: boolean;
+  /** True while backend returns PDF_CONVERTING (worker LibreOffice). */
+  isConverting: boolean;
   loadError: string | null;
   templateName: string;
   currentPage: number;
@@ -149,6 +150,7 @@ export function usePrepareEditor(): PrepareEditorState & PrepareEditorActions {
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isConverting, setIsConverting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
@@ -258,13 +260,14 @@ export function usePrepareEditor(): PrepareEditorState & PrepareEditorActions {
   // ─── load ────────────────────────────────────────────────────────────────
   const load = useCallback(async (templateId: string | number) => {
     setIsLoading(true);
+    setIsConverting(false);
     setLoadError(null);
     try {
-      let tpl = await getFillableTemplate(templateId);
-      // Newly uploaded docs may not have page images yet — poll until ready.
-      if (!(tpl.page_images ?? []).length) {
-        tpl = await waitForFillablePageImages(templateId);
-      }
+      // Poll through PDF_CONVERTING (worker) and empty page_images the same way web does.
+      const tpl = await waitForFillablePageImages(templateId, {
+        onConverting: () => setIsConverting(true),
+      });
+      setIsConverting(false);
       const allFields = tpl.json_fields?.fields ?? [];
       setFields(allFields.filter((f) => !f.deleted));
       setDeletedFields(allFields.filter((f) => f.deleted));
@@ -277,6 +280,7 @@ export function usePrepareEditor(): PrepareEditorState & PrepareEditorActions {
       setRedoStack([]);
       setIsDirty(false);
     } catch (e: unknown) {
+      setIsConverting(false);
       setLoadError(e instanceof Error ? e.message : 'Failed to load template');
     } finally {
       setIsLoading(false);
@@ -682,7 +686,7 @@ export function usePrepareEditor(): PrepareEditorState & PrepareEditorActions {
   }, [snapshotSelectionToClipboard, pasteClipboardFields]);
 
   return {
-    fields, deletedFields, isDirty, isSaving, isLoading, loadError, templateName,
+    fields, deletedFields, isDirty, isSaving, isLoading, isConverting, loadError, templateName,
     currentPage, totalPages, pageImages,
     pageDimensions, viewportSize, zoomLevel, scrollPos, scrollCommandNonce,
     renderedSize, fitScale,

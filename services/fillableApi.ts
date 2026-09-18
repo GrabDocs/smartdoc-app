@@ -30,11 +30,54 @@ export interface FillableTemplateListItem {
   active_envelope_public_id?: string | null;
 }
 
+export const PDF_CONVERTING = 'PDF_CONVERTING';
+
+export type PdfConvertingError = Error & {
+  error_code: typeof PDF_CONVERTING;
+  retry_after: number;
+  status?: number;
+};
+
+export function isPdfConvertingError(err: unknown): err is PdfConvertingError {
+  return (
+    !!err &&
+    typeof err === 'object' &&
+    'error_code' in err &&
+    (err as { error_code?: string }).error_code === PDF_CONVERTING
+  );
+}
+
+function makePdfConvertingError(
+  message?: string,
+  retryAfter?: number,
+  status?: number,
+): PdfConvertingError {
+  const err = new Error(
+    (typeof message === 'string' && message.trim()) ||
+      'Preparing this document — please try again in a few seconds.',
+  ) as PdfConvertingError;
+  err.error_code = PDF_CONVERTING;
+  err.retry_after = Math.max(1, Number(retryAfter) || 3);
+  if (status != null) err.status = status;
+  return err;
+}
+
 function fillableApiError(err: unknown, fallback: string): Error {
+  if (isPdfConvertingError(err)) return err;
   if (err && typeof err === 'object' && 'response' in err) {
     const ax = err as {
-      response?: { data?: { message?: string; error_code?: string }; status?: number };
+      response?: {
+        data?: { message?: string; error_code?: string; retry_after?: number };
+        status?: number;
+      };
     };
+    if (ax.response?.data?.error_code === PDF_CONVERTING || ax.response?.status === 202) {
+      return makePdfConvertingError(
+        ax.response?.data?.message,
+        ax.response?.data?.retry_after,
+        ax.response?.status,
+      );
+    }
     const msg = ax.response?.data?.message;
     if (typeof msg === 'string' && msg.trim()) return new Error(msg.trim());
     if (ax.response?.status === 401) return new Error('Please sign in again.');
@@ -47,12 +90,14 @@ function fillableApiError(err: unknown, fallback: string): Error {
 }
 
 function isNonRetryableFillableError(err: unknown): boolean {
+  if (isPdfConvertingError(err)) return false;
   if (!(err && typeof err === 'object' && 'response' in err)) return false;
   const ax = err as {
     response?: { data?: { error_code?: string }; status?: number };
   };
   const status = ax.response?.status;
   const code = ax.response?.data?.error_code;
+  if (code === PDF_CONVERTING) return false;
   if (code === 'FILL_SOURCE_UNSUPPORTED' || code === 'FILL_SOURCE_UNAVAILABLE') return true;
   return status === 400 || status === 422;
 }
@@ -71,14 +116,16 @@ export async function resolveFillableTemplateForFile(
 }
 
 const FILLABLE_READY_POLL_MS = 1500;
-/** Office conversion can exceed ~36s; wait up to ~2 minutes. */
-const FILLABLE_READY_MAX_ATTEMPTS = 80;
+/** Matches web prepare (~20 × 3s) with headroom for slow Office converts. */
+const FILLABLE_READY_MAX_ATTEMPTS = 40;
 
 /**
  * Poll until page images exist for an existing fillable template (PDF/rasterization ready).
+ * Retries on PDF_CONVERTING (worker LibreOffice) the same way web prepare/fill do.
  */
 export async function waitForFillablePageImages(
   templateId: number | string,
+  options?: { onConverting?: () => void },
 ): Promise<FillableTemplate> {
   let lastError: Error | null = null;
   for (let attempt = 0; attempt < FILLABLE_READY_MAX_ATTEMPTS; attempt++) {
@@ -90,6 +137,17 @@ export async function waitForFillablePageImages(
       }
     } catch (e: unknown) {
       lastError = fillableApiError(e, 'Could not prepare document preview');
+      if (isPdfConvertingError(lastError)) {
+        options?.onConverting?.();
+        if (attempt < FILLABLE_READY_MAX_ATTEMPTS - 1) {
+          const delayMs = lastError.retry_after * 1000;
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        throw new Error(
+          'This document is taking longer than expected to prepare. Please try again shortly.',
+        );
+      }
       // Retry while the backend rasterizes; fail fast on permanent errors.
       const status =
         e && typeof e === 'object' && 'response' in e
@@ -164,13 +222,19 @@ export async function getFillableTemplate(
   id: number | string,
 ): Promise<FillableTemplate> {
   try {
-    const { data } = await apiClient.client.get<{
+    const response = await apiClient.client.get<{
       success?: boolean;
-      template: FillableTemplate;
+      template?: FillableTemplate;
       page_images?: string[];
       page_count?: number;
       message?: string;
+      error_code?: string;
+      retry_after?: number;
     }>(`${BASE}/${id}`);
+    const { data, status } = response;
+    if (status === 202 || data?.error_code === PDF_CONVERTING) {
+      throw makePdfConvertingError(data?.message, data?.retry_after, status);
+    }
     if (!data?.template) {
       throw new Error(data?.message || 'Template not found');
     }

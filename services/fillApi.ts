@@ -1,5 +1,10 @@
 import type { WizardField } from '../types/signature';
 import { apiClient } from './api';
+import {
+  isPdfConvertingError,
+  PDF_CONVERTING,
+  type PdfConvertingError,
+} from './fillableApi';
 
 export interface FillDocumentResponse {
   template_id: number;
@@ -62,8 +67,24 @@ export function normalizePageImagesBase64(images: string[]): string[] {
 }
 
 function fillApiError(err: unknown, fallback: string): Error {
+  if (isPdfConvertingError(err)) return err;
   if (err && typeof err === 'object' && 'response' in err) {
-    const ax = err as { response?: { data?: { message?: string }; status?: number } };
+    const ax = err as {
+      response?: {
+        data?: { message?: string; error_code?: string; retry_after?: number };
+        status?: number;
+      };
+    };
+    if (ax.response?.data?.error_code === PDF_CONVERTING || ax.response?.status === 202) {
+      const converting = new Error(
+        (ax.response?.data?.message || '').trim() ||
+          'Preparing this document — please try again in a few seconds.',
+      ) as PdfConvertingError;
+      converting.error_code = PDF_CONVERTING;
+      converting.retry_after = Math.max(1, Number(ax.response?.data?.retry_after) || 3);
+      converting.status = ax.response?.status;
+      return converting;
+    }
     const msg = ax.response?.data?.message;
     if (typeof msg === 'string' && msg.trim()) return new Error(msg.trim());
     if (ax.response?.status === 401) return new Error('Please sign in again.');
@@ -92,16 +113,73 @@ export async function getFillDocument(
   token: string,
   submissionId?: number,
 ): Promise<FillDocumentResponse> {
-  const { data } = await apiClient.client.get<FillDocumentResponse & { success?: boolean }>(
-    '/api/v1/web/share/fill-document',
-    {
+  try {
+    const response = await apiClient.client.get<
+      FillDocumentResponse & {
+        success?: boolean;
+        message?: string;
+        error_code?: string;
+        retry_after?: number;
+      }
+    >('/api/v1/web/share/fill-document', {
       params: {
         token,
         submission_id: submissionId,
       },
-    },
-  );
-  return data;
+    });
+    const { data, status } = response;
+    if (status === 202 || data?.error_code === PDF_CONVERTING) {
+      throw fillApiError(
+        { response: { data, status } },
+        'Preparing this document — please try again in a few seconds.',
+      );
+    }
+    if (data?.success === false) {
+      throw fillApiError(
+        { response: { data, status } },
+        data?.message || 'Could not load document',
+      );
+    }
+    return data;
+  } catch (e: unknown) {
+    throw fillApiError(e, 'Could not load document');
+  }
+}
+
+const FILL_DOC_READY_MAX_ATTEMPTS = 40;
+
+/** Poll shared fill-document until PDF conversion finishes (mirrors web fill). */
+export async function waitForFillDocument(
+  token: string,
+  submissionId?: number,
+  options?: { onConverting?: () => void },
+): Promise<FillDocumentResponse> {
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < FILL_DOC_READY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const doc = await getFillDocument(token, submissionId);
+      if ((doc.page_images ?? []).length > 0) return doc;
+      lastError = new Error('Document pages are not ready yet.');
+    } catch (e: unknown) {
+      lastError = fillApiError(e, 'Could not load document');
+      if (isPdfConvertingError(lastError)) {
+        options?.onConverting?.();
+        if (attempt < FILL_DOC_READY_MAX_ATTEMPTS - 1) {
+          const delayMs = lastError.retry_after * 1000;
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        throw new Error(
+          'This document is taking longer than expected to prepare. Please try again shortly.',
+        );
+      }
+      throw lastError;
+    }
+    if (attempt < FILL_DOC_READY_MAX_ATTEMPTS - 1) {
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+  throw lastError ?? new Error('Could not load document');
 }
 
 /** Create an edit/view share link for owner or recipient fill sessions. */

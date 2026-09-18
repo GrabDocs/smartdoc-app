@@ -232,7 +232,9 @@ export default function FillDocumentEditorScreen() {
       <SafeAreaView style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.statusText, { color: colors.textSecondary }]}>
-          Loading document…
+          {editor.isConverting
+            ? 'Preparing document… this can take a bit longer the first time.'
+            : 'Loading document…'}
         </Text>
       </SafeAreaView>
     );

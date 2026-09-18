@@ -16,7 +16,7 @@ import {
   View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../../hooks/useThemeColors';
-import { getFillDocument, type FillDocumentResponse } from '../../../services/fillApi';
+import { waitForFillDocument, type FillDocumentResponse } from '../../../services/fillApi';
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
@@ -27,6 +27,7 @@ export default function FillSessionScreen() {
   const colors = useThemeColors();
   const { token } = useLocalSearchParams<{ token: string }>();
   const [loading, setLoading] = useState(true);
+  const [converting, setConverting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [doc, setDoc] = useState<FillDocumentResponse | null>(null);
 
@@ -37,11 +38,16 @@ export default function FillSessionScreen() {
       return;
     }
     setLoading(true);
+    setConverting(false);
     setError(null);
     try {
-      const data = await getFillDocument(token);
+      const data = await waitForFillDocument(token, undefined, {
+        onConverting: () => setConverting(true),
+      });
       setDoc(data);
+      setConverting(false);
     } catch (e: unknown) {
+      setConverting(false);
       setError(e instanceof Error ? e.message : 'Could not load document');
     } finally {
       setLoading(false);
@@ -56,7 +62,11 @@ export default function FillSessionScreen() {
     return (
       <SafeAreaView style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textSecondary, marginTop: 12 }}>Loading document…</Text>
+        <Text style={{ color: colors.textSecondary, marginTop: 12, textAlign: 'center', paddingHorizontal: 24 }}>
+          {converting
+            ? 'Preparing document… this can take a bit longer the first time.'
+            : 'Loading document…'}
+        </Text>
       </SafeAreaView>
     );
   }

@@ -96,7 +96,9 @@ export default function PreparePdfScreen() {
       <SafeAreaView style={[styles.centered, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
         <Text style={[styles.statusText, { color: colors.textSecondary }]}>
-          Loading template…
+          {editor.isConverting
+            ? 'Preparing document for editing… this can take a bit longer the first time.'
+            : 'Loading template…'}
         </Text>
       </SafeAreaView>
     );
