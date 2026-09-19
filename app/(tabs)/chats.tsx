@@ -1796,18 +1796,22 @@ export default function ChatsScreen() {
         };
       }, []);
 
-      // Join/leave chat room when user chat is selected (only user_direct and workspace use socket rooms)
+      // Join/leave chat room when user chat is selected (only user_direct and workspace use socket rooms).
+      // Key on id+type so object-identity refreshes don't leave/rejoin and drop typing briefly.
       useEffect(() => {
-        const needsRoom = selectedChat && (selectedChat.type === 'user_direct' || selectedChat.type === 'workspace');
+        const chatId = selectedChat?.id;
+        const needsRoom =
+          chatId != null &&
+          (selectedChat?.type === 'user_direct' || selectedChat?.type === 'workspace');
         if (needsRoom && socketRef.current && isSocketConnected) {
-          socketRef.current.emit('join_chat_room', { chat_id: selectedChat.id });
+          socketRef.current.emit('join_chat_room', { chat_id: chatId });
           return () => {
             if (socketRef.current && isSocketConnected) {
-              socketRef.current.emit('leave_chat_room', { chat_id: selectedChat.id });
+              socketRef.current.emit('leave_chat_room', { chat_id: chatId });
             }
           };
         }
-      }, [selectedChat, isSocketConnected]);
+      }, [selectedChat?.id, selectedChat?.type, isSocketConnected]);
 
   // Initial data load is handled by useFocusEffect below — it fires on first mount AND
   // on every subsequent screen focus, so a separate mount-only useEffect would cause a
