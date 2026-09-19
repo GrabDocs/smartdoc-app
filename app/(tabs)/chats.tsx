@@ -1680,19 +1680,25 @@ export default function ChatsScreen() {
       // Listen for typing indicators
       socket.on('chat_typing', (data: any) => {
         if (!data || data.chat_id == null || data.user_id == null) return;
+
+        const incomingChatId =
+          typeof data.chat_id === 'string' ? parseInt(data.chat_id, 10) : data.chat_id;
+        const incomingUserId =
+          typeof data.user_id === 'string' ? parseInt(data.user_id, 10) : data.user_id;
+        if (Number.isNaN(incomingChatId) || Number.isNaN(incomingUserId)) return;
         
         // Use state setters with function form to access latest values
         setSelectedChat(currentChat => {
           if (currentChat && (currentChat.type === 'user_direct' || currentChat.type === 'workspace')) {
             const userId = userProfileRef.current?.data?.id || userProfileRef.current?.id;
-            if (data.chat_id === currentChat.id && data.user_id !== userId) {
+            if (incomingChatId === currentChat.id && incomingUserId !== userId) {
               if (data.is_typing) {
                 // Try to get username from multiple sources (same as web)
                 let displayName: string | null = null;
                 
                 // 1. Check participants first
                 const participant = currentChat?.participants?.find((p: any) => 
-                  p.id === data.user_id || p.user_id === data.user_id
+                  p.id === incomingUserId || p.user_id === incomingUserId
                 );
                 
                 if (participant) {
@@ -1712,7 +1718,7 @@ export default function ChatsScreen() {
                     if (currentMessages.length > 0) {
                       const reversed = [...currentMessages].reverse();
                       const matchedMsg = reversed.find((m) => 
-                        m.sender && (m.sender.id === data.user_id || (m.sender as any).user_id === data.user_id)
+                        m.sender && (m.sender.id === incomingUserId || (m.sender as any).user_id === incomingUserId)
                       );
                       if (matchedMsg && matchedMsg.sender) {
                         const sender = matchedMsg.sender as any;
@@ -1732,7 +1738,7 @@ export default function ChatsScreen() {
                 // 3. Fallback to users list (already loaded for mentions) - use state setter to get latest
                 if (!displayName) {
                   setUsers(currentUsers => {
-                    const userFromList = currentUsers.find((u: any) => u.id === data.user_id) as any;
+                    const userFromList = currentUsers.find((u: any) => u.id === incomingUserId) as any;
                     if (userFromList) {
                       if (userFromList.firstName && userFromList.lastName) {
                         displayName = `${userFromList.firstName} ${userFromList.lastName}`.trim();
@@ -1745,11 +1751,11 @@ export default function ChatsScreen() {
                 }
                 
                 const username = displayName || 'Someone';
-                setTypingUsers(prev => ({ ...prev, [data.user_id]: username }));
+                setTypingUsers(prev => ({ ...prev, [incomingUserId]: username }));
               } else {
                 setTypingUsers(prev => {
                   const updated = { ...prev };
-                  delete updated[data.user_id];
+                  delete updated[incomingUserId];
                   return updated;
                 });
               }
