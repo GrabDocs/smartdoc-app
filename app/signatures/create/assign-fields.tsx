@@ -18,13 +18,43 @@ import { useAuth } from '../../context/auth';
 import { getEnvelope, putFieldAssignments } from '../../../services/envelopeApi';
 import { getFillableTemplate } from '../../../services/fillableApi';
 import { apiService } from '../../../services/api';
-import type { Envelope, EnvelopeDocument, FieldAssignmentInput, WizardField } from '../../../types/signature';
+import type {
+  Envelope,
+  EnvelopeDocument,
+  FieldAssignmentInput,
+  FieldType,
+  WizardField,
+} from '../../../types/signature';
 import { makeFieldKey } from '../../../utils/fieldKeys';
+import { FIELD_DEFAULTS } from '../../../utils/fillable';
 import { validateSignerFieldCoverage } from '../../../utils/signatureAssignmentCoverage';
 import { saveDraftStep } from '../../../services/signatureSessionCache';
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+
+const FIELD_TYPE_LABELS: Record<string, string> = {
+  signature: 'Signature',
+  initials: 'Initials',
+  date: 'Date',
+  text: 'Text',
+  checkbox: 'Checkbox',
+};
+
+function displayNameForField(
+  fieldKey: string,
+  fieldType: string | undefined,
+  labelsByKey: Record<string, string>,
+): string {
+  const fromMeta = labelsByKey[fieldKey]?.trim();
+  if (fromMeta) return fromMeta;
+  const typeKey = (fieldType || '').toLowerCase();
+  return (
+    FIELD_TYPE_LABELS[typeKey] ||
+    FIELD_DEFAULTS[typeKey as FieldType]?.label ||
+    (fieldType ? String(fieldType) : 'Field')
+  );
+}
 
 export default function AssignFieldsScreen() {
   const { envelopeId } = useLocalSearchParams<{ envelopeId: string }>();
@@ -33,6 +63,7 @@ export default function AssignFieldsScreen() {
   const { user } = useAuth();
   const [envelope, setEnvelope] = useState<Envelope | null>(null);
   const [assignments, setAssignments] = useState<FieldAssignmentInput[]>([]);
+  const [fieldLabelsByKey, setFieldLabelsByKey] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -52,6 +83,9 @@ export default function AssignFieldsScreen() {
         const res = await getEnvelope(envelopeId);
         if (cancelled) return;
         setEnvelope(res.envelope);
+        const { labels, defaults } = await loadFieldMetaAndDefaults(res.envelope);
+        if (cancelled) return;
+        setFieldLabelsByKey(labels);
         const existing = res.envelope.field_assignments ?? [];
         if (existing.length) {
           setAssignments(
@@ -63,9 +97,7 @@ export default function AssignFieldsScreen() {
               required: a.required })),
           );
         } else {
-          const built = await buildDefaultAssignments(res.envelope);
-          if (cancelled) return;
-          setAssignments(built);
+          setAssignments(defaults);
         }
       } catch (e: unknown) {
         if (!cancelled) {
@@ -195,7 +227,7 @@ export default function AssignFieldsScreen() {
                         onPress={() => pickRecipient(globalIdx)}
                       >
                         <Text style={{ color: colors.text, flex: 1 }} numberOfLines={1}>
-                          {a.field_key}
+                          {displayNameForField(a.field_key, a.field_type, fieldLabelsByKey)}
                         </Text>
                         <Text style={{ color: colors.primary, fontSize: 13 }}>
                           {signer?.name || signer?.email || 'Unassigned'}
@@ -236,23 +268,39 @@ export default function AssignFieldsScreen() {
   );
 }
 
-async function buildDefaultAssignments(envelope: Envelope): Promise<FieldAssignmentInput[]> {
+async function loadFieldMetaAndDefaults(envelope: Envelope): Promise<{
+  labels: Record<string, string>;
+  defaults: FieldAssignmentInput[];
+}> {
   const signers = (envelope.recipients ?? []).filter((r) => r.role === 'signer');
   const recipientId = signers[0]?.id;
-  if (!recipientId) return [];
-  const out: FieldAssignmentInput[] = [];
+  const labels: Record<string, string> = {};
+  const defaults: FieldAssignmentInput[] = [];
   for (const doc of envelope.documents ?? []) {
     const fields = await loadFieldsForDoc(doc);
     for (const f of fields) {
-      out.push({
-        recipient_id: recipientId,
-        document_id: doc.id,
-        field_key: makeFieldKey(f.id, f.rev ?? 1),
-        field_type: f.type,
-        required: f.required ?? false });
+      const fieldKey = makeFieldKey(f.id, f.rev ?? 1);
+      const typeKey = String(f.type || '').toLowerCase();
+      const label =
+        (f.label || '').trim() ||
+        FIELD_TYPE_LABELS[typeKey] ||
+        FIELD_DEFAULTS[typeKey as FieldType]?.label ||
+        String(f.type || 'Field');
+      const pagePart =
+        typeof f.page === 'number' && Number.isFinite(f.page) ? ` · p${f.page + 1}` : '';
+      labels[fieldKey] = `${label}${pagePart}`;
+      if (recipientId) {
+        defaults.push({
+          recipient_id: recipientId,
+          document_id: doc.id,
+          field_key: fieldKey,
+          field_type: f.type,
+          required: f.required ?? false,
+        });
+      }
     }
   }
-  return out;
+  return { labels, defaults };
 }
 
 async function loadFieldsForDoc(doc: EnvelopeDocument): Promise<WizardField[]> {

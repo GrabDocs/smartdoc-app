@@ -221,6 +221,7 @@ export default function PdfFieldRenderer({
 
               if (f.type === 'checkbox') {
                 const checked = Boolean(val);
+                const boxSize = Math.min(pixelRect.width, pixelRect.height) * 0.72;
                 return (
                   <TouchableOpacity
                     key={f.key}
@@ -231,15 +232,34 @@ export default function PdfFieldRenderer({
                         top: pixelRect.top,
                         width: pixelRect.width,
                         height: pixelRect.height,
-                        borderColor: colors.primary,
+                        borderColor: checked ? colors.tint : (colors.isDark ? colors.border : '#b8bec4'),
+                        backgroundColor: checked
+                          ? (colors.isDark ? 'rgba(59,130,246,0.24)' : colors.primaryLight)
+                          : '#ffffff',
+                        borderWidth: 2,
                       },
                     ]}
                     disabled={!editable}
                     onPress={() => onCheckboxToggle(f.key, !checked)}
                   >
-                    <Text style={{ fontSize: Math.min(pixelRect.height * 0.8, 18), color: colors.primary }}>
-                      {checked ? '☑' : '☐'}
-                    </Text>
+                    <View
+                      style={{
+                        width: boxSize,
+                        height: boxSize,
+                        borderRadius: 3,
+                        borderWidth: 2,
+                        borderColor: checked ? colors.tint : (colors.isDark ? colors.border : '#b8bec4'),
+                        backgroundColor: '#ffffff',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {checked ? (
+                        <Text style={{ fontSize: Math.min(boxSize * 0.7, 16), color: colors.tint, fontWeight: '700' }}>
+                          ✓
+                        </Text>
+                      ) : null}
+                    </View>
                   </TouchableOpacity>
                 );
               }

@@ -48,7 +48,7 @@ export const FIELD_COLORS: Record<FieldType, string> = {
   initials: '#7C3AED',   // violet-600
   date: '#059669',       // emerald-600
   text: '#D97706',       // amber-600
-  checkbox: '#0D9488',   // teal-600
+  checkbox: '#2563EB',   // blue-600 — match calendar tint visibility
 };
 
 /** Lighter fill color per field type (for non-overlay UI, e.g. tool palette). */
@@ -57,7 +57,7 @@ export const FIELD_BG_COLORS: Record<FieldType, string> = {
   initials: 'rgba(124,58,237,0.10)',
   date: 'rgba(5,150,105,0.10)',
   text: 'rgba(217,119,6,0.10)',
-  checkbox: 'rgba(13,148,136,0.10)',
+  checkbox: 'rgba(37,99,235,0.10)',
 };
 
 /** Document overlay fields — transparent so the page shows through. */

@@ -37,7 +37,13 @@ export function buildParagraphToCiteMap(raw: string): Map<number, number> {
 }
 
 export function stripCiteAnchors(text: string): string {
-  return (text || '').replace(/\[\[cite:\s*\d+\s*[^\]]*\]\]/g, '').replace(/  +/g, ' ');
+  return (text || '')
+    .replace(/\[\[cite:\s*\d+\s*[^\]]*\]\]/g, '')
+    // Internal polarity markers — never show to users
+    .replace(/\[\[\s*claim_support\s*:\s*[^\]]+\]\]/gi, '')
+    .replace(/  +/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 /**

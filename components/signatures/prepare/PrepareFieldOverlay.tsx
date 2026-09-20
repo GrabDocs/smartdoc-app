@@ -561,10 +561,25 @@ export default function PrepareFieldOverlay({
     }
 
     if (field.type === 'checkbox') {
+      const checked = Boolean(fieldValue);
+      const boxSize = Math.max(fontSize + 2, 16);
       return (
-        <Text style={{ fontSize: Math.max(fontSize + 4, 14), color }}>
-          {Boolean(fieldValue) ? '☑' : '☐'}
-        </Text>
+        <View
+          style={{
+            width: boxSize,
+            height: boxSize,
+            borderRadius: 3,
+            borderWidth: 2,
+            borderColor: checked ? '#2563eb' : '#b8bec4',
+            backgroundColor: checked ? '#dbeafe' : '#ffffff',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {checked ? (
+            <Text style={{ fontSize: Math.max(boxSize * 0.65, 11), color: '#2563eb', fontWeight: '700' }}>✓</Text>
+          ) : null}
+        </View>
       );
     }
 

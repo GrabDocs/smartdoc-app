@@ -59,7 +59,7 @@ const FillCompositePage = forwardRef<View, Props>(function FillCompositePage(
         }
 
         if (field.type === 'checkbox') {
-          if (!Boolean(val)) return null;
+          const checked = Boolean(val);
           return (
             <View
               key={field.id}
@@ -70,10 +70,14 @@ const FillCompositePage = forwardRef<View, Props>(function FillCompositePage(
                   top: rect.top,
                   width: rect.width,
                   height: rect.height,
+                  borderColor: checked ? '#2563eb' : '#b8bec4',
+                  backgroundColor: checked ? '#dbeafe' : '#ffffff',
                 },
               ]}
             >
-              <Text style={{ fontSize: Math.max(fontSize, 12), color: '#111' }}>✓</Text>
+              {checked ? (
+                <Text style={{ fontSize: Math.max(fontSize, 12), color: '#2563eb', fontWeight: '700' }}>✓</Text>
+              ) : null}
             </View>
           );
         }
@@ -125,5 +129,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderRadius: 3,
   },
 });

@@ -16,7 +16,7 @@ import {
 import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import type { PrepareTool, PrepareEditorState, PrepareEditorActions } from '../../../hooks/usePrepareEditor';
-import { FIELD_COLORS, FIELD_ICONS, FIELD_TYPES } from '../../../utils/fillable';
+import { FIELD_COLORS, FIELD_DEFAULTS, FIELD_ICONS, FIELD_TYPES } from '../../../utils/fillable';
 import type { FieldType } from '../../../types/signature';
 
 const FIELD_LABELS: Record<string, string> = {
@@ -27,6 +27,16 @@ const FIELD_LABELS: Record<string, string> = {
   text: 'Text',
   checkbox: 'Checkbox',
 };
+
+function fieldChipLabel(f: { label?: string; type: string }): string {
+  const custom = (f.label || '').trim();
+  if (custom) return custom;
+  return (
+    FIELD_LABELS[f.type] ||
+    FIELD_DEFAULTS[f.type as FieldType]?.label ||
+    f.type
+  );
+}
 
 interface Props {
   editor: PrepareEditorState & PrepareEditorActions;
@@ -112,7 +122,7 @@ export default function PrepareToolPalette({ editor }: Props) {
                   style={[styles.fieldChipText, { color: isSelected ? color : colors.textSecondary }]}
                   numberOfLines={1}
                 >
-                  {f.label || f.type} · p{(f.page ?? 0) + 1}
+                  {fieldChipLabel(f)} · p{(f.page ?? 0) + 1}
                 </Text>
               </TouchableOpacity>
             );

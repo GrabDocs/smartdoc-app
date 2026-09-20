@@ -40,6 +40,9 @@ export default function FormFieldRenderer({
                 value={Boolean(val)}
                 onValueChange={(v) => onCheckboxToggle(f.key, v)}
                 disabled={!editable}
+                trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+                thumbColor={colors.switchThumbAndroid(Boolean(val))}
+                ios_backgroundColor={colors.switchTrackOff}
               />
             ) : isSignFieldType(f.type) ? (
               <Text
