@@ -1017,6 +1017,7 @@ export default function DraftEditScreen() {
   // Socket.IO: connect, join document room, presence
   useEffect(() => {
     if (!draftId || isNaN(draftId) || draftsCache.isLocalDraftId(draftId) || !user?.id) return;
+    let cancelled = false;
     let socket: Socket | null = null;
     const currentUserId = parseInt(String(user.id), 10);
     if (isNaN(currentUserId)) return;
@@ -1026,9 +1027,9 @@ export default function DraftEditScreen() {
     (async () => {
       try {
         const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-        if (!token) return;
+        if (!token || cancelled) return;
 
-        socket = io(API_BASE_URL, {
+        const nextSocket = io(API_BASE_URL, {
           auth: { token },
           transports: ['polling', 'websocket'],
           reconnection: true,
@@ -1036,6 +1037,12 @@ export default function DraftEditScreen() {
           reconnectionAttempts: 5,
           timeout: 20000,
         });
+
+        if (cancelled) {
+          nextSocket.disconnect();
+          return;
+        }
+        socket = nextSocket;
 
         socket.on('connect', () => {
           socket?.emit('join_document_room', {
@@ -1102,16 +1109,24 @@ export default function DraftEditScreen() {
     })();
 
     return () => {
-      if (socket) {
-        socket.off('draft_saved');
-        if (socket.connected) {
-          socket.emit('leave_document_room', {
+      cancelled = true;
+      const s = socket || socketRef.current;
+      if (s) {
+        try {
+          s.emit('leave_document_room', {
             doc_type: 'file',
             doc_id: draftId,
             user_id: currentUserId,
             display_name: displayName,
           });
-          socket.disconnect();
+        } catch {
+          /* best-effort */
+        }
+        try {
+          s.removeAllListeners();
+          s.disconnect();
+        } catch {
+          /* best-effort */
         }
       }
       socketRef.current = null;
