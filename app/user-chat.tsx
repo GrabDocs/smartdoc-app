@@ -17,6 +17,7 @@ import {
     Modal,
     Platform,
     RefreshControl,
+    ScrollView,
     SectionList,
     StyleSheet,
     Text,
@@ -2557,51 +2558,79 @@ export default function UserChatScreen() {
 
       <Modal visible={showInviteModal} animationType="slide" transparent onRequestClose={() => setShowInviteModal(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <View style={{ backgroundColor: colors.background, padding: 20, borderTopLeftRadius: 16, borderTopRightRadius: 16, gap: 12 }}>
-            <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text }}>Invite to Secure Messaging</Text>
-            <Text style={{ fontSize: 13, color: colors.textSecondary }}>
-              Invite by email or SMS. Message content is never included.
-            </Text>
-            <TextInput
-              {...ANDROID_TEXT_INPUT_PROPS}
-              style={{ borderWidth: 1, borderColor: colors.textSecondary, borderRadius: 8, padding: 12, color: colors.text }}
-              placeholder="Email"
-              placeholderTextColor={colors.textSecondary}
-              value={inviteEmail}
-              onChangeText={setInviteEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-            <PhoneNumberInput
-              value={invitePhone}
-              onChange={setInvitePhone}
-              placeholder="Phone number"
-            />
-            {!!invitePhone.trim() && (
-              <TouchableOpacity
-                onPress={() => setInviteSmsConsent((v) => !v)}
-                style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}
-              >
-                <Ionicons
-                  name={inviteSmsConsent ? 'checkbox' : 'square-outline'}
-                  size={22}
-                  color="#007AFF"
-                />
-                <Text style={{ flex: 1, fontSize: 12, color: colors.textSecondary }}>
-                  I have permission to contact this number by SMS for a GrabDocs invite.
-                </Text>
-              </TouchableOpacity>
-            )}
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
-              <TouchableOpacity onPress={() => setShowInviteModal(false)}>
-                <Text style={{ color: colors.textSecondary, fontSize: 16 }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleInviteSubmit} disabled={inviteSubmitting}>
-                <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: '600' }}>
-                  {inviteSubmitting ? 'Sending…' : 'Send invite'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => {
+              Keyboard.dismiss();
+              setShowInviteModal(false);
+            }}
+          />
+          <View
+            style={{
+              backgroundColor: colors.background,
+              borderTopLeftRadius: 16,
+              borderTopRightRadius: 16,
+              maxHeight: '85%',
+              // Lift sheet above keyboard (same keyboardTop tracking as the chat composer).
+              marginBottom:
+                keyboardTop != null
+                  ? Math.max(0, Dimensions.get('window').height - keyboardTop)
+                  : 0,
+              paddingBottom: keyboardTop != null ? 16 : Math.max(insets.bottom, 16),
+            }}
+          >
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ padding: 20, gap: 12 }}
+            >
+              <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text }}>Invite to Secure Messaging</Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>
+                Invite by email or SMS. Message content is never included.
+              </Text>
+              <TextInput
+                {...ANDROID_TEXT_INPUT_PROPS}
+                style={{ borderWidth: 1, borderColor: colors.textSecondary, borderRadius: 8, padding: 12, color: colors.text }}
+                placeholder="Email"
+                placeholderTextColor={colors.textSecondary}
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              <PhoneNumberInput
+                value={invitePhone}
+                onChange={setInvitePhone}
+                placeholder="Phone number"
+              />
+              {!!invitePhone.trim() && (
+                <TouchableOpacity
+                  onPress={() => setInviteSmsConsent((v) => !v)}
+                  style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}
+                >
+                  <Ionicons
+                    name={inviteSmsConsent ? 'checkbox' : 'square-outline'}
+                    size={22}
+                    color="#007AFF"
+                  />
+                  <Text style={{ flex: 1, fontSize: 12, color: colors.textSecondary }}>
+                    I have permission to contact this number by SMS for a GrabDocs invite.
+                  </Text>
+                </TouchableOpacity>
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                <TouchableOpacity onPress={() => setShowInviteModal(false)}>
+                  <Text style={{ color: colors.textSecondary, fontSize: 16 }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleInviteSubmit} disabled={inviteSubmitting}>
+                  <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: '600' }}>
+                    {inviteSubmitting ? 'Sending…' : 'Send invite'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
