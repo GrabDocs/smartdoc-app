@@ -39,6 +39,7 @@ import { QUICK_ACTION_APP_KEY_SET } from '../../utils/visibleApps';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
+import PendingTasksModal from '../../components/clients/PendingTasksModal';
 import { useAuth } from '../context/auth';
 import { pushNotificationService } from '../services/pushNotifications';
 
@@ -119,6 +120,7 @@ function DashboardScreen() {
   const [reachInMeeting, setReachInMeeting] = useState(false);
   const [clientsCount, setClientsCount] = useState(0);
   const [attentionItems, setAttentionItems] = useState<AttentionQueueItem[]>([]);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [recentAppKeys, setRecentAppKeys] = useState<string[]>([]);
 
   const AUTO_REFRESH_INTERVAL = 120000; // Auto-refresh every 2 minutes for dashboard
@@ -1096,7 +1098,12 @@ function DashboardScreen() {
           <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
             {hasPendingAttention ? (
               <>
-                <Text style={[dynamicStyles.sectionTitle, { marginBottom: 8 }]}>Needs attention</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[dynamicStyles.sectionTitle, { marginBottom: 0 }]}>Needs attention</Text>
+                  <TouchableOpacity onPress={() => setTasksOpen(true)} hitSlop={8}>
+                    <Text style={{ color: '#0D9488', fontWeight: '700', fontSize: 13 }}>All pending</Text>
+                  </TouchableOpacity>
+                </View>
                 {attentionItems.slice(0, 5).map((item) => (
                   <TouchableOpacity
                     key={item.client.id}
@@ -1274,6 +1281,12 @@ function DashboardScreen() {
         {/* Add some padding at the bottom for better scrolling */}
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      <PendingTasksModal
+        visible={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+        seedItems={attentionItems}
+      />
 
       <UploadOptionsModal
         visible={uploadSheet.visible}

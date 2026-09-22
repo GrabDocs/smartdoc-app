@@ -52,6 +52,7 @@ export interface AttentionItem {
   label?: string;
   action?: string;
   overdue?: boolean;
+  due_at?: string | null;
   waiting_on?: 'client' | 'us';
   attention_status?: string;
   reply_status?: string;
@@ -342,6 +343,186 @@ export async function getAttentionQueue(
     offset: res.data.offset ?? params?.offset ?? 0,
     has_more: Boolean(res.data.has_more),
   };
+}
+
+export interface PendingAttentionTask {
+  key: string;
+  clientId: number;
+  clientName: string;
+  waitingOn: 'client' | 'us';
+  label: string;
+  overdue?: boolean;
+  due_at?: string | null;
+  item_type?: string;
+  item_id?: number;
+  parent_id?: number;
+  source_type?: string | null;
+  source_id?: number | null;
+}
+
+function pendingTaskDueMs(task: PendingAttentionTask): number {
+  if (task.due_at) {
+    const ms = Date.parse(task.due_at);
+    if (Number.isFinite(ms)) return ms;
+  }
+  if (task.overdue) return Number.NEGATIVE_INFINITY;
+  return Number.POSITIVE_INFINITY;
+}
+
+export function formatPendingTaskDue(dueAt?: string | null): string | null {
+  if (!dueAt) return null;
+  const d = new Date(dueAt);
+  if (Number.isNaN(d.getTime())) return null;
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString(undefined, opts);
+}
+
+export function flattenPendingAttentionTasks(
+  items: AttentionQueueItem[]
+): PendingAttentionTask[] {
+  const out: PendingAttentionTask[] = [];
+  for (const item of items) {
+    const clientId = item.client.id;
+    const clientName = item.client.display_name;
+    const us = item.attention?.waiting_on_us || [];
+    const clientWait = item.attention?.waiting_on_client || [];
+    const add = (t: AttentionItem, waitingOn: 'client' | 'us', idx: number) => {
+      out.push({
+        key: `${clientId}-${waitingOn}-${t.item_type || 'item'}-${t.item_id ?? idx}-${idx}`,
+        clientId,
+        clientName,
+        waitingOn: t.waiting_on || waitingOn,
+        label: t.label || t.action || 'Open item',
+        overdue: t.overdue,
+        due_at: t.due_at ?? null,
+        item_type: t.item_type,
+        item_id: t.item_id,
+        parent_id: t.parent_id,
+        source_type: t.source_type,
+        source_id: t.source_id,
+      });
+    };
+    us.forEach((t, i) => add(t, 'us', i));
+    clientWait.forEach((t, i) => add(t, 'client', i));
+    if (us.length === 0 && clientWait.length === 0) {
+      if (item.attention?.next_step) {
+        const t = item.attention.next_step;
+        add(t, t.waiting_on || 'us', 0);
+      } else {
+        out.push({
+          key: `${clientId}-summary`,
+          clientId,
+          clientName,
+          waitingOn: item.attention?.status === 'waiting' ? 'client' : 'us',
+          label: item.attention?.status === 'waiting' ? 'Waiting' : 'Needs attention',
+        });
+      }
+    }
+  }
+  out.sort((a, b) => {
+    const dueDiff = pendingTaskDueMs(a) - pendingTaskDueMs(b);
+    if (dueDiff !== 0) return dueDiff;
+    return a.clientName.localeCompare(b.clientName);
+  });
+  return out;
+}
+
+export const PENDING_TASKS_PAGE_SIZE = 40;
+const PENDING_TASKS_CACHE_MS = 45_000;
+
+export type PendingTasksCache = {
+  items: AttentionQueueItem[];
+  hasMore: boolean;
+  totalCount: number;
+  fetchedAt: number;
+};
+
+const pendingTasksCache = new Map<string, PendingTasksCache>();
+const pendingTasksInflight = new Map<string, Promise<PaginatedAttention>>();
+
+function pendingTasksCacheKey(waitingOn: WaitingOnFilter) {
+  return `pending-tasks:${waitingOn}`;
+}
+
+function mergeAttentionQueueItems(
+  prev: AttentionQueueItem[],
+  extra: AttentionQueueItem[]
+): AttentionQueueItem[] {
+  if (!prev.length) return extra.slice();
+  const seen = new Set(prev.map((i) => i.client.id));
+  const out = prev.slice();
+  for (const row of extra) {
+    if (!seen.has(row.client.id)) {
+      seen.add(row.client.id);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+export function peekPendingTasksCache(
+  waitingOn: WaitingOnFilter = 'all'
+): PendingTasksCache | null {
+  const hit = pendingTasksCache.get(pendingTasksCacheKey(waitingOn));
+  if (!hit) return null;
+  if (Date.now() - hit.fetchedAt > PENDING_TASKS_CACHE_MS) return null;
+  return hit;
+}
+
+export function seedPendingTasksCache(
+  waitingOn: WaitingOnFilter,
+  items: AttentionQueueItem[]
+) {
+  if (!items.length) return;
+  const key = pendingTasksCacheKey(waitingOn);
+  const existing = pendingTasksCache.get(key);
+  if (
+    existing &&
+    Date.now() - existing.fetchedAt <= PENDING_TASKS_CACHE_MS &&
+    existing.items.length >= items.length
+  ) {
+    return;
+  }
+  const fresh =
+    !!existing && Date.now() - existing.fetchedAt <= PENDING_TASKS_CACHE_MS;
+  pendingTasksCache.set(key, {
+    items: mergeAttentionQueueItems(fresh && existing ? existing.items : [], items),
+    hasMore: fresh && existing ? existing.hasMore : true,
+    totalCount: Math.max(fresh && existing ? existing.totalCount : 0, items.length),
+    fetchedAt: fresh && existing ? existing.fetchedAt : Date.now(),
+  });
+}
+
+export async function loadPendingTasksPage(
+  waitingOn: WaitingOnFilter = 'all',
+  opts?: { reset?: boolean }
+): Promise<PendingTasksCache> {
+  const key = pendingTasksCacheKey(waitingOn);
+  const cached = peekPendingTasksCache(waitingOn);
+  if (!opts?.reset && cached && !cached.hasMore) return cached;
+
+  const offset = opts?.reset || !cached ? 0 : cached.items.length;
+  const inflightKey = `${key}:${offset}:${PENDING_TASKS_PAGE_SIZE}`;
+  let req = pendingTasksInflight.get(inflightKey);
+  if (!req) {
+    req = getAttentionQueue(waitingOn, { limit: PENDING_TASKS_PAGE_SIZE, offset });
+    pendingTasksInflight.set(inflightKey, req);
+    req.finally(() => pendingTasksInflight.delete(inflightKey));
+  }
+  const page = await req;
+  const rows = page.items || [];
+  const prev = opts?.reset ? [] : pendingTasksCache.get(key)?.items || [];
+  const merged = mergeAttentionQueueItems(prev, rows);
+  const grew = merged.length > prev.length;
+  const next: PendingTasksCache = {
+    items: merged,
+    hasMore: grew && Boolean(page.has_more) && rows.length > 0,
+    totalCount: page.total_count ?? merged.length,
+    fetchedAt: Date.now(),
+  };
+  pendingTasksCache.set(key, next);
+  return next;
 }
 
 export async function createClient(data: {

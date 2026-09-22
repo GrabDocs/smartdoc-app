@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ClientPickerModal from '../../components/clients/ClientPickerModal';
+import PendingTasksModal from '../../components/clients/PendingTasksModal';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   attentionStatusLabel,
@@ -44,6 +45,7 @@ export default function ClientsIndexScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [debouncedQ, setDebouncedQ] = useState('');
 
   useEffect(() => {
@@ -201,7 +203,12 @@ export default function ClientsIndexScreen() {
           ListHeaderComponent={
             filter === 'all' && attention.length > 0 ? (
               <View style={{ marginBottom: 16 }}>
-                <Text style={[styles.sectionTitle, { color: colors.text }]}>Needs attention</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={[styles.sectionTitle, { color: colors.text, marginBottom: 0 }]}>Needs attention</Text>
+                  <TouchableOpacity onPress={() => setTasksOpen(true)} hitSlop={8}>
+                    <Text style={{ color: '#0D9488', fontWeight: '700', fontSize: 13 }}>All pending</Text>
+                  </TouchableOpacity>
+                </View>
                 {attention.slice(0, 5).map((item) => (
                   <TouchableOpacity
                     key={item.client.id}
@@ -276,6 +283,11 @@ export default function ClientsIndexScreen() {
         />
       )}
 
+      <PendingTasksModal
+        visible={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+        seedItems={attention}
+      />
       <ClientPickerModal
         isOpen={showCreate}
         onClose={() => setShowCreate(false)}
