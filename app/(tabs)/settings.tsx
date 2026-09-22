@@ -58,6 +58,7 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import PhoneVerificationSheet from '../../components/PhoneVerificationSheet';
 
 interface UserProfile {
   id: number;
@@ -70,6 +71,10 @@ interface UserProfile {
   google_linked?: boolean;
   apple_linked?: boolean;
   supports_password_biometric?: boolean;
+  phone_number?: string | null;
+  masked_phone_number?: string | null;
+  phone_verified_at?: string | null;
+  is_verified?: boolean;
 }
 
 interface DeviceFingerprint {
@@ -131,6 +136,7 @@ export default function SettingsScreen() {
   const [signingOut, setSigningOut] = useState(false);
   const [clearingDeviceTrust, setClearingDeviceTrust] = useState(false);
   const [planDisplayName, setPlanDisplayName] = useState<string | null>(null);
+  const [phoneVerifyOpen, setPhoneVerifyOpen] = useState(false);
   // const [showSetPinModal, setShowSetPinModal] = useState(false);
   // const [pinValue, setPinValue] = useState('');
   // const [pinConfirm, setPinConfirm] = useState('');
@@ -238,6 +244,10 @@ export default function SettingsScreen() {
           google_linked: !!userData.google_linked,
           apple_linked: !!userData.apple_linked,
           supports_password_biometric: supportsPasswordBiometric,
+          phone_number: userData.phone_number || null,
+          masked_phone_number: userData.masked_phone_number || null,
+          phone_verified_at: userData.phone_verified_at || null,
+          is_verified: !!(userData.is_verified || userData.phone_verified_at),
         };
         setProfile(profileData);
         setPasswordBiometricSupported(supportsPasswordBiometric);
@@ -1917,6 +1927,13 @@ export default function SettingsScreen() {
                       : profile.username}
                   </Text>
                   <Text style={dynamicStyles.profileEmail}>{profile.email}</Text>
+                  <Text style={[dynamicStyles.profileEmail, { marginTop: 4 }]}>
+                    {profile.phone_number || profile.masked_phone_number
+                      ? `Phone • ${profile.masked_phone_number || profile.phone_number}${
+                          profile.phone_verified_at || profile.is_verified ? ' ✓ Verified' : ' (unverified)'
+                        }`
+                      : 'No phone on file'}
+                  </Text>
                   <Text style={[dynamicStyles.profileEmail, { marginTop: 4, fontSize: 13, opacity: 0.8 }]}>
                     Member since • {formatJoinDate(profile.created_at)} •{' '}
                     {planDisplayName || (profile.is_admin ? 'Enterprise' : 'Free Plan')}
@@ -1931,6 +1948,37 @@ export default function SettingsScreen() {
               </View>
             </>
           )}
+
+          <TouchableOpacity
+            style={dynamicStyles.settingItem}
+            onPress={() => {
+              if (profile?.phone_number && (profile.phone_verified_at || profile.is_verified)) {
+                Alert.alert(
+                  'Phone number',
+                  'Your phone is verified. To change or remove it, use GrabDocs on the web (Settings → Account).',
+                );
+                return;
+              }
+              setPhoneVerifyOpen(true);
+            }}
+          >
+            <View style={dynamicStyles.settingIcon}>
+              <Ionicons name="call-outline" size={20} color="#007AFF" />
+            </View>
+            <View style={dynamicStyles.settingContent}>
+              <Text style={dynamicStyles.settingTitle}>
+                {profile?.phone_number && (profile.phone_verified_at || profile.is_verified)
+                  ? 'Phone verified'
+                  : profile?.phone_number
+                    ? 'Verify phone number'
+                    : 'Add & verify phone'}
+              </Text>
+              <Text style={dynamicStyles.settingSubtitle}>
+                Required to accept secure message invites sent to your number
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
+          </TouchableOpacity>
           
           <TouchableOpacity 
             style={dynamicStyles.dangerItem}
@@ -1987,6 +2035,28 @@ export default function SettingsScreen() {
           </FeedbackTouchable>
         </CollapsibleSection>
       </ScrollView>
+
+      <PhoneVerificationSheet
+        visible={phoneVerifyOpen}
+        onClose={() => setPhoneVerifyOpen(false)}
+        initialPhone={profile?.phone_number || ''}
+        onSuccess={(phoneNumber) => {
+          setProfile((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  phone_number: phoneNumber,
+                  masked_phone_number: phoneNumber
+                    ? phoneNumber.slice(-4).padStart(phoneNumber.length, '*')
+                    : null,
+                  phone_verified_at: new Date().toISOString(),
+                  is_verified: true,
+                }
+              : prev,
+          );
+          void loadSettings();
+        }}
+      />
 
       <Modal
         visible={defaultHomePickerOpen}
