@@ -9,7 +9,6 @@ import {
   Keyboard,
   Platform,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import ListFilterDialog, { ListFilterButton } from '../../components/ListFilterDialog';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { intakesListScreenKey } from '../../services/userScopedCache';
@@ -170,6 +170,7 @@ export default function IntakeListScreen() {
   const [statusFilter, setStatusFilter] = useState('');
   const [dueFilter, setDueFilter] = useState('');
   const [kindFilter, setKindFilter] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const showArchived = activeTab === 'archived';
 
@@ -385,6 +386,50 @@ export default function IntakeListScreen() {
   const hasListFilters = Boolean(
     searchQuery || statusFilter || (activeTab !== 'schedules' && (dueFilter || kindFilter))
   );
+  const chipFilterCount =
+    activeTab === 'schedules'
+      ? statusFilter
+        ? 1
+        : 0
+      : activeTab === 'active'
+        ? [statusFilter, dueFilter, kindFilter].filter(Boolean).length
+        : 0;
+  const showFilterButton = activeTab === 'active' || activeTab === 'schedules';
+  const filterSections = useMemo(() => {
+    if (activeTab === 'schedules') {
+      return [
+        {
+          title: 'Status',
+          options: SCHEDULE_STATUS_FILTERS,
+          value: statusFilter,
+          onChange: setStatusFilter,
+        },
+      ];
+    }
+    if (activeTab === 'active') {
+      return [
+        {
+          title: 'Status',
+          options: ACTIVE_STATUS_FILTERS,
+          value: statusFilter,
+          onChange: setStatusFilter,
+        },
+        {
+          title: 'Due date',
+          options: DUE_FILTERS,
+          value: dueFilter,
+          onChange: setDueFilter,
+        },
+        {
+          title: 'Type',
+          options: KIND_FILTERS,
+          value: kindFilter,
+          onChange: setKindFilter,
+        },
+      ];
+    }
+    return [];
+  }, [activeTab, statusFilter, dueFilter, kindFilter]);
 
   const filteredSchedules = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -466,6 +511,7 @@ export default function IntakeListScreen() {
   };
 
   const handleTabChange = (tab: ListTab) => {
+    setFilterOpen(false);
     resetListFilters({ skipReload: true });
     setActiveTab(tab);
     if (tab === 'templates') {
@@ -581,7 +627,12 @@ export default function IntakeListScreen() {
       paddingTop: 10,
       paddingBottom: 6,
     },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
     searchInputContainer: {
+      flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.surface,
@@ -598,40 +649,6 @@ export default function IntakeListScreen() {
       color: colors.text,
       padding: 0,
       backgroundColor: 'transparent',
-    },
-    filterChipsRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingBottom: 8,
-      gap: 8,
-    },
-    filterChip: {
-      paddingHorizontal: 10,
-      paddingVertical: 6,
-      borderRadius: 16,
-      backgroundColor: colors.surface,
-    },
-    filterChipActive: {
-      backgroundColor: colors.isDark ? 'rgba(59, 130, 246, 0.24)' : '#DBEAFE',
-    },
-    filterChipText: {
-      fontSize: 12,
-      fontWeight: '500',
-      color: colors.textSecondary,
-    },
-    filterChipTextActive: {
-      color: '#1D4ED8',
-      fontWeight: '600',
-    },
-    clearFiltersBtn: {
-      paddingHorizontal: 16,
-      paddingBottom: 8,
-    },
-    clearFiltersText: {
-      fontSize: 13,
-      fontWeight: '600',
-      color: '#007AFF',
     },
     centerContainer: {
       flex: 1,
@@ -1051,120 +1068,52 @@ export default function IntakeListScreen() {
       {activeTab !== 'templates' ? (
         <View>
           <View style={dynamicStyles.searchContainer}>
-            <View style={dynamicStyles.searchInputContainer}>
-              <Ionicons name="search" size={18} color={colors.textSecondary} style={dynamicStyles.searchIcon} />
-              <TextInput
-                {...ANDROID_TEXT_INPUT_PROPS}
-                style={dynamicStyles.searchInput}
-                placeholder={
-                  activeTab === 'schedules'
-                    ? 'Filter schedules by title or client…'
-                    : 'Filter by title, client, or upload code…'
-                }
-                placeholderTextColor={colors.textSecondary}
-                value={searchInput}
-                onChangeText={setSearchInput}
-                returnKeyType="search"
-                onSubmitEditing={() => Keyboard.dismiss()}
-              />
-              {searchInput.length > 0 ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    setSearchInput('');
-                    setSearchQuery('');
-                    searchQueryRef.current = '';
-                  }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
+            <View style={dynamicStyles.searchRow}>
+              <View style={dynamicStyles.searchInputContainer}>
+                <Ionicons name="search" size={18} color={colors.textSecondary} style={dynamicStyles.searchIcon} />
+                <TextInput
+                  {...ANDROID_TEXT_INPUT_PROPS}
+                  style={dynamicStyles.searchInput}
+                  placeholder={
+                    activeTab === 'schedules'
+                      ? 'Filter schedules by title or client…'
+                      : 'Filter by title, client, or upload code…'
+                  }
+                  placeholderTextColor={colors.textSecondary}
+                  value={searchInput}
+                  onChangeText={setSearchInput}
+                  returnKeyType="search"
+                  onSubmitEditing={() => Keyboard.dismiss()}
+                />
+                {searchInput.length > 0 ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchInput('');
+                      setSearchQuery('');
+                      searchQueryRef.current = '';
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              {showFilterButton ? (
+                <ListFilterButton activeCount={chipFilterCount} onPress={() => setFilterOpen(true)} />
               ) : null}
             </View>
           </View>
-          {activeTab === 'schedules' ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={dynamicStyles.filterChipsRow}
-            >
-              {SCHEDULE_STATUS_FILTERS.map((opt) => {
-                const selected = statusFilter === opt.value;
-                return (
-                  <TouchableOpacity
-                    key={opt.value || 'all'}
-                    style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
-                    onPress={() => setStatusFilter(opt.value)}
-                  >
-                    <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          ) : activeTab === 'active' ? (
-            <>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={dynamicStyles.filterChipsRow}
-              >
-                {ACTIVE_STATUS_FILTERS.map((opt) => {
-                  const selected = statusFilter === opt.value;
-                  return (
-                    <TouchableOpacity
-                      key={opt.value || 'all'}
-                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
-                      onPress={() => setStatusFilter(opt.value)}
-                    >
-                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={dynamicStyles.filterChipsRow}
-              >
-                {DUE_FILTERS.map((opt) => {
-                  const selected = dueFilter === opt.value;
-                  return (
-                    <TouchableOpacity
-                      key={`due-${opt.value || 'all'}`}
-                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
-                      onPress={() => setDueFilter(opt.value)}
-                    >
-                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                {KIND_FILTERS.map((opt) => {
-                  const selected = kindFilter === opt.value;
-                  return (
-                    <TouchableOpacity
-                      key={`kind-${opt.value || 'all'}`}
-                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
-                      onPress={() => setKindFilter(opt.value)}
-                    >
-                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </>
-          ) : null}
-          {hasListFilters ? (
-            <TouchableOpacity style={dynamicStyles.clearFiltersBtn} onPress={() => resetListFilters()}>
-              <Text style={dynamicStyles.clearFiltersText}>Clear filters</Text>
-            </TouchableOpacity>
-          ) : null}
+          <ListFilterDialog
+            visible={filterOpen && showFilterButton}
+            sections={filterSections}
+            hasActiveFilters={chipFilterCount > 0}
+            onClose={() => setFilterOpen(false)}
+            onClear={() => {
+              setStatusFilter('');
+              setDueFilter('');
+              setKindFilter('');
+            }}
+          />
         </View>
       ) : null}
 

@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DocumentViewer from '../../components/DocumentViewer';
+import ListFilterDialog, { ListFilterButton, type ListFilterSection } from '../../components/ListFilterDialog';
 import EnvelopeListItem from '../../components/signatures/EnvelopeListItem';
 import SignatureActivityListItem from '../../components/signatures/SignatureActivityListItem';
 import SignatureCreateChooser from '../../components/signatures/SignatureCreateChooser';
@@ -144,6 +145,7 @@ export default function SignaturesHubScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [filterOpen, setFilterOpen] = useState(false);
   const chooserSheet = useMinimizableSheet();
   const [viewerFile, setViewerFile] = useState<{ id: string; name: string } | null>(null);
   const [allVisibleCount, setAllVisibleCount] = useState(ENVELOPE_LIST_PAGE_SIZE);
@@ -179,6 +181,25 @@ export default function SignaturesHubScreen() {
 
   const hasListFilters = Boolean(searchQuery || statusFilter || sourceFilter);
   const statusOptions = statusOptionsForTab(tab);
+  const chipFilterCount = [statusFilter, sourceFilter].filter(Boolean).length;
+  const filterSections = useMemo((): ListFilterSection[] => {
+    const sections: ListFilterSection[] = [];
+    if (statusOptions) {
+      sections.push({
+        title: 'Status',
+        options: statusOptions,
+        value: statusFilter,
+        onChange: setStatusFilter,
+      });
+    }
+    sections.push({
+      title: 'Type',
+      options: SOURCE_TYPE_FILTERS,
+      value: sourceFilter,
+      onChange: setSourceFilter,
+    });
+    return sections;
+  }, [statusOptions, statusFilter, sourceFilter]);
 
   const resetListFilters = useCallback(() => {
     setSearchInput('');
@@ -188,6 +209,7 @@ export default function SignaturesHubScreen() {
   }, []);
 
   const handleTabChange = (next: EnvelopeTab) => {
+    setFilterOpen(false);
     resetListFilters();
     setTab(next);
   };
@@ -241,7 +263,9 @@ export default function SignaturesHubScreen() {
         tabActive: { backgroundColor: colors.primary },
         tabText: { fontSize: 13, fontWeight: '600' },
         searchContainer: { paddingHorizontal: 14, paddingBottom: 6 },
+        searchRow: { flexDirection: 'row', alignItems: 'center' },
         searchInputContainer: {
+          flex: 1,
           flexDirection: 'row',
           alignItems: 'center',
           backgroundColor: colors.surface,
@@ -257,26 +281,6 @@ export default function SignaturesHubScreen() {
           padding: 0,
           backgroundColor: 'transparent',
         },
-        filterChipsRow: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          paddingHorizontal: 14,
-          paddingBottom: 8,
-          gap: 8,
-        },
-        filterChip: {
-          paddingHorizontal: 10,
-          paddingVertical: 6,
-          borderRadius: 16,
-          backgroundColor: colors.surface,
-        },
-        filterChipActive: {
-          backgroundColor: colors.isDark ? 'rgba(59, 130, 246, 0.24)' : '#DBEAFE',
-        },
-        filterChipText: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
-        filterChipTextActive: { color: '#1D4ED8', fontWeight: '600' },
-        clearFiltersBtn: { paddingHorizontal: 14, paddingBottom: 8 },
-        clearFiltersText: { fontSize: 13, fontWeight: '600', color: '#007AFF' },
         empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
         fab: {
           position: 'absolute',
@@ -573,78 +577,44 @@ export default function SignaturesHubScreen() {
         })}
       </ScrollView>
       <View style={styles.searchContainer}>
-        <View style={styles.searchInputContainer}>
-          <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.searchIcon} />
-          <TextInput
-            {...ANDROID_TEXT_INPUT_PROPS}
-            style={styles.searchInput}
-            placeholder="Search by title or signer…"
-            placeholderTextColor={colors.textSecondary}
-            value={searchInput}
-            onChangeText={setSearchInput}
-            returnKeyType="search"
-            onSubmitEditing={() => Keyboard.dismiss()}
-          />
-          {searchInput.length > 0 ? (
-            <TouchableOpacity
-              onPress={() => {
-                setSearchInput('');
-                setSearchQuery('');
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-          ) : null}
+        <View style={styles.searchRow}>
+          <View style={styles.searchInputContainer}>
+            <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.searchIcon} />
+            <TextInput
+              {...ANDROID_TEXT_INPUT_PROPS}
+              style={styles.searchInput}
+              placeholder="Search by title or signer…"
+              placeholderTextColor={colors.textSecondary}
+              value={searchInput}
+              onChangeText={setSearchInput}
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
+            />
+            {searchInput.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setSearchInput('');
+                  setSearchQuery('');
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <ListFilterButton activeCount={chipFilterCount} onPress={() => setFilterOpen(true)} />
         </View>
       </View>
-      {statusOptions ? (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterChipsRow}
-        >
-          {statusOptions.map((opt) => {
-            const selected = statusFilter === opt.value;
-            return (
-              <TouchableOpacity
-                key={opt.value || 'all'}
-                style={[styles.filterChip, selected && styles.filterChipActive]}
-                onPress={() => setStatusFilter(opt.value)}
-              >
-                <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>
-                  {opt.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      ) : null}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterChipsRow}
-      >
-        {SOURCE_TYPE_FILTERS.map((opt) => {
-          const selected = sourceFilter === opt.value;
-          return (
-            <TouchableOpacity
-              key={opt.value || 'all'}
-              style={[styles.filterChip, selected && styles.filterChipActive]}
-              onPress={() => setSourceFilter(opt.value)}
-            >
-              <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>
-                {opt.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-      {hasListFilters ? (
-        <TouchableOpacity style={styles.clearFiltersBtn} onPress={resetListFilters}>
-          <Text style={styles.clearFiltersText}>Clear filters</Text>
-        </TouchableOpacity>
-      ) : null}
+      <ListFilterDialog
+        visible={filterOpen}
+        sections={filterSections}
+        hasActiveFilters={chipFilterCount > 0}
+        onClose={() => setFilterOpen(false)}
+        onClear={() => {
+          setStatusFilter('');
+          setSourceFilter('');
+        }}
+      />
       {showInitialSpinner ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
       ) : isAllTab ? (
