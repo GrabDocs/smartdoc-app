@@ -5618,10 +5618,10 @@ class ApiService {
     };
   }
 
-  async getUploadLinks(page = 1, perPage = 20): Promise<ApiResponse> {
+  async getUploadLinks(page = 1, perPage = 20, q?: string): Promise<ApiResponse> {
     try {
       const response = await this.client.get(MOBILE_ENDPOINTS.UPLOAD_LINKS, {
-        params: { page, perPage },
+        params: { page, perPage, ...(q ? { q } : {}) },
       });
       const data = response.data;
       const links = (data.upload_links || []).map((l: any) => this.normalizeWebUploadLink(l));
@@ -5752,10 +5752,18 @@ class ApiService {
   // ==================== INTAKE ====================
   // List/detail: mobile routes (paginated). Create/update/send/item actions: web routes.
 
-  async getIntakes(status?: 'archived', page = 1, perPage = 20): Promise<ApiResponse> {
+  async getIntakes(
+    status?: string,
+    page = 1,
+    perPage = 20,
+    filters?: { q?: string; due?: string; kind?: string },
+  ): Promise<ApiResponse> {
     try {
       const params: Record<string, string | number> = { page, perPage };
       if (status) params.status = status;
+      if (filters?.q) params.q = filters.q;
+      if (filters?.due) params.due = filters.due;
+      if (filters?.kind) params.kind = filters.kind;
       const response = await this.client.get(MOBILE_ENDPOINTS.INTAKES, {
         params,
         timeout: 15000,

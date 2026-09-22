@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Clipboard,
   FlatList,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -13,6 +14,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -45,6 +47,9 @@ interface UploadLink {
 const UPLOAD_LINKS_LIST_CACHE_MS = 30_000;
 const UPLOAD_LINKS_PAGE_SIZE = 20;
 
+const ANDROID_TEXT_INPUT_PROPS =
+  Platform.OS === 'android' ? { underlineColorAndroid: 'transparent' as const } : {};
+
 type PaginatedUploadLinksCache = {
   items: UploadLink[];
   hasMore: boolean;
@@ -63,11 +68,17 @@ export default function UploadLinksScreen() {
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedLink, setSelectedLink] = useState<UploadLink | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const hasMoreRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const pageRef = useRef(1);
   const onEndReachedCalledDuringMomentumRef = useRef(false);
+  const searchQueryRef = useRef('');
+  const skipFirstSearchReloadRef = useRef(true);
+
+  searchQueryRef.current = searchQuery;
 
   const listCacheKey = uploadLinksListScreenKey(user?.id);
 
@@ -79,8 +90,11 @@ export default function UploadLinksScreen() {
 
     if (append && (!hasMoreRef.current || loadingMoreRef.current)) return;
 
-    if (!forceRefresh && !append && listCacheKey) {
-      const cached = screenCache.get<PaginatedUploadLinksCache>(listCacheKey, UPLOAD_LINKS_LIST_CACHE_MS);
+    const q = searchQueryRef.current;
+    const cacheKey = q ? null : listCacheKey;
+
+    if (!forceRefresh && !append && cacheKey) {
+      const cached = screenCache.get<PaginatedUploadLinksCache>(cacheKey, UPLOAD_LINKS_LIST_CACHE_MS);
       if (cached) {
         setUploadLinks(cached.items);
         setHasMore(cached.hasMore);
@@ -101,7 +115,7 @@ export default function UploadLinksScreen() {
     }
 
     try {
-      const response = await apiService.getUploadLinks(fetchPage, UPLOAD_LINKS_PAGE_SIZE);
+      const response = await apiService.getUploadLinks(fetchPage, UPLOAD_LINKS_PAGE_SIZE, q || undefined);
       if (response.success) {
         const rows = response.upload_links || [];
         const pagination = response.pagination;
@@ -112,8 +126,8 @@ export default function UploadLinksScreen() {
         setUploadLinks((prev) => {
           const merged = append ? [...prev, ...rows] : rows;
           pageRef.current = fetchPage;
-          if (!append && listCacheKey) {
-            screenCache.set(listCacheKey, { items: merged, hasMore: hasMorePage, page: fetchPage });
+          if (!append && cacheKey) {
+            screenCache.set(cacheKey, { items: merged, hasMore: hasMorePage, page: fetchPage });
           }
           return merged;
         });
@@ -159,6 +173,21 @@ export default function UploadLinksScreen() {
       }
     }, [user, loadUploadLinks, listCacheKey])
   );
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  useEffect(() => {
+    if (skipFirstSearchReloadRef.current) {
+      skipFirstSearchReloadRef.current = false;
+      return;
+    }
+    pageRef.current = 1;
+    hasMoreRef.current = true;
+    void loadUploadLinks(true);
+  }, [searchQuery, loadUploadLinks]);
 
   const handleRefresh = () => {
     if (!user) return;
@@ -337,6 +366,29 @@ export default function UploadLinksScreen() {
       fontSize: 18,
       fontWeight: '600',
       color: colors.text,
+    },
+    searchContainer: {
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 6,
+    },
+    searchInputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    searchIcon: {
+      marginRight: 8,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: colors.text,
+      padding: 0,
+      backgroundColor: 'transparent',
     },
     placeholder: {
       width: 24,
@@ -642,16 +694,50 @@ export default function UploadLinksScreen() {
         </TouchableOpacity>
       </View>
 
+      <View style={dynamicStyles.searchContainer}>
+        <View style={dynamicStyles.searchInputContainer}>
+          <Ionicons name="search" size={18} color={colors.textSecondary} style={dynamicStyles.searchIcon} />
+          <TextInput
+            {...ANDROID_TEXT_INPUT_PROPS}
+            style={dynamicStyles.searchInput}
+            placeholder="Search by name or upload code…"
+            placeholderTextColor={colors.textSecondary}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
+          />
+          {searchInput.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+                searchQueryRef.current = '';
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+
       {uploadLinks.length === 0 ? (
         <View style={dynamicStyles.emptyContainer}>
           <Ionicons name="link" size={64} color={colors.textLight} />
-          <Text style={dynamicStyles.emptyTitle}>No File Requests</Text>
-          <Text style={dynamicStyles.emptyDescription}>
-            Create file requests to receive files from others
+          <Text style={dynamicStyles.emptyTitle}>
+            {searchQuery ? 'No matching file requests' : 'No File Requests'}
           </Text>
-          <TouchableOpacity style={dynamicStyles.createButton} onPress={handleCreateLink}>
-            <Text style={dynamicStyles.createButtonText}>Create Your First File Request</Text>
-          </TouchableOpacity>
+          <Text style={dynamicStyles.emptyDescription}>
+            {searchQuery
+              ? 'Try a different name or upload code.'
+              : 'Create file requests to receive files from others'}
+          </Text>
+          {!searchQuery ? (
+            <TouchableOpacity style={dynamicStyles.createButton} onPress={handleCreateLink}>
+              <Text style={dynamicStyles.createButtonText}>Create Your First File Request</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : (
         <FlatList

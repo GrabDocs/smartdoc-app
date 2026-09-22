@@ -5,10 +5,13 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -17,7 +20,7 @@ import DocumentViewer from '../../components/DocumentViewer';
 import EnvelopeListItem from '../../components/signatures/EnvelopeListItem';
 import SignatureActivityListItem from '../../components/signatures/SignatureActivityListItem';
 import SignatureCreateChooser from '../../components/signatures/SignatureCreateChooser';
-import { useEnvelopeList, ENVELOPE_LIST_PAGE_SIZE } from '../../hooks/useEnvelopeList';
+import { useEnvelopeList, ENVELOPE_LIST_PAGE_SIZE, type EnvelopeListFilters } from '../../hooks/useEnvelopeList';
 import { invalidateSignatureActivityCache, useSignatureAllList } from '../../hooks/useSignatureAllList';
 import type { SignatureActivityItem } from '../../hooks/useSignatureAllList';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
@@ -54,6 +57,78 @@ const TABS: { key: EnvelopeTab; label?: string; icon?: keyof typeof Ionicons.gly
   { key: 'drafts', label: 'Drafts' },
 ];
 
+const ANDROID_TEXT_INPUT_PROPS =
+  Platform.OS === 'android' ? { underlineColorAndroid: 'transparent' as const } : {};
+
+const SOURCE_TYPE_FILTERS = [
+  { value: '', label: 'All types' },
+  { value: 'fillable', label: 'Fillable' },
+  { value: 'form', label: 'Form' },
+] as const;
+
+function statusOptionsForTab(tab: EnvelopeTab): { value: string; label: string }[] | null {
+  if (tab === 'drafts') return null;
+  if (tab === 'sent') {
+    return [
+      { value: '', label: 'All' },
+      { value: 'sent', label: 'Sent' },
+      { value: 'in_progress', label: 'In progress' },
+    ];
+  }
+  if (tab === 'completed') {
+    return [
+      { value: '', label: 'All' },
+      { value: 'completed', label: 'Completed' },
+      { value: 'declined', label: 'Declined' },
+      { value: 'voided', label: 'Voided' },
+      { value: 'expired', label: 'Expired' },
+    ];
+  }
+  return [
+    { value: '', label: 'All' },
+    { value: 'sent', label: 'Sent' },
+    { value: 'in_progress', label: 'In progress' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'declined', label: 'Declined' },
+    { value: 'voided', label: 'Voided' },
+    { value: 'expired', label: 'Expired' },
+  ];
+}
+
+function activityMatches(
+  item: SignatureActivityItem,
+  q: string,
+  status: string,
+  sourceType: string,
+): boolean {
+  if (status) {
+    if (item.kind === 'envelope' && item.envelope?.status !== status) return false;
+    if (item.kind === 'fillable' && status !== 'in_progress' && status !== 'draft') return false;
+    if (item.kind === 'submission' && status !== 'completed') return false;
+  }
+  if (sourceType) {
+    if (item.kind === 'envelope') {
+      const src = item.envelope?.source_type;
+      if (src && src !== sourceType) return false;
+    } else if (sourceType !== 'fillable') {
+      return false;
+    }
+  }
+  if (q) {
+    const hay = [
+      item.envelope?.title,
+      item.template?.name,
+      item.submission?.template_name,
+      ...(item.envelope?.recipients || []).flatMap((r) => [r.email, r.name]),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (!hay.includes(q.toLowerCase())) return false;
+  }
+  return true;
+}
+
 function templateDisplayId(template: { public_id?: string; id: number }): string {
   return template.public_id ?? String(template.id);
 }
@@ -65,12 +140,24 @@ export default function SignaturesHubScreen() {
   const validTab = (t?: string): EnvelopeTab =>
     TABS.some((x) => x.key === t) ? (t as EnvelopeTab) : 'all';
   const [tab, setTab] = useState<EnvelopeTab>(() => validTab(params.tab));
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const chooserSheet = useMinimizableSheet();
   const [viewerFile, setViewerFile] = useState<{ id: string; name: string } | null>(null);
   const [allVisibleCount, setAllVisibleCount] = useState(ENVELOPE_LIST_PAGE_SIZE);
   const isAllTab = tab === 'all';
+  const envelopeFilters = useMemo((): EnvelopeListFilters | undefined => {
+    if (isAllTab) return undefined;
+    const next: EnvelopeListFilters = {};
+    if (searchQuery) next.q = searchQuery;
+    if (statusFilter) next.status = statusFilter;
+    if (sourceFilter) next.source_type = sourceFilter;
+    return Object.keys(next).length ? next : undefined;
+  }, [isAllTab, searchQuery, statusFilter, sourceFilter]);
   const { envelopes, loading, loadingMore, refreshing, hasMore, loadMore, refresh, revalidateIfStale } =
-    useEnvelopeList(tab);
+    useEnvelopeList(tab, envelopeFilters);
   const {
     items: allItems,
     loading: activityLoading,
@@ -84,6 +171,26 @@ export default function SignaturesHubScreen() {
       setAllVisibleCount(ENVELOPE_LIST_PAGE_SIZE);
     }
   }, [isAllTab, tab]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const hasListFilters = Boolean(searchQuery || statusFilter || sourceFilter);
+  const statusOptions = statusOptionsForTab(tab);
+
+  const resetListFilters = useCallback(() => {
+    setSearchInput('');
+    setSearchQuery('');
+    setStatusFilter('');
+    setSourceFilter('');
+  }, []);
+
+  const handleTabChange = (next: EnvelopeTab) => {
+    resetListFilters();
+    setTab(next);
+  };
 
   useEffect(() => {
     if (params.tab) {
@@ -133,6 +240,43 @@ export default function SignaturesHubScreen() {
         tabIcon: { paddingHorizontal: 10, paddingVertical: 8, marginHorizontal: 4, borderRadius: 20 },
         tabActive: { backgroundColor: colors.primary },
         tabText: { fontSize: 13, fontWeight: '600' },
+        searchContainer: { paddingHorizontal: 14, paddingBottom: 6 },
+        searchInputContainer: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: colors.surface,
+          borderRadius: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+        },
+        searchIcon: { marginRight: 8 },
+        searchInput: {
+          flex: 1,
+          fontSize: 14,
+          color: colors.text,
+          padding: 0,
+          backgroundColor: 'transparent',
+        },
+        filterChipsRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingHorizontal: 14,
+          paddingBottom: 8,
+          gap: 8,
+        },
+        filterChip: {
+          paddingHorizontal: 10,
+          paddingVertical: 6,
+          borderRadius: 16,
+          backgroundColor: colors.surface,
+        },
+        filterChipActive: {
+          backgroundColor: colors.isDark ? 'rgba(59, 130, 246, 0.24)' : '#DBEAFE',
+        },
+        filterChipText: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
+        filterChipTextActive: { color: '#1D4ED8', fontWeight: '600' },
+        clearFiltersBtn: { paddingHorizontal: 14, paddingBottom: 8 },
+        clearFiltersText: { fontSize: 13, fontWeight: '600', color: '#007AFF' },
         empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
         fab: {
           position: 'absolute',
@@ -151,11 +295,17 @@ export default function SignaturesHubScreen() {
     [colors],
   );
 
+  const filteredAllItems = useMemo(() => {
+    if (!isAllTab) return allItems;
+    if (!hasListFilters) return allItems;
+    return allItems.filter((item) => activityMatches(item, searchQuery, statusFilter, sourceFilter));
+  }, [allItems, hasListFilters, isAllTab, searchQuery, sourceFilter, statusFilter]);
+
   const visibleAllItems = useMemo(
-    () => (isAllTab ? allItems.slice(0, allVisibleCount) : allItems),
-    [allItems, allVisibleCount, isAllTab],
+    () => (isAllTab ? filteredAllItems.slice(0, allVisibleCount) : filteredAllItems),
+    [filteredAllItems, allVisibleCount, isAllTab],
   );
-  const allHasMoreLocal = isAllTab && allVisibleCount < allItems.length;
+  const allHasMoreLocal = isAllTab && allVisibleCount < filteredAllItems.length;
 
   const showInitialSpinner =
     isAllTab
@@ -400,7 +550,7 @@ export default function SignaturesHubScreen() {
             <TouchableOpacity
               key={t.key}
               style={[t.icon ? styles.tabIcon : styles.tab, active && styles.tabActive]}
-              onPress={() => setTab(t.key)}
+              onPress={() => handleTabChange(t.key)}
               accessibilityLabel={t.label ?? 'Home'}
             >
               {t.icon ? (
@@ -422,6 +572,79 @@ export default function SignaturesHubScreen() {
           );
         })}
       </ScrollView>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
+          <Ionicons name="search" size={18} color={colors.textSecondary} style={styles.searchIcon} />
+          <TextInput
+            {...ANDROID_TEXT_INPUT_PROPS}
+            style={styles.searchInput}
+            placeholder="Search by title or signer…"
+            placeholderTextColor={colors.textSecondary}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            returnKeyType="search"
+            onSubmitEditing={() => Keyboard.dismiss()}
+          />
+          {searchInput.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+      {statusOptions ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterChipsRow}
+        >
+          {statusOptions.map((opt) => {
+            const selected = statusFilter === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.value || 'all'}
+                style={[styles.filterChip, selected && styles.filterChipActive]}
+                onPress={() => setStatusFilter(opt.value)}
+              >
+                <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.filterChipsRow}
+      >
+        {SOURCE_TYPE_FILTERS.map((opt) => {
+          const selected = sourceFilter === opt.value;
+          return (
+            <TouchableOpacity
+              key={opt.value || 'all'}
+              style={[styles.filterChip, selected && styles.filterChipActive]}
+              onPress={() => setSourceFilter(opt.value)}
+            >
+              <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+      {hasListFilters ? (
+        <TouchableOpacity style={styles.clearFiltersBtn} onPress={resetListFilters}>
+          <Text style={styles.clearFiltersText}>Clear filters</Text>
+        </TouchableOpacity>
+      ) : null}
       {showInitialSpinner ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
       ) : isAllTab ? (
@@ -435,7 +658,9 @@ export default function SignaturesHubScreen() {
           onEndReachedThreshold={0.4}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={{ color: colors.textSecondary }}>No documents yet</Text>
+              <Text style={{ color: colors.textSecondary }}>
+                {hasListFilters ? 'No matching documents' : 'No documents yet'}
+              </Text>
             </View>
           }
           ListFooterComponent={listFooter}
@@ -457,7 +682,9 @@ export default function SignaturesHubScreen() {
           onEndReachedThreshold={0.4}
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={{ color: colors.textSecondary }}>No envelopes</Text>
+              <Text style={{ color: colors.textSecondary }}>
+                {hasListFilters ? 'No matching envelopes' : 'No envelopes'}
+              </Text>
             </View>
           }
           ListFooterComponent={listFooter}

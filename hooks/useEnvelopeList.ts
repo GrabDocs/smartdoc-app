@@ -14,6 +14,12 @@ import type { Envelope } from '../types/signature';
 
 export { ENVELOPE_LIST_PAGE_SIZE, invalidateEnvelopeListCache };
 
+export type EnvelopeListFilters = {
+  q?: string;
+  status?: string;
+  source_type?: string;
+};
+
 function applyEntry(entry: EnvelopeListCacheEntry) {
   return {
     envelopes: entry.envelopes,
@@ -22,7 +28,7 @@ function applyEntry(entry: EnvelopeListCacheEntry) {
   };
 }
 
-export function useEnvelopeList(tab: EnvelopeTab) {
+export function useEnvelopeList(tab: EnvelopeTab, filters?: EnvelopeListFilters) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
@@ -35,6 +41,18 @@ export function useEnvelopeList(tab: EnvelopeTab) {
   const hasMoreRef = useRef(true);
   const loadingMoreRef = useRef(false);
   const userIdRef = useRef(userId);
+  const q = (filters?.q || '').trim();
+  const status = filters?.status || '';
+  const sourceType = filters?.source_type || '';
+  const hasFilters = Boolean(q || status || sourceType);
+  const qRef = useRef(q);
+  const statusRef = useRef(status);
+  const sourceTypeRef = useRef(sourceType);
+  const hasFiltersRef = useRef(hasFilters);
+  qRef.current = q;
+  statusRef.current = status;
+  sourceTypeRef.current = sourceType;
+  hasFiltersRef.current = hasFilters;
 
   const commitEntry = useCallback(
     (tabKey: EnvelopeTab, next: Envelope[], nextHasMore: boolean, ownerId: string | number) => {
@@ -43,7 +61,9 @@ export function useEnvelopeList(tab: EnvelopeTab) {
         hasMore: nextHasMore,
         fetchedAt: Date.now(),
       };
-      writeEnvelopeListMemory(ownerId, tabKey, entry);
+      if (!hasFiltersRef.current) {
+        writeEnvelopeListMemory(ownerId, tabKey, entry);
+      }
       offsetRef.current = next.length;
       hasMoreRef.current = nextHasMore;
       setEnvelopes(next);
@@ -65,6 +85,9 @@ export function useEnvelopeList(tab: EnvelopeTab) {
         limit: ENVELOPE_LIST_PAGE_SIZE,
         offset,
         fields: 'meta',
+        ...(qRef.current ? { q: qRef.current } : {}),
+        ...(statusRef.current ? { status: statusRef.current } : {}),
+        ...(sourceTypeRef.current ? { source_type: sourceTypeRef.current } : {}),
       });
       if (seq !== loadSeqRef.current || userIdRef.current !== ownerId) return;
       const items = res.envelopes ?? [];
@@ -165,6 +188,13 @@ export function useEnvelopeList(tab: EnvelopeTab) {
       return;
     }
 
+    if (hasFilters) {
+      setLoading(true);
+      setEnvelopes([]);
+      void loadFirstPage(tab, userId, { force: true });
+      return;
+    }
+
     let cancelled = false;
     const hit = readEnvelopeListMemory(userId, tab);
     if (hit) {
@@ -200,7 +230,7 @@ export function useEnvelopeList(tab: EnvelopeTab) {
     return () => {
       cancelled = true;
     };
-  }, [tab, userId, loadFirstPage]);
+  }, [tab, userId, loadFirstPage, q, status, sourceType]);
 
   return {
     envelopes,

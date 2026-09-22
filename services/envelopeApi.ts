@@ -86,6 +86,9 @@ export interface ListEnvelopesOptions {
   limit?: number;
   offset?: number;
   fields?: EnvelopeListFields;
+  q?: string;
+  status?: string;
+  source_type?: string;
 }
 
 export interface ListEnvelopesResponse {
@@ -105,6 +108,9 @@ export async function listEnvelopes(opts: EnvelopeTab | ListEnvelopesOptions = '
           fields: opts.fields ?? 'meta',
           limit: opts.limit ?? 20,
           offset: opts.offset ?? 0,
+          ...(opts.q ? { q: opts.q } : {}),
+          ...(opts.status ? { status: opts.status } : {}),
+          ...(opts.source_type ? { source_type: opts.source_type } : {}),
         };
   return request<ListEnvelopesResponse>('GET', '/', {
     params,

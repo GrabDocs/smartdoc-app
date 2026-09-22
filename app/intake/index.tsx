@@ -1,14 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
+  Platform,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -40,7 +44,38 @@ const INTAKES_LIST_CACHE_MS = 30_000;
 const INTAKES_DISK_CACHE_MS = 24 * 60 * 60_000;
 const INTAKES_PAGE_SIZE = 20;
 
+const ANDROID_TEXT_INPUT_PROPS =
+  Platform.OS === 'android' ? { underlineColorAndroid: 'transparent' as const } : {};
+
 type ListTab = 'active' | 'schedules' | 'archived' | 'templates';
+
+const ACTIVE_STATUS_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'waiting_for_client', label: 'Waiting' },
+  { value: 'in_review', label: 'In Review' },
+  { value: 'completed', label: 'Completed' },
+] as const;
+
+const DUE_FILTERS = [
+  { value: '', label: 'Any due' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'due_tomorrow', label: 'Tomorrow' },
+  { value: 'on_track', label: 'On track' },
+] as const;
+
+const KIND_FILTERS = [
+  { value: '', label: 'All types' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'one_time', label: 'One-time' },
+] as const;
+
+const SCHEDULE_STATUS_FILTERS = [
+  { value: '', label: 'All' },
+  { value: 'active', label: 'Active' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Ended' },
+] as const;
 
 type PaginatedIntakesCache = {
   items: Intake[];
@@ -130,6 +165,11 @@ export default function IntakeListScreen() {
   const [schedulesLoading, setSchedulesLoading] = useState(false);
   const [schedulesLoaded, setSchedulesLoaded] = useState(false);
   const [scheduleBusyId, setScheduleBusyId] = useState<number | null>(null);
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [dueFilter, setDueFilter] = useState('');
+  const [kindFilter, setKindFilter] = useState('');
 
   const showArchived = activeTab === 'archived';
 
@@ -139,6 +179,16 @@ export default function IntakeListScreen() {
   const onEndReachedCalledDuringMomentumRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const inFlightRef = useRef(false);
+  const loadSeqRef = useRef(0);
+  const skipFilterReloadRef = useRef(true);
+  const searchQueryRef = useRef('');
+  const statusFilterRef = useRef('');
+  const dueFilterRef = useRef('');
+  const kindFilterRef = useRef('');
+  searchQueryRef.current = searchQuery;
+  statusFilterRef.current = statusFilter;
+  dueFilterRef.current = dueFilter;
+  kindFilterRef.current = kindFilter;
 
   const listCacheKey = intakesListScreenKey(user?.id, showArchived);
 
@@ -159,7 +209,14 @@ export default function IntakeListScreen() {
     }
     if (append && (!hasMoreRef.current || loadingMoreRef.current)) return;
 
-    const cacheKey = intakesListScreenKey(user.id, archived);
+    const q = searchQueryRef.current;
+    const status = statusFilterRef.current;
+    const due = dueFilterRef.current;
+    const kind = kindFilterRef.current;
+    const hasFilters = Boolean(
+      q || (!archived && status) || (!archived && due) || (!archived && kind)
+    );
+    const cacheKey = hasFilters ? null : intakesListScreenKey(user.id, archived);
 
     // Instant paint from memory (fresh) or disk (stale-while-revalidate).
     if (!forceRefresh && !append && cacheKey) {
@@ -189,14 +246,21 @@ export default function IntakeListScreen() {
     if (!append && inFlightRef.current) return;
     if (!append) inFlightRef.current = true;
 
+    const seq = ++loadSeqRef.current;
     const fetchPage = append ? pageRef.current + 1 : 1;
 
     try {
       const response = await apiService.getIntakes(
-        archived ? 'archived' : undefined,
+        archived ? 'archived' : (status || undefined),
         fetchPage,
         INTAKES_PAGE_SIZE,
+        {
+          q: q || undefined,
+          due: archived ? undefined : (due || undefined),
+          kind: archived ? undefined : (kind || undefined),
+        },
       );
+      if (seq !== loadSeqRef.current) return;
       if (response.success) {
         const rows = (response.intakes || []) as Intake[];
         const pagination = response.pagination;
@@ -226,11 +290,13 @@ export default function IntakeListScreen() {
         Alert.alert('Error', response.message || 'Failed to load Intakes');
       }
     } catch (error: any) {
+      if (seq !== loadSeqRef.current) return;
       console.error('Load intakes error:', error);
       if (!append && !hasLoadedRef.current) {
         Alert.alert('Error', error.message || 'Failed to load Intakes');
       }
     } finally {
+      if (seq !== loadSeqRef.current) return;
       if (!append) inFlightRef.current = false;
       setLoading(false);
       setRefreshing(false);
@@ -311,6 +377,57 @@ export default function IntakeListScreen() {
   const lastLoadTimeRef = useRef<number>(0);
   const RELOAD_DEBOUNCE_MS = 2000;
 
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const hasListFilters = Boolean(
+    searchQuery || statusFilter || (activeTab !== 'schedules' && (dueFilter || kindFilter))
+  );
+
+  const filteredSchedules = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return schedules.filter((s) => {
+      if (statusFilter && s.status !== statusFilter) return false;
+      if (!q) return true;
+      const hay = [s.title, s.client_name, s.client_primary_email, s.cadence_summary, s.frequency]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [schedules, searchQuery, statusFilter]);
+
+  const resetListFilters = useCallback((opts?: { skipReload?: boolean }) => {
+    const had =
+      searchQueryRef.current || statusFilterRef.current || dueFilterRef.current || kindFilterRef.current;
+    searchQueryRef.current = '';
+    statusFilterRef.current = '';
+    dueFilterRef.current = '';
+    kindFilterRef.current = '';
+    setSearchInput('');
+    setSearchQuery('');
+    setStatusFilter('');
+    setDueFilter('');
+    setKindFilter('');
+    if (opts?.skipReload && had) skipFilterReloadRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    if (skipFilterReloadRef.current) {
+      skipFilterReloadRef.current = false;
+      return;
+    }
+    if (activeTab !== 'active' && activeTab !== 'archived') return;
+    if (!user) return;
+    pageRef.current = 1;
+    hasMoreRef.current = true;
+    inFlightRef.current = false;
+    void loadIntakes(showArchived, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when filter values change
+  }, [searchQuery, statusFilter, dueFilter, kindFilter]);
+
   useFocusEffect(
     useCallback(() => {
       if (!user) {
@@ -349,6 +466,7 @@ export default function IntakeListScreen() {
   };
 
   const handleTabChange = (tab: ListTab) => {
+    resetListFilters({ skipReload: true });
     setActiveTab(tab);
     if (tab === 'templates') {
       loadTemplates();
@@ -457,6 +575,63 @@ export default function IntakeListScreen() {
     tabButtonTextActive: {
       color: '#1D4ED8',
       fontWeight: '600',
+    },
+    searchContainer: {
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      paddingBottom: 6,
+    },
+    searchInputContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+    },
+    searchIcon: {
+      marginRight: 8,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 14,
+      color: colors.text,
+      padding: 0,
+      backgroundColor: 'transparent',
+    },
+    filterChipsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+      gap: 8,
+    },
+    filterChip: {
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: colors.surface,
+    },
+    filterChipActive: {
+      backgroundColor: colors.isDark ? 'rgba(59, 130, 246, 0.24)' : '#DBEAFE',
+    },
+    filterChipText: {
+      fontSize: 12,
+      fontWeight: '500',
+      color: colors.textSecondary,
+    },
+    filterChipTextActive: {
+      color: '#1D4ED8',
+      fontWeight: '600',
+    },
+    clearFiltersBtn: {
+      paddingHorizontal: 16,
+      paddingBottom: 8,
+    },
+    clearFiltersText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: '#007AFF',
     },
     centerContainer: {
       flex: 1,
@@ -873,6 +1048,126 @@ export default function IntakeListScreen() {
         </TouchableOpacity>
       </View>
 
+      {activeTab !== 'templates' ? (
+        <View>
+          <View style={dynamicStyles.searchContainer}>
+            <View style={dynamicStyles.searchInputContainer}>
+              <Ionicons name="search" size={18} color={colors.textSecondary} style={dynamicStyles.searchIcon} />
+              <TextInput
+                {...ANDROID_TEXT_INPUT_PROPS}
+                style={dynamicStyles.searchInput}
+                placeholder={
+                  activeTab === 'schedules'
+                    ? 'Filter schedules by title or client…'
+                    : 'Filter by title, client, or upload code…'
+                }
+                placeholderTextColor={colors.textSecondary}
+                value={searchInput}
+                onChangeText={setSearchInput}
+                returnKeyType="search"
+                onSubmitEditing={() => Keyboard.dismiss()}
+              />
+              {searchInput.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSearchInput('');
+                    setSearchQuery('');
+                    searchQueryRef.current = '';
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+          {activeTab === 'schedules' ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={dynamicStyles.filterChipsRow}
+            >
+              {SCHEDULE_STATUS_FILTERS.map((opt) => {
+                const selected = statusFilter === opt.value;
+                return (
+                  <TouchableOpacity
+                    key={opt.value || 'all'}
+                    style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
+                    onPress={() => setStatusFilter(opt.value)}
+                  >
+                    <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : activeTab === 'active' ? (
+            <>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={dynamicStyles.filterChipsRow}
+              >
+                {ACTIVE_STATUS_FILTERS.map((opt) => {
+                  const selected = statusFilter === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={opt.value || 'all'}
+                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
+                      onPress={() => setStatusFilter(opt.value)}
+                    >
+                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={dynamicStyles.filterChipsRow}
+              >
+                {DUE_FILTERS.map((opt) => {
+                  const selected = dueFilter === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={`due-${opt.value || 'all'}`}
+                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
+                      onPress={() => setDueFilter(opt.value)}
+                    >
+                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                {KIND_FILTERS.map((opt) => {
+                  const selected = kindFilter === opt.value;
+                  return (
+                    <TouchableOpacity
+                      key={`kind-${opt.value || 'all'}`}
+                      style={[dynamicStyles.filterChip, selected && dynamicStyles.filterChipActive]}
+                      onPress={() => setKindFilter(opt.value)}
+                    >
+                      <Text style={[dynamicStyles.filterChipText, selected && dynamicStyles.filterChipTextActive]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </>
+          ) : null}
+          {hasListFilters ? (
+            <TouchableOpacity style={dynamicStyles.clearFiltersBtn} onPress={() => resetListFilters()}>
+              <Text style={dynamicStyles.clearFiltersText}>Clear filters</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
       {activeTab === 'templates' ? (
         templatesLoading && templates.length === 0 ? (
           <View style={dynamicStyles.centerContainer}>
@@ -924,9 +1219,20 @@ export default function IntakeListScreen() {
               <Text style={dynamicStyles.createButtonText}>New Intake</Text>
             </TouchableOpacity>
           </View>
+        ) : filteredSchedules.length === 0 ? (
+          <View style={dynamicStyles.emptyContainer}>
+            <Ionicons name="calendar-outline" size={64} color={colors.textLight} />
+            <Text style={dynamicStyles.emptyTitle}>No matching schedules</Text>
+            <Text style={dynamicStyles.emptyDescription}>
+              Try a different search or clear the filters.
+            </Text>
+            <TouchableOpacity style={dynamicStyles.createButton} onPress={() => resetListFilters()}>
+              <Text style={dynamicStyles.createButtonText}>Clear filters</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
-            data={schedules}
+            data={filteredSchedules}
             renderItem={renderSchedule}
             keyExtractor={(item) => `schedule-${item.id}`}
             contentContainerStyle={dynamicStyles.listContainer}
@@ -945,9 +1251,22 @@ export default function IntakeListScreen() {
         <View style={dynamicStyles.emptyContainer}>
           <Ionicons name="clipboard-outline" size={64} color={colors.textLight} />
           <Text style={dynamicStyles.emptyTitle}>
-            {showArchived ? 'No archived Intakes' : 'No Intakes yet'}
+            {hasListFilters
+              ? 'No matching Intakes'
+              : showArchived
+                ? 'No archived Intakes'
+                : 'No Intakes yet'}
           </Text>
-          {!showArchived && (
+          {hasListFilters ? (
+            <>
+              <Text style={dynamicStyles.emptyDescription}>
+                Try a different search or clear the filters.
+              </Text>
+              <TouchableOpacity style={dynamicStyles.createButton} onPress={() => resetListFilters()}>
+                <Text style={dynamicStyles.createButtonText}>Clear filters</Text>
+              </TouchableOpacity>
+            </>
+          ) : !showArchived ? (
             <>
               <Text style={dynamicStyles.emptyDescription}>
                 Create a checklist, send the link, and let GrabDocs chase the missing documents for you.
@@ -959,7 +1278,7 @@ export default function IntakeListScreen() {
                 <Text style={dynamicStyles.createButtonText}>Create Your First Intake</Text>
               </TouchableOpacity>
             </>
-          )}
+          ) : null}
         </View>
       ) : (
         <FlatList

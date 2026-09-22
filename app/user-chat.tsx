@@ -1300,10 +1300,17 @@ export default function UserChatScreen() {
     const chatsToFilter = sortedChats;
     if (!searchQuery.trim()) return chatsToFilter;
     const query = searchQuery.toLowerCase();
-    return chatsToFilter.filter(chat => 
-      chat.title.toLowerCase().includes(query) || 
-      chat.last_message.toLowerCase().includes(query)
-    );
+    return chatsToFilter.filter(chat => {
+      if (chat.title?.toLowerCase().includes(query)) return true;
+      if (chat.display_name?.toLowerCase().includes(query)) return true;
+      if (chat.invitee_label?.toLowerCase().includes(query)) return true;
+      if (chat.last_message?.toLowerCase().includes(query)) return true;
+      if (chat.workspace?.name?.toLowerCase().includes(query)) return true;
+      return (chat.participants || []).some((p) => {
+        const name = `${p.username || ''} ${p.email || ''}`.toLowerCase();
+        return name.includes(query);
+      });
+    });
   }, [sortedChats, searchQuery]);
 
   /** Section label for date grouping in conversation: Today, Yesterday, or "Monday, 10 Feb" (with year if different). */
