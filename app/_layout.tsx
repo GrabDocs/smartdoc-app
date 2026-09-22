@@ -570,6 +570,9 @@ function RootLayoutNav() {
           <Stack.Screen name="scanner" options={{ headerShown: false }} />
           <Stack.Screen name="public-upload" options={{ headerShown: false }} />
           <Stack.Screen name="notifications" options={{ headerShown: false }} />
+          <Stack.Screen name="verify-email-change" options={{ headerShown: false }} />
+          <Stack.Screen name="secure-message-invite" options={{ headerShown: false }} />
+          <Stack.Screen name="workspace-invite" options={{ headerShown: false }} />
         </Stack>
         </HeaderVisibilityProvider>
         <View style={styles.bottomNavContainer}>

@@ -23,7 +23,10 @@ module.exports = { expo: {
     "buildNumber": String(versions.ios?.buildNumber ?? "1"),
     "usesAppleSignIn": true,
     "associatedDomains": [
-      "applinks:api.grabdocs.com"
+      "applinks:api.grabdocs.com",
+      "applinks:app.grabdocs.com",
+      "applinks:grabdocs.com",
+      "applinks:www.grabdocs.com"
     ],
     "splash": {
       "image": "./assets/images/grabdocs-brand-app-images/png/logo-600x200.png",

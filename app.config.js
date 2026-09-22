@@ -37,6 +37,8 @@ const baseExpo = {
     associatedDomains: [
       "applinks:api.grabdocs.com",
       "applinks:app.grabdocs.com",
+      "applinks:grabdocs.com",
+      "applinks:www.grabdocs.com",
     ],
     splash: {
       image: "./assets/images/grabdocs-brand-app-images/png/logo-600x200.png",
@@ -146,8 +148,13 @@ const baseExpo = {
         data: [
           { scheme: "https", host: "app.grabdocs.com", pathPrefix: "/secure-message-invite" },
           { scheme: "https", host: "app.grabdocs.com", pathPrefix: "/workspace-invite" },
+          { scheme: "https", host: "app.grabdocs.com", pathPrefix: "/verify-email-change" },
           { scheme: "https", host: "grabdocs.com", pathPrefix: "/secure-message-invite" },
           { scheme: "https", host: "grabdocs.com", pathPrefix: "/workspace-invite" },
+          { scheme: "https", host: "grabdocs.com", pathPrefix: "/verify-email-change" },
+          { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/secure-message-invite" },
+          { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/workspace-invite" },
+          { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/verify-email-change" },
         ],
         category: ["BROWSABLE", "DEFAULT"],
       },

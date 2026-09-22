@@ -145,12 +145,17 @@ export default function SecureMessageInviteScreen() {
                 <>
                   <Text style={[styles.body, { color: colors.textSecondary }]}>{blockMessage}</Text>
                   <Text style={[styles.body, { color: colors.textSecondary }]}>
-                    Sign in with the account this invite was sent to, or add and verify that phone in Settings,
+                    Sign in with the account this invite was sent to, or add that phone in Settings,
                     then open this link again.
                   </Text>
                   <TouchableOpacity
                     style={[styles.btn, { backgroundColor: colors.primary }]}
-                    onPress={() => router.push('/(tabs)/settings' as any)}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(tabs)/settings',
+                        params: { section: 'profile', openPhone: '1' },
+                      } as any)
+                    }
                   >
                     <Text style={styles.btnText}>Open Settings</Text>
                   </TouchableOpacity>

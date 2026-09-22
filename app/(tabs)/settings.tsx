@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -42,7 +43,9 @@ import {
   WebDefaultHomePath,
 } from '../../utils/defaultHomePath';
 import { screenCache } from '../../utils/screenCache';
+import { extractEmailChangeToken } from '../../utils/emailChangeToken';
 import { parseAsUTC } from '../../utils/timeFormatting';
+import { secureStorage } from '../../utils/storage';
 import {
   isMobileAppToggleLocked,
 } from '../../utils/visibleApps';
@@ -59,6 +62,9 @@ import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import PhoneVerificationSheet from '../../components/PhoneVerificationSheet';
+import MfaVerificationSheet, {
+  type MfaPurpose,
+} from '../../components/MfaVerificationSheet';
 
 interface UserProfile {
   id: number;
@@ -73,8 +79,10 @@ interface UserProfile {
   supports_password_biometric?: boolean;
   phone_number?: string | null;
   masked_phone_number?: string | null;
+  has_phone?: boolean;
   phone_verified_at?: string | null;
   is_verified?: boolean;
+  pendingEmailChange?: { newEmail: string; requestedAt?: string } | null;
 }
 
 interface DeviceFingerprint {
@@ -89,7 +97,8 @@ interface DeviceFingerprint {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { signOut, user: authUser } = useAuth();
+  const params = useLocalSearchParams<{ section?: string; openPhone?: string; refresh?: string }>();
+  const { signOut, user: authUser, setUserFromExternal, forceReset } = useAuth();
   const { user, logout } = useEnhanced2FAAuth();
   const { theme, setTheme } = useTheme();
   const colors = useThemeColors();
@@ -137,6 +146,28 @@ export default function SettingsScreen() {
   const [clearingDeviceTrust, setClearingDeviceTrust] = useState(false);
   const [planDisplayName, setPlanDisplayName] = useState<string | null>(null);
   const [phoneVerifyOpen, setPhoneVerifyOpen] = useState(false);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [showEmailChangeForm, setShowEmailChangeForm] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [emailChangePassword, setEmailChangePassword] = useState('');
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false);
+  const [emailConfirmToken, setEmailConfirmToken] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [mfaOpen, setMfaOpen] = useState(false);
+  const [mfaPurpose, setMfaPurpose] = useState<MfaPurpose>('email_change');
+  const [mfaPreferredMethod, setMfaPreferredMethod] = useState<'email' | 'phone' | null>(null);
+  const [mfaAuthPolicy, setMfaAuthPolicy] = useState<'phone_preferred' | 'user_choice'>('phone_preferred');
+  const mfaOnSuccessRef = React.useRef<(() => void) | null>(null);
+  const [phoneSheetMode, setPhoneSheetMode] = useState<'add' | 'change' | 'verify'>('add');
+  const pendingOpenPhoneRef = React.useRef(false);
+  const phoneSaveRetryRef = React.useRef<(() => Promise<void>) | null>(null);
+  const skipAboutResetRef = React.useRef(false);
+  const [openPhoneTick, setOpenPhoneTick] = useState(0);
   // const [showSetPinModal, setShowSetPinModal] = useState(false);
   // const [pinValue, setPinValue] = useState('');
   // const [pinConfirm, setPinConfirm] = useState('');
@@ -145,6 +176,7 @@ export default function SettingsScreen() {
   // Collapsible sections state - only About expanded by default
   const [expandedSections, setExpandedSections] = useState({
     notifications: false,
+    profile: false,
     security: false,
     fileManagement: false,
     uploadSettings: false,
@@ -169,6 +201,7 @@ export default function SettingsScreen() {
       // If clicking a collapsed section, expand it and collapse all others
       const newState: typeof expandedSections = {
         notifications: false,
+        profile: false,
         security: false,
         fileManagement: false,
         uploadSettings: false,
@@ -186,20 +219,81 @@ export default function SettingsScreen() {
     loadSettings();
   }, []);
 
-  // Auto-expand About section when screen comes into focus
+  // Deep-link from secure-message invite / email confirm: open Profile Settings.
+  // Otherwise expand About on focus.
   useFocusEffect(
     useCallback(() => {
+      const section = typeof params.section === 'string' ? params.section : '';
+      const openPhone = params.openPhone === '1' || params.openPhone === 'true';
+      const refresh = params.refresh === '1' || params.refresh === 'true';
+
+      if (section === 'profile' || openPhone || refresh) {
+        setExpandedSections({
+          notifications: false,
+          profile: true,
+          security: false,
+          fileManagement: false,
+          uploadSettings: false,
+          display: false,
+          privacy: false,
+          about: false,
+          account: false,
+        });
+        // Force-refresh after email confirm or a one-shot Profile deep-link.
+        if (refresh || (section === 'profile' && !openPhone)) {
+          void loadSettings(true);
+        }
+        // Clear sticky params so later Settings visits fall back to About.
+        // openPhone keeps section until the sheet closes (cleared there).
+        if (refresh) {
+          skipAboutResetRef.current = true;
+          router.setParams({ refresh: undefined, section: undefined } as any);
+        } else if (section === 'profile' && !openPhone) {
+          skipAboutResetRef.current = true;
+          router.setParams({ section: undefined } as any);
+        }
+        if (openPhone) {
+          // Wait for profile so we know whether MFA/change is required.
+          pendingOpenPhoneRef.current = true;
+          setOpenPhoneTick((n) => n + 1);
+        }
+        return undefined;
+      }
+
+      if (section === 'security') {
+        setExpandedSections({
+          notifications: false,
+          profile: false,
+          security: true,
+          fileManagement: false,
+          uploadSettings: false,
+          display: false,
+          privacy: false,
+          about: false,
+          account: false,
+        });
+        return undefined;
+      }
+
+      // Clearing deep-link params should not collapse Profile back to About.
+      if (skipAboutResetRef.current) {
+        skipAboutResetRef.current = false;
+        return undefined;
+      }
+
       setExpandedSections({
         notifications: false,
+        profile: false,
         security: false,
         fileManagement: false,
         uploadSettings: false,
         display: false,
         privacy: false,
-        about: true, // Always expand About section on focus
+        about: true,
         account: false,
       });
-    }, [])
+      return undefined;
+    }, [params.section, params.openPhone, params.refresh])
   );
 
   const scopedUserId = authUser?.id ?? user?.id;
@@ -211,6 +305,8 @@ export default function SettingsScreen() {
       const cached = screenCache.get<UserProfile>(settingsCacheKey, SETTINGS_CACHE_MS);
       if (cached) {
         setProfile(cached);
+        setEditFirstName(cached.first_name || '');
+        setEditLastName(cached.last_name || '');
         if (typeof cached.supports_password_biometric === 'boolean') {
           setPasswordBiometricSupported(cached.supports_password_biometric);
         }
@@ -246,10 +342,14 @@ export default function SettingsScreen() {
           supports_password_biometric: supportsPasswordBiometric,
           phone_number: userData.phone_number || null,
           masked_phone_number: userData.masked_phone_number || null,
+          has_phone: !!(userData.has_phone || userData.phone_number),
           phone_verified_at: userData.phone_verified_at || null,
-          is_verified: !!(userData.is_verified || userData.phone_verified_at),
+          is_verified: !!userData.is_verified,
+          pendingEmailChange: userData.pendingEmailChange || null,
         };
         setProfile(profileData);
+        setEditFirstName(profileData.first_name || '');
+        setEditLastName(profileData.last_name || '');
         setPasswordBiometricSupported(supportsPasswordBiometric);
         if (settingsCacheKey) screenCache.set(settingsCacheKey, profileData);
       }
@@ -503,6 +603,372 @@ export default function SettingsScreen() {
         },
       ]
     );
+  };
+
+  const handleSaveName = async () => {
+    const firstName = editFirstName.trim();
+    const lastName = editLastName.trim();
+    if (!firstName || !lastName) {
+      Alert.alert('Name required', 'First and last name are required.');
+      return;
+    }
+    try {
+      setSavingName(true);
+      const res = await api.updateUserProfile({ firstName, lastName });
+      if (!res.success) {
+        throw new Error(res.message || 'Failed to update name');
+      }
+      setProfile((prev) =>
+        prev
+          ? {
+              ...prev,
+              first_name: firstName,
+              last_name: lastName,
+            }
+          : prev,
+      );
+      if (settingsCacheKey) {
+        screenCache.invalidate(settingsCacheKey);
+      }
+      Alert.alert('Saved', 'Your name was updated.');
+      void loadSettings(true);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to update name');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const openMfa = (
+    purpose: MfaPurpose,
+    onSuccess: () => void,
+    opts?: {
+      preferredMethod?: 'email' | 'phone' | null;
+      authPolicy?: 'phone_preferred' | 'user_choice';
+    },
+  ) => {
+    mfaOnSuccessRef.current = onSuccess;
+    setMfaPurpose(purpose);
+    setMfaPreferredMethod(opts?.preferredMethod ?? null);
+    setMfaAuthPolicy(opts?.authPolicy ?? (purpose === 'phone_change' || purpose === 'phone_removal' ? 'user_choice' : 'phone_preferred'));
+    setMfaOpen(true);
+  };
+
+  const submitEmailChangeRequest = async (passwordOverride?: string) => {
+    const email = newEmail.trim();
+    if (!email) {
+      Alert.alert('Email required', 'Enter a new email address.');
+      return;
+    }
+    const password =
+      passwordOverride !== undefined ? passwordOverride : emailChangePassword.trim();
+    try {
+      setEmailChangeLoading(true);
+      const res = await api.requestEmailChange({
+        newEmail: email,
+        ...(password ? { currentPassword: password } : {}),
+      });
+      if (!res.success) {
+        throw Object.assign(new Error(res.message || 'Failed to request email change'), {
+          data: res,
+        });
+      }
+      setShowEmailChangeForm(false);
+      setNewEmail('');
+      setEmailChangePassword('');
+      Alert.alert(
+        'Check your inbox',
+        res.message ||
+          `Verification link sent to ${email}. Your email will not change until verified.`,
+      );
+      void loadSettings(true);
+    } catch (e: any) {
+      const data = e?.data || e?.response?.data;
+      if (data?.requires_reauth || data?.requires_mfa) {
+        openMfa(
+          'email_change',
+          () => {
+            void submitEmailChangeRequest('');
+          },
+          {
+            preferredMethod: data?.mfa_method === 'phone' ? 'phone' : data?.mfa_method === 'email' ? 'email' : null,
+            authPolicy: 'phone_preferred',
+          },
+        );
+        return;
+      }
+      Alert.alert('Error', data?.message || e?.message || 'Failed to request email change');
+    } finally {
+      setEmailChangeLoading(false);
+    }
+  };
+
+  const handleRequestEmailChange = async () => {
+    const email = newEmail.trim();
+    if (!email) {
+      Alert.alert('Email required', 'Enter a new email address.');
+      return;
+    }
+    if (emailChangePassword.trim()) {
+      await submitEmailChangeRequest();
+      return;
+    }
+    const canMfa =
+      !!(profile?.has_phone || profile?.phone_number || profile?.masked_phone_number) ||
+      !!(profile?.email && profile.email !== 'no-2fa@disabled.local');
+    if (canMfa) {
+      openMfa('email_change', () => {
+        void submitEmailChangeRequest('');
+      });
+      return;
+    }
+    if (profile?.google_linked || profile?.apple_linked) {
+      Alert.alert(
+        'Verify identity',
+        'Add and verify a phone number first, or use a real email on this account, so we can send a verification code.',
+      );
+      return;
+    }
+    Alert.alert('Password required', 'Enter your current password to change email.');
+  };
+
+  const hasPhoneOnFile = () =>
+    !!(profile?.has_phone || profile?.masked_phone_number || profile?.phone_number);
+
+  /** Phone is verified only when phone_verified_at is set — never infer from account is_verified. */
+  const hasVerifiedPhone = () => hasPhoneOnFile() && !!profile?.phone_verified_at;
+
+  const startPhoneChangeAfterMfa = () => {
+    openMfa(
+      'phone_change',
+      () => {
+        setPhoneSheetMode('change');
+        setPhoneVerifyOpen(true);
+      },
+      { authPolicy: 'user_choice' },
+    );
+  };
+
+  const openPhoneFlow = (opts?: { preferChange?: boolean }) => {
+    if (!hasVerifiedPhone()) {
+      setPhoneSheetMode(hasPhoneOnFile() ? 'verify' : 'add');
+      setPhoneVerifyOpen(true);
+      return;
+    }
+
+    // Invite deep-link: go straight to change-after-MFA so user can switch numbers.
+    if (opts?.preferChange) {
+      startPhoneChangeAfterMfa();
+      return;
+    }
+
+    Alert.alert('Phone number', 'What would you like to do?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Change number',
+        onPress: () => startPhoneChangeAfterMfa(),
+      },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          openMfa(
+            'phone_removal',
+            async () => {
+              try {
+                const res = await api.updateUserProfile({ phone_number: '' });
+                if (!res.success) {
+                  throw Object.assign(new Error(res.message || 'Failed to remove phone'), {
+                    data: res,
+                  });
+                }
+                Alert.alert('Removed', 'Phone number removed from your account.');
+                void loadSettings(true);
+              } catch (e: any) {
+                const data = e?.data || e?.response?.data;
+                if (data?.requires_mfa) {
+                  openMfa('phone_removal', async () => {
+                    try {
+                      await api.updateUserProfile({ phone_number: '' });
+                      Alert.alert('Removed', 'Phone number removed from your account.');
+                      void loadSettings(true);
+                    } catch (err: any) {
+                      Alert.alert('Error', err?.data?.message || err?.message || 'Failed to remove phone');
+                    }
+                  }, { authPolicy: 'user_choice' });
+                  return;
+                }
+                Alert.alert('Error', data?.message || e?.message || 'Failed to remove phone');
+              }
+            },
+            { authPolicy: 'user_choice' },
+          );
+        },
+      },
+    ]);
+  };
+
+  const handlePhonePress = () => openPhoneFlow();
+
+  // Consume deep-link openPhone once profile is available.
+  // Keep pending=true until the timeout fires so a cache→network profile refresh
+  // does not cancel the flow.
+  useEffect(() => {
+    if (!pendingOpenPhoneRef.current || !profile) return undefined;
+    const t = setTimeout(() => {
+      if (!pendingOpenPhoneRef.current) return;
+      pendingOpenPhoneRef.current = false;
+      openPhoneFlow({ preferChange: true });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id, profile?.phone_verified_at, profile?.has_phone, params.openPhone, openPhoneTick]);
+
+
+  const handleCancelPendingEmailChange = async () => {
+    try {
+      setEmailChangeLoading(true);
+      await api.cancelEmailChange();
+      Alert.alert('Cancelled', 'Pending email change was cancelled.');
+      void loadSettings(true);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to cancel email change');
+    } finally {
+      setEmailChangeLoading(false);
+    }
+  };
+
+  const handleConfirmEmailChangeToken = async () => {
+    const token = extractEmailChangeToken(emailConfirmToken);
+    if (!token) {
+      Alert.alert('Token required', 'Paste the verification link or token from your email.');
+      return;
+    }
+    try {
+      setEmailChangeLoading(true);
+      const res = await api.verifyEmailChange(token);
+      if (!res.success) {
+        throw new Error(res.message || 'Verification failed');
+      }
+      const email = (res.email || res.data?.email || '') as string;
+      const hasTokens = !!(res.token || res.access_token || res.refresh_token);
+      const matched = hasTokens;
+      const accountMatched =
+        res.account_matched === true ||
+        res.accountMatched === true ||
+        matched;
+      // Only rewrite this session when tokens were re-issued.
+      if (email && authUser && matched) {
+        try {
+          await setUserFromExternal(
+            {
+              id: String(authUser.id),
+              email,
+              name: (authUser as any).name || `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim(),
+              first_name: profile?.first_name,
+              last_name: profile?.last_name,
+              username: profile?.username,
+            },
+            (res.token || res.access_token) as string | undefined,
+            res.refresh_token as string | undefined,
+          );
+        } catch {
+          // non-fatal — profile refresh still updates Settings
+        }
+      }
+      setEmailConfirmToken('');
+      if (matched) {
+        Alert.alert('Email updated', res.message || 'Your email address has been updated.');
+        void loadSettings(true);
+      } else if (accountMatched) {
+        // Account matched but JWT re-issue failed — same as deep-link: drop the
+        // revoked session and send them to sign-in with the new email.
+        try {
+          if (email) {
+            await deviceSecurityService.updateLastLoginEmail(email);
+            const remembered = await secureStorage.getItem('remembered_email');
+            if (remembered) await secureStorage.setItem('remembered_email', email);
+          }
+          if (settingsCacheKey) screenCache.invalidate(settingsCacheKey);
+          await forceReset();
+        } catch {
+          // still leave Settings so they are not stuck on a dead JWT
+        }
+        Alert.alert(
+          'Email updated',
+          email
+            ? `Your email is now ${email}. Please sign in again to continue.`
+            : 'Email updated. Please sign in again to continue.',
+        );
+        router.replace({
+          pathname: '/(auth)/sign-in',
+          params: email ? { email } : undefined,
+        } as any);
+      } else {
+        Alert.alert(
+          'Email updated for another account',
+          email
+            ? `That link confirmed ${email}. Sign in with that address to continue — this session was not changed.`
+            : 'That link belonged to another account. This session was not changed.',
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Failed to verify email change');
+    } finally {
+      setEmailChangeLoading(false);
+    }
+  };
+
+  const submitPasswordChange = async () => {
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      Alert.alert('Password required', 'Enter your current and new passwords.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      Alert.alert('Too short', 'New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Mismatch', 'New password and confirmation do not match.');
+      return;
+    }
+    try {
+      setPasswordSaving(true);
+      const res = await api.changePassword({
+        currentPassword: currentPassword.trim(),
+        newPassword: newPassword.trim(),
+      });
+      if (!res.success) {
+        throw Object.assign(new Error(res.message || 'Failed to change password'), { data: res });
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      Alert.alert('Saved', 'Your password was updated.');
+    } catch (e: any) {
+      const data = e?.data || e?.response?.data;
+      if (data?.requires_mfa) {
+        openMfa(
+          'password_change',
+          () => {
+            void submitPasswordChange();
+          },
+          {
+            preferredMethod:
+              data?.mfa_method === 'phone'
+                ? 'phone'
+                : data?.mfa_method === 'email'
+                  ? 'email'
+                  : null,
+            authPolicy: 'phone_preferred',
+          },
+        );
+        return;
+      }
+      Alert.alert('Error', data?.message || e?.message || 'Failed to change password');
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const CollapsibleSection = ({
@@ -787,6 +1253,102 @@ export default function SettingsScreen() {
       fontSize: scaledFontSize(12),
       color: colors.textSecondary,
       lineHeight: scaledFontSize(16),
+    },
+    profileFormBlock: {
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    profileFieldLabel: {
+      fontSize: scaledFontSize(13),
+      fontWeight: '500',
+      color: colors.textSecondary,
+      marginBottom: 6,
+      marginTop: 4,
+    },
+    profileInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      color: colors.text,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+      fontSize: scaledFontSize(16),
+      marginBottom: 8,
+    },
+    profileStaticValue: {
+      fontSize: scaledFontSize(16),
+      color: colors.text,
+      marginBottom: 4,
+    },
+    verifiedHint: {
+      fontSize: scaledFontSize(12),
+      color: '#34C759',
+      marginBottom: 8,
+    },
+    linkAction: {
+      fontSize: scaledFontSize(14),
+      color: '#007AFF',
+      fontWeight: '500',
+      marginTop: 4,
+    },
+    linkActionMuted: {
+      fontSize: scaledFontSize(14),
+      color: colors.textSecondary,
+      fontWeight: '500',
+      paddingVertical: 10,
+      paddingRight: 12,
+    },
+    profilePrimaryButton: {
+      marginTop: 8,
+      backgroundColor: '#007AFF',
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    profilePrimaryButtonInline: {
+      flex: 1,
+      marginTop: 0,
+    },
+    profilePrimaryButtonText: {
+      color: '#fff',
+      fontSize: scaledFontSize(15),
+      fontWeight: '600',
+    },
+    profileActionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: 8,
+      gap: 8,
+    },
+    pendingEmailBox: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: '#F0C36A',
+      borderRadius: 10,
+      padding: 12,
+      marginTop: 4,
+    },
+    pendingEmailTitle: {
+      fontSize: scaledFontSize(14),
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 4,
+    },
+    pendingEmailBody: {
+      fontSize: scaledFontSize(13),
+      color: colors.textSecondary,
+      lineHeight: scaledFontSize(18),
+      marginBottom: 8,
+    },
+    pendingEmailCancel: {
+      fontSize: scaledFontSize(13),
+      color: '#007AFF',
+      fontWeight: '500',
+      textDecorationLine: 'underline',
     },
     settingValue: {
       fontSize: 14,
@@ -1185,6 +1747,250 @@ export default function SettingsScreen() {
           value={planDisplayName || 'View plan, usage, and invoices'}
           onPress={() => router.push('/billing' as any)}
         />
+
+        {/* Profile — name, email, phone verify */}
+        <CollapsibleSection
+          title="Profile Settings"
+          isExpanded={expandedSections.profile}
+          onToggle={() => toggleSection('profile')}
+        >
+          <View style={dynamicStyles.profileFormBlock}>
+            <Text style={dynamicStyles.profileFieldLabel}>First name</Text>
+            <TextInput
+              style={dynamicStyles.profileInput}
+              value={editFirstName}
+              onChangeText={setEditFirstName}
+              autoCapitalize="words"
+              autoComplete="given-name"
+              placeholder="First name"
+              placeholderTextColor={colors.textSecondary}
+            />
+            <Text style={dynamicStyles.profileFieldLabel}>Last name</Text>
+            <TextInput
+              style={dynamicStyles.profileInput}
+              value={editLastName}
+              onChangeText={setEditLastName}
+              autoCapitalize="words"
+              autoComplete="family-name"
+              placeholder="Last name"
+              placeholderTextColor={colors.textSecondary}
+            />
+            <TouchableOpacity
+              style={[dynamicStyles.profilePrimaryButton, savingName && { opacity: 0.6 }]}
+              disabled={savingName}
+              onPress={() => void handleSaveName()}
+            >
+              {savingName ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={dynamicStyles.profilePrimaryButtonText}>Save name</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <View style={dynamicStyles.profileFormBlock}>
+            <Text style={dynamicStyles.profileFieldLabel}>Email</Text>
+            {profile?.pendingEmailChange ? (
+              <View style={dynamicStyles.pendingEmailBox}>
+                <Text style={dynamicStyles.pendingEmailTitle}>Email change pending</Text>
+                <Text style={dynamicStyles.pendingEmailBody}>
+                  Verification link sent to {profile.pendingEmailChange.newEmail}. Open the link on
+                  this device, or paste the link or token below to confirm in-app.
+                </Text>
+                <Text style={[dynamicStyles.profileFieldLabel, { marginTop: 8 }]}>
+                  Confirmation link or token
+                </Text>
+                <TextInput
+                  style={dynamicStyles.profileInput}
+                  value={emailConfirmToken}
+                  onChangeText={setEmailConfirmToken}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  placeholder="Paste link or token from email"
+                  placeholderTextColor={colors.textSecondary}
+                />
+                <View style={dynamicStyles.profileActionRow}>
+                  <TouchableOpacity
+                    disabled={emailChangeLoading}
+                    onPress={() => void handleCancelPendingEmailChange()}
+                  >
+                    <Text style={dynamicStyles.pendingEmailCancel}>Cancel request</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      dynamicStyles.profilePrimaryButton,
+                      dynamicStyles.profilePrimaryButtonInline,
+                      (emailChangeLoading || !emailConfirmToken.trim()) && { opacity: 0.6 },
+                    ]}
+                    disabled={emailChangeLoading || !emailConfirmToken.trim()}
+                    onPress={() => void handleConfirmEmailChangeToken()}
+                  >
+                    {emailChangeLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={dynamicStyles.profilePrimaryButtonText}>Confirm email</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <>
+                <Text style={dynamicStyles.profileStaticValue}>{profile?.email || '—'}</Text>
+                {!showEmailChangeForm ? (
+                  <TouchableOpacity onPress={() => setShowEmailChangeForm(true)}>
+                    <Text style={dynamicStyles.linkAction}>Change email</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={dynamicStyles.profileFieldLabel}>New email address</Text>
+                    <TextInput
+                      style={dynamicStyles.profileInput}
+                      value={newEmail}
+                      onChangeText={setNewEmail}
+                      autoCapitalize="none"
+                      autoComplete="email"
+                      keyboardType="email-address"
+                      placeholder="name@example.com"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                    <Text style={dynamicStyles.profileFieldLabel}>Current password</Text>
+                    <TextInput
+                      style={dynamicStyles.profileInput}
+                      value={emailChangePassword}
+                      onChangeText={setEmailChangePassword}
+                      secureTextEntry
+                      autoComplete="current-password"
+                      placeholder="Current password"
+                      placeholderTextColor={colors.textSecondary}
+                    />
+                    <Text style={dynamicStyles.settingSubtitle}>
+                      Enter your password, or leave it blank to verify with a code sent to your
+                      phone or email. A verification link goes to the new address — email does not
+                      change until you confirm it.
+                    </Text>
+                    <View style={dynamicStyles.profileActionRow}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowEmailChangeForm(false);
+                          setNewEmail('');
+                          setEmailChangePassword('');
+                        }}
+                      >
+                        <Text style={dynamicStyles.linkActionMuted}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          dynamicStyles.profilePrimaryButton,
+                          dynamicStyles.profilePrimaryButtonInline,
+                          (emailChangeLoading || !newEmail.trim()) && { opacity: 0.6 },
+                        ]}
+                        disabled={emailChangeLoading || !newEmail.trim()}
+                        onPress={() => void handleRequestEmailChange()}
+                      >
+                        {emailChangeLoading ? (
+                          <ActivityIndicator color="#fff" />
+                        ) : (
+                          <Text style={dynamicStyles.profilePrimaryButtonText}>
+                            Request email change
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={dynamicStyles.settingItem}
+            onPress={handlePhonePress}
+          >
+            <View style={dynamicStyles.settingIcon}>
+              <Ionicons name="call-outline" size={20} color={colors.textSecondary} />
+            </View>
+            <View style={dynamicStyles.settingContent}>
+              <Text style={dynamicStyles.settingTitle}>
+                {hasPhoneOnFile() && profile?.phone_verified_at
+                  ? 'Phone number'
+                  : hasPhoneOnFile()
+                    ? 'Verify phone'
+                    : 'Add phone'}
+              </Text>
+              <Text style={dynamicStyles.settingSubtitle}>
+                {hasPhoneOnFile()
+                  ? `${profile?.masked_phone_number || profile?.phone_number}${
+                      profile?.phone_verified_at
+                        ? ' · Verified · Tap to change or remove'
+                        : ' · Unverified · Tap to finish'
+                    }`
+                  : 'Used for login and account verification'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {!profile?.google_linked && !profile?.apple_linked ? (
+            <View style={dynamicStyles.profileFormBlock}>
+              <Text style={dynamicStyles.profileFieldLabel}>Change password</Text>
+              <Text style={dynamicStyles.settingSubtitle}>
+                Requires verification via phone (if on file) or email.
+              </Text>
+              <Text style={dynamicStyles.profileFieldLabel}>Current password</Text>
+              <TextInput
+                style={dynamicStyles.profileInput}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry
+                autoComplete="current-password"
+                placeholder="Current password"
+                placeholderTextColor={colors.textSecondary}
+              />
+              <Text style={dynamicStyles.profileFieldLabel}>New password</Text>
+              <TextInput
+                style={dynamicStyles.profileInput}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                placeholderTextColor={colors.textSecondary}
+              />
+              <Text style={dynamicStyles.profileFieldLabel}>Confirm password</Text>
+              <TextInput
+                style={dynamicStyles.profileInput}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                autoComplete="new-password"
+                placeholder="Confirm new password"
+                placeholderTextColor={colors.textSecondary}
+              />
+              <TouchableOpacity
+                style={[
+                  dynamicStyles.profilePrimaryButton,
+                  (passwordSaving ||
+                    !currentPassword.trim() ||
+                    !newPassword.trim() ||
+                    !confirmPassword.trim()) && { opacity: 0.6 },
+                ]}
+                disabled={
+                  passwordSaving ||
+                  !currentPassword.trim() ||
+                  !newPassword.trim() ||
+                  !confirmPassword.trim()
+                }
+                onPress={() => void submitPasswordChange()}
+              >
+                {passwordSaving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={dynamicStyles.profilePrimaryButtonText}>Update password</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </CollapsibleSection>
 
         {/* Enhanced 2FA Security Section */}
         <CollapsibleSection
@@ -1930,7 +2736,7 @@ export default function SettingsScreen() {
                   <Text style={[dynamicStyles.profileEmail, { marginTop: 4 }]}>
                     {profile.phone_number || profile.masked_phone_number
                       ? `Phone • ${profile.masked_phone_number || profile.phone_number}${
-                          profile.phone_verified_at || profile.is_verified ? ' ✓ Verified' : ' (unverified)'
+                          profile.phone_verified_at ? ' ✓ Verified' : ' (unverified)'
                         }`
                       : 'No phone on file'}
                   </Text>
@@ -1948,37 +2754,6 @@ export default function SettingsScreen() {
               </View>
             </>
           )}
-
-          <TouchableOpacity
-            style={dynamicStyles.settingItem}
-            onPress={() => {
-              if (profile?.phone_number && (profile.phone_verified_at || profile.is_verified)) {
-                Alert.alert(
-                  'Phone number',
-                  'Your phone is verified. To change or remove it, use GrabDocs on the web (Settings → Account).',
-                );
-                return;
-              }
-              setPhoneVerifyOpen(true);
-            }}
-          >
-            <View style={dynamicStyles.settingIcon}>
-              <Ionicons name="call-outline" size={20} color="#007AFF" />
-            </View>
-            <View style={dynamicStyles.settingContent}>
-              <Text style={dynamicStyles.settingTitle}>
-                {profile?.phone_number && (profile.phone_verified_at || profile.is_verified)
-                  ? 'Phone verified'
-                  : profile?.phone_number
-                    ? 'Verify phone number'
-                    : 'Add & verify phone'}
-              </Text>
-              <Text style={dynamicStyles.settingSubtitle}>
-                Required to accept secure message invites sent to your number
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#C7C7CC" />
-          </TouchableOpacity>
           
           <TouchableOpacity 
             style={dynamicStyles.dangerItem}
@@ -2038,25 +2813,86 @@ export default function SettingsScreen() {
 
       <PhoneVerificationSheet
         visible={phoneVerifyOpen}
-        onClose={() => setPhoneVerifyOpen(false)}
-        initialPhone={profile?.phone_number || ''}
+        mode={phoneSheetMode}
+        onClose={() => {
+          setPhoneVerifyOpen(false);
+          setPhoneSheetMode('add');
+          if (params.openPhone || params.section === 'profile' || params.section === 'security') {
+            skipAboutResetRef.current = true;
+            router.setParams({ openPhone: undefined, section: undefined } as any);
+          }
+        }}
+        initialPhone={
+          phoneSheetMode === 'change'
+            ? ''
+            : profile?.phone_number && !String(profile.phone_number).includes('*')
+              ? profile.phone_number
+              : ''
+        }
+        onRequiresMfa={(info, retrySave) => {
+          phoneSaveRetryRef.current = retrySave;
+          setPhoneVerifyOpen(false);
+          openMfa(
+            (info.purpose as MfaPurpose) || 'phone_change',
+            async () => {
+              try {
+                const retry = phoneSaveRetryRef.current;
+                phoneSaveRetryRef.current = null;
+                await retry?.();
+                void loadSettings(true);
+              } catch (e: any) {
+                Alert.alert('Error', e?.data?.message || e?.message || 'Failed to save phone');
+              }
+            },
+            {
+              preferredMethod:
+                info.method === 'phone' || info.method === 'email' ? info.method : null,
+              authPolicy: 'user_choice',
+            },
+          );
+        }}
         onSuccess={(phoneNumber) => {
+          const digits = String(phoneNumber || '').replace(/\D/g, '');
+          const masked = digits.length >= 4 ? `***-***-${digits.slice(-4)}` : phoneNumber;
           setProfile((prev) =>
             prev
               ? {
                   ...prev,
-                  phone_number: phoneNumber,
-                  masked_phone_number: phoneNumber
-                    ? phoneNumber.slice(-4).padStart(phoneNumber.length, '*')
-                    : null,
+                  phone_number: masked,
+                  masked_phone_number: masked,
+                  has_phone: !!digits,
                   phone_verified_at: new Date().toISOString(),
                   is_verified: true,
                 }
               : prev,
           );
-          void loadSettings();
+          setPhoneSheetMode('add');
+          if (params.openPhone || params.section === 'profile' || params.section === 'security') {
+            skipAboutResetRef.current = true;
+            router.setParams({ openPhone: undefined, section: undefined } as any);
+          }
+          void loadSettings(true);
         }}
       />
+
+      <MfaVerificationSheet
+        visible={mfaOpen}
+        purpose={mfaPurpose}
+        email={profile?.email}
+        hasPhone={!!(profile?.has_phone || profile?.phone_number || profile?.masked_phone_number)}
+        authPolicy={mfaAuthPolicy}
+        preferredMethod={mfaPreferredMethod}
+        onClose={() => {
+          setMfaOpen(false);
+        }}
+        onSuccess={() => {
+          const cb = mfaOnSuccessRef.current;
+          mfaOnSuccessRef.current = null;
+          setMfaOpen(false);
+          cb?.();
+        }}
+      />
+
 
       <Modal
         visible={defaultHomePickerOpen}

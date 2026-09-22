@@ -58,6 +58,8 @@ interface LastLoginData {
   timestamp: string;
   location?: string;
   authMethod?: AuthMethod;
+  /** Login identifier last used (email/username) — kept in sync after email change. */
+  email?: string;
 }
 
 // Storage keys
@@ -472,12 +474,13 @@ class DeviceSecurityService {
 
   async setLastLoginData(data: LastLoginData): Promise<void> {
     try {
-      // Preserve prior authMethod when callers only refresh timestamp.
+      // Preserve prior authMethod/email when callers only refresh timestamp.
       const existing = await this.getLastLoginData();
       const merged: LastLoginData = {
         ...existing,
         ...data,
         authMethod: data.authMethod ?? existing?.authMethod,
+        email: data.email ?? existing?.email,
       };
       await secureStorage.setItem(STORAGE_KEYS.LAST_LOGIN, JSON.stringify(merged));
     } catch (error) {
@@ -490,6 +493,27 @@ class DeviceSecurityService {
       timestamp: new Date().toISOString(),
       authMethod,
     });
+  }
+
+  /** Update stored last-login email after a confirmed email change (biometric / remember flows). */
+  async updateLastLoginEmail(email: string): Promise<void> {
+    const trimmed = (email || '').trim();
+    if (!trimmed) return;
+    try {
+      const existing = await this.getLastLoginData();
+      await this.setLastLoginData({
+        timestamp: existing?.timestamp || new Date().toISOString(),
+        email: trimmed,
+        authMethod: existing?.authMethod,
+      });
+    } catch (error) {
+      console.warn('Failed to update last login email:', error);
+    }
+  }
+
+  async getLastLoginEmail(): Promise<string | null> {
+    const data = await this.getLastLoginData();
+    return data?.email?.trim() || null;
   }
 
   async getLastAuthMethod(): Promise<AuthMethod | null> {

@@ -333,6 +333,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await deviceSecurityService.setLastLoginData({
               timestamp: new Date().toISOString(),
               authMethod: 'password',
+              email: trimmedEmail,
             });
           } catch {
             /* non-fatal */

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
-import { Link, useRouter } from 'expo-router';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     Alert,
@@ -26,10 +26,12 @@ import deviceSecurityService from '../../services/deviceSecurity';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
 import { exchangeGoogleLoginToken } from '../../utils/googleOAuthDeepLink';
 import { apiService } from '../../services/api';
+import { secureStorage } from '../../utils/storage';
 import { useAuth } from '../context/auth';
 
 export default function SignInScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string; username?: string }>();
   const themeColorsHook = useThemeColors();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -49,6 +51,35 @@ export default function SignInScreen() {
   const { signIn, loading: authLoading, setUserFromExternal } = useAuth();
   const loading = authLoading || isSubmitting || googleLoading;
   const { loginWithBiometric } = useEnhanced2FAAuth();
+
+  // Prefill from email-change success, last-login, or remembered email.
+  useEffect(() => {
+    const fromEmail = typeof params.email === 'string' ? params.email.trim() : '';
+    const fromUsername = typeof params.username === 'string' ? params.username.trim() : '';
+    const prefill = fromEmail || fromUsername;
+    if (prefill) {
+      setUsername(prefill);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const deviceSecurityService = (await import('../../services/deviceSecurity')).default;
+        const lastEmail = await deviceSecurityService.getLastLoginEmail();
+        if (!cancelled && lastEmail) {
+          setUsername(lastEmail);
+          return;
+        }
+        const remembered = await secureStorage.getItem('remembered_email');
+        if (!cancelled && remembered) setUsername(remembered);
+      } catch {
+        // non-fatal
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [params.email, params.username]);
 
   // Check biometric availability on component mount
   useEffect(() => {

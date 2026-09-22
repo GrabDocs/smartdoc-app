@@ -106,12 +106,17 @@ const MOBILE_ENDPOINTS = {
   // 2FA Authentication
   REQUEST_OTP: '/api/v1/mobile/auth/request-otp',
   VERIFY_OTP: '/api/v1/mobile/auth/verify-otp',
+  REQUEST_MFA_OTP: '/api/v1/mobile/auth/request-mfa-otp',
+  VERIFY_MFA_OTP: '/api/v1/mobile/auth/verify-mfa-otp',
   LOGIN_WITH_PHONE: '/api/v1/mobile/auth/login-with-phone',
   CHECK_PHONE: '/api/v1/mobile/auth/check-phone',
   REGISTER_WITH_PHONE: '/api/v1/mobile/auth/register-with-phone',
   
   // User
   USER: '/api/v1/mobile/user',
+  USER_REQUEST_EMAIL_CHANGE: '/api/v1/mobile/user/request-email-change',
+  USER_CANCEL_EMAIL_CHANGE: '/api/v1/mobile/user/cancel-email-change',
+  USER_VERIFY_EMAIL_CHANGE: '/api/v1/mobile/user/verify-email-change',
   USER_DEFAULT_HOME_PATH: '/api/v1/mobile/user/default-home-path',
   USER_APP_PREFERENCES: '/api/v1/mobile/user/app-preferences',
   APP_FEATURES: '/api/v1/mobile/app-features',
@@ -927,6 +932,48 @@ class ApiService {
     }
   }
 
+  async requestMfaOtp(data: {
+    purpose: string;
+    method: 'phone' | 'email';
+  }): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.REQUEST_MFA_OTP, {
+        purpose: data.purpose,
+        method: data.method,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to send verification code');
+    }
+  }
+
+  async verifyMfaOtp(data: {
+    method: 'phone' | 'email';
+    otpCode: string;
+  }): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.VERIFY_MFA_OTP, {
+        method: data.method,
+        otpCode: data.otpCode,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Invalid verification code');
+    }
+  }
+
+  async verifyOtpWithEmail(email: string, otpCode: string): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.VERIFY_OTP, {
+        email,
+        otpCode,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Invalid verification code');
+    }
+  }
+
   async registerWithPhone(data: {
     phoneNumber: string;
     countryCode?: string;
@@ -1027,7 +1074,136 @@ class ApiService {
       const response = await this.client.put(MOBILE_ENDPOINTS.USER, data);
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Failed to update user profile');
+      const err: any = new Error(
+        error.response?.data?.message || 'Failed to update user profile',
+      );
+      err.response = error.response;
+      err.data = error.response?.data;
+      throw err;
+    }
+  }
+
+  async requestEmailChange(data: {
+    newEmail: string;
+    currentPassword?: string;
+  }): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_REQUEST_EMAIL_CHANGE, {
+        newEmail: data.newEmail,
+        ...(data.currentPassword ? { currentPassword: data.currentPassword } : {}),
+      });
+      return response.data;
+    } catch (error: any) {
+      const err: any = new Error(
+        error.response?.data?.message || 'Failed to request email change',
+      );
+      err.response = error.response;
+      err.data = error.response?.data;
+      throw err;
+    }
+  }
+
+  async cancelEmailChange(): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_CANCEL_EMAIL_CHANGE);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to cancel email change');
+    }
+  }
+
+  async verifyEmailChange(token: string): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_VERIFY_EMAIL_CHANGE, {
+        token,
+      });
+      const result = response.data;
+      const hasTokens = !!(result?.token || result?.access_token || result?.refresh_token);
+      // matched_session means this device kept a live JWT (tokens re-issued).
+      const matchedSession =
+        hasTokens &&
+        (result?.matched_session === true ||
+          result?.matchedSession === true ||
+          hasTokens);
+      const accountMatched =
+        result?.account_matched === true ||
+        result?.accountMatched === true ||
+        matchedSession;
+      if (result?.success && hasTokens) {
+        await persistMobileAuthTokens({
+          token: result.token ?? result.access_token,
+          access_token: result.access_token ?? result.token,
+          refresh_token: result.refresh_token,
+        });
+      }
+      // Rewrite local identity only when tokens were re-issued (session kept).
+      // Still update remembered / last-login email when this account matched but re-issue failed.
+      const newEmail = (result?.email || result?.data?.email) as string | undefined;
+      if (result?.success && newEmail && (matchedSession || accountMatched)) {
+        try {
+          if (matchedSession) {
+            const raw = await secureStorage.getItem(STORAGE_KEYS.USER_DATA);
+            if (raw) {
+              const stored = JSON.parse(raw);
+              stored.email = newEmail;
+              await secureStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(stored));
+            }
+            const userRaw = await secureStorage.getItem('user');
+            if (userRaw) {
+              const storedUser = JSON.parse(userRaw);
+              storedUser.email = newEmail;
+              await secureStorage.setItem('user', JSON.stringify(storedUser));
+            }
+          }
+          const remembered = await secureStorage.getItem('remembered_email');
+          if (remembered) {
+            await secureStorage.setItem('remembered_email', newEmail);
+          }
+          try {
+            const deviceSecurityService = (await import('./deviceSecurity')).default;
+            await deviceSecurityService.updateLastLoginEmail(newEmail);
+          } catch {
+            // non-fatal
+          }
+        } catch {
+          // non-fatal
+        }
+      }
+      if (result && typeof result === 'object') {
+        (result as any).matched_session = matchedSession;
+        (result as any).account_matched = accountMatched;
+      }
+      return result;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to verify email change');
+    }
+  }
+
+  async changePassword(data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<ApiResponse> {
+    try {
+      const response = await this.client.put(MOBILE_ENDPOINTS.USER, {
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+      });
+      const result = response.data;
+      if (result?.success && (result.token || result.access_token || result.refresh_token)) {
+        await persistMobileAuthTokens({
+          token: result.token ?? result.access_token,
+          access_token: result.access_token ?? result.token,
+          refresh_token: result.refresh_token,
+        });
+      }
+      return result;
+    } catch (error: any) {
+      const err: any = new Error(
+        error.response?.data?.message || 'Failed to change password',
+      );
+      err.response = error.response;
+      err.data = error.response?.data;
+      throw err;
     }
   }
 
