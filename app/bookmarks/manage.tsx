@@ -5,7 +5,10 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Keyboard,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     RefreshControl,
     StyleSheet,
     Text,
@@ -701,7 +704,10 @@ export default function ManageBookmarksScreen() {
 
       {/* Create Bookmark Modal */}
       {showCreateModal && (
-        <View style={dynamicStyles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={dynamicStyles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={dynamicStyles.modalContainer}>
             <View style={dynamicStyles.modalHeader}>
               <Text style={dynamicStyles.modalTitle}>Create Bookmark</Text>
@@ -756,7 +762,7 @@ export default function ManageBookmarksScreen() {
               </FeedbackTouchable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       )}
 
       {/* Rename Bookmark Modal */}
@@ -766,53 +772,61 @@ export default function ManageBookmarksScreen() {
         animationType="fade"
         onRequestClose={() => !renaming && setShowRenameModal(false)}
       >
-        <TouchableOpacity
-          style={dynamicStyles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => !renaming && setShowRenameModal(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <View style={dynamicStyles.modalContainer} onStartShouldSetResponder={() => true}>
-            <View style={dynamicStyles.modalHeader}>
-              <Text style={dynamicStyles.modalTitle}>Rename Bookmark</Text>
-              <TouchableOpacity onPress={() => !renaming && setShowRenameModal(false)}>
-                <Ionicons name="close" size={20} color={colors.textSecondary} />
-              </TouchableOpacity>
+          <TouchableOpacity
+            style={dynamicStyles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              Keyboard.dismiss();
+              if (!renaming) setShowRenameModal(false);
+            }}
+          >
+            <View style={dynamicStyles.modalContainer} onStartShouldSetResponder={() => true}>
+              <View style={dynamicStyles.modalHeader}>
+                <Text style={dynamicStyles.modalTitle}>Rename Bookmark</Text>
+                <TouchableOpacity onPress={() => !renaming && setShowRenameModal(false)}>
+                  <Ionicons name="close" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <View style={dynamicStyles.modalContent}>
+                <Text style={[dynamicStyles.inputLabel, { marginTop: 0 }]}>Name</Text>
+                <TextInput
+                  style={dynamicStyles.textInput}
+                  value={renameInputValue}
+                  onChangeText={setRenameInputValue}
+                  placeholder="Enter bookmark name"
+                  placeholderTextColor={colors.textLight}
+                  editable={!renaming}
+                  autoFocus
+                />
+              </View>
+              <View style={dynamicStyles.modalActions}>
+                <TouchableOpacity
+                  style={dynamicStyles.cancelButton}
+                  onPress={() => !renaming && setShowRenameModal(false)}
+                  disabled={renaming}
+                >
+                  <Text style={dynamicStyles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <FeedbackTouchable
+                  style={dynamicStyles.createButton}
+                  onPress={handleRenameBookmark}
+                  disabled={renaming || !renameInputValue.trim()}
+                  loading={renaming}
+                  spinnerColor="#fff"
+                  replaceWithSpinner={false}
+                >
+                  <Text style={dynamicStyles.createButtonText}>
+                    {renaming ? 'Saving...' : 'Save'}
+                  </Text>
+                </FeedbackTouchable>
+              </View>
             </View>
-            <View style={dynamicStyles.modalContent}>
-              <Text style={[dynamicStyles.inputLabel, { marginTop: 0 }]}>Name</Text>
-              <TextInput
-                style={dynamicStyles.textInput}
-                value={renameInputValue}
-                onChangeText={setRenameInputValue}
-                placeholder="Enter bookmark name"
-                placeholderTextColor={colors.textLight}
-                editable={!renaming}
-                autoFocus
-              />
-            </View>
-            <View style={dynamicStyles.modalActions}>
-              <TouchableOpacity
-                style={dynamicStyles.cancelButton}
-                onPress={() => !renaming && setShowRenameModal(false)}
-                disabled={renaming}
-              >
-                <Text style={dynamicStyles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <FeedbackTouchable
-                style={dynamicStyles.createButton}
-                onPress={handleRenameBookmark}
-                disabled={renaming || !renameInputValue.trim()}
-                loading={renaming}
-                spinnerColor="#fff"
-                replaceWithSpinner={false}
-              >
-                <Text style={dynamicStyles.createButtonText}>
-                  {renaming ? 'Saving...' : 'Save'}
-                </Text>
-              </FeedbackTouchable>
-            </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

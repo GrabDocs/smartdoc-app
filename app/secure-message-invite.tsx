@@ -52,7 +52,7 @@ export async function clearMobilePendingInviteIntent() {
 export default function SecureMessageInviteScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, signOut } = useAuth();
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === 'string' ? params.token : '';
   const [loading, setLoading] = useState(true);
@@ -60,6 +60,8 @@ export default function SecureMessageInviteScreen() {
   const [valid, setValid] = useState(false);
   const [inviterName, setInviterName] = useState('Someone');
   const [status, setStatus] = useState('invalid');
+  const [identityBlocked, setIdentityBlocked] = useState(false);
+  const [blockMessage, setBlockMessage] = useState('');
 
   useEffect(() => {
     if (!token) {
@@ -88,10 +90,10 @@ export default function SecureMessageInviteScreen() {
     if (!token) return;
     if (!user) {
       router.replace({
-        pathname: '/(auth)/sign-in',
+        pathname: '/(auth)/phone-login',
         params: {
+          mode: 'register',
           redirect: `/secure-message-invite?token=${encodeURIComponent(token)}`,
-          secure_message_invite_token: token,
         },
       } as any);
     }
@@ -100,6 +102,7 @@ export default function SecureMessageInviteScreen() {
   const onAccept = async () => {
     if (!token) return;
     setAccepting(true);
+    setIdentityBlocked(false);
     try {
       const res = await api.acceptSecureMessageInvite({ token });
       if (res.success) {
@@ -108,10 +111,22 @@ export default function SecureMessageInviteScreen() {
         const chatId = (res as any).chat?.id;
         router.replace(chatId ? `/user-chat?chatId=${chatId}` : '/user-chat');
       } else {
-        Toast.show({ type: 'error', text1: (res as any).error || 'Could not accept' });
+        const code = (res as any).error_code;
+        if (code === 'invite_identity_mismatch') {
+          setIdentityBlocked(true);
+          setBlockMessage((res as any).error || 'This invitation is for a different account.');
+        } else {
+          Toast.show({ type: 'error', text1: (res as any).error || 'Could not accept' });
+        }
       }
     } catch (e: any) {
-      Toast.show({ type: 'error', text1: e?.message || 'Could not accept' });
+      const data = e?.response?.data;
+      if (data?.error_code === 'invite_identity_mismatch') {
+        setIdentityBlocked(true);
+        setBlockMessage(data.error || 'This invitation is for a different account.');
+      } else {
+        Toast.show({ type: 'error', text1: data?.error || e?.message || 'Could not accept' });
+      }
     } finally {
       setAccepting(false);
     }
@@ -126,18 +141,49 @@ export default function SecureMessageInviteScreen() {
           <>
             <Text style={[styles.title, { color: colors.text }]}>Secure Messaging invite</Text>
             {valid && user ? (
-              <>
-                <Text style={[styles.body, { color: colors.textSecondary }]}>
-                  {inviterName} invited you to securely message them on GrabDocs.
-                </Text>
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: colors.primary }]}
-                  disabled={accepting}
-                  onPress={onAccept}
-                >
-                  <Text style={styles.btnText}>{accepting ? 'Accepting…' : 'Accept invitation'}</Text>
-                </TouchableOpacity>
-              </>
+              identityBlocked ? (
+                <>
+                  <Text style={[styles.body, { color: colors.textSecondary }]}>{blockMessage}</Text>
+                  <Text style={[styles.body, { color: colors.textSecondary }]}>
+                    Sign in with the account this invite was sent to, or add and verify that phone in Settings,
+                    then open this link again.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.btn, { backgroundColor: colors.primary }]}
+                    onPress={() => router.push('/(tabs)/settings' as any)}
+                  >
+                    <Text style={styles.btnText}>Open Settings</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnOutline, { borderColor: colors.border }]}
+                    onPress={async () => {
+                      await signOut();
+                      router.replace({
+                        pathname: '/(auth)/phone-login',
+                        params: {
+                          mode: 'register',
+                          redirect: `/secure-message-invite?token=${encodeURIComponent(token)}`,
+                        },
+                      } as any);
+                    }}
+                  >
+                    <Text style={[styles.btnOutlineText, { color: colors.text }]}>Switch account</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.body, { color: colors.textSecondary }]}>
+                    {inviterName} invited you to securely message them on GrabDocs.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.btn, { backgroundColor: colors.primary }]}
+                    disabled={accepting}
+                    onPress={onAccept}
+                  >
+                    <Text style={styles.btnText}>{accepting ? 'Accepting…' : 'Accept invitation'}</Text>
+                  </TouchableOpacity>
+                </>
+              )
             ) : (
               <Text style={[styles.body, { color: colors.textSecondary }]}>
                 This invitation is {status === 'expired' ? 'expired' : 'not available'}.
@@ -159,4 +205,12 @@ const styles = StyleSheet.create({
   body: { fontSize: 15, lineHeight: 22 },
   btn: { marginTop: 8, paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
   btnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  btnOutline: {
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  btnOutlineText: { fontWeight: '600', fontSize: 16 },
 });

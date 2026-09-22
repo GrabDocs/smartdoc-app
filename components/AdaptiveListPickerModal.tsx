@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -68,9 +70,27 @@ export default function AdaptiveListPickerModal({
   const centered = itemCount <= centerMaxItems;
 
   const [rendered, setRendered] = useState(visible);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const backdropOpacity = useSharedValue(0);
   const contentOffsetY = useSharedValue(centered ? CENTER_SLIDE_PX : SHEET_SLIDE_PX);
   const contentScale = useSharedValue(centered ? 0.98 : 1);
+
+  useEffect(() => {
+    if (!rendered) {
+      setKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [rendered]);
 
   const openAnim = useCallback(() => {
     backdropOpacity.value = 0;
@@ -145,6 +165,8 @@ export default function AdaptiveListPickerModal({
           ...StyleSheet.absoluteFillObject,
           justifyContent: centered ? 'center' : 'flex-end',
           paddingHorizontal: centered ? 24 : 0,
+          // Lift sheet/card above the keyboard so search/create fields stay visible.
+          paddingBottom: keyboardHeight,
         },
         card: centered
           ? {
@@ -159,7 +181,7 @@ export default function AdaptiveListPickerModal({
               borderTopRightRadius: 16,
               maxHeight: '80%' as const,
               minHeight: Math.round(windowHeight * 0.4),
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingBottom: keyboardHeight > 0 ? 12 : Math.max(insets.bottom, 12),
             },
         header: {
           flexDirection: 'row' as const,
@@ -184,11 +206,12 @@ export default function AdaptiveListPickerModal({
           paddingBottom: centered ? 8 : 0,
         },
       }),
-    [centered, colors, insets.bottom, windowHeight],
+    [centered, colors, insets.bottom, keyboardHeight, windowHeight],
   );
 
   const requestClose = () => {
     if (!visible) return;
+    Keyboard.dismiss();
     onClose();
   };
 

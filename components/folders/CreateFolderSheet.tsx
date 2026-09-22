@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Keyboard,
   Modal,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 
@@ -30,9 +30,27 @@ export default function CreateFolderSheet({
   const colors = useThemeColors();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
     if (visible) setName('');
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      setKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, [visible]);
 
   const handleCreate = async () => {
@@ -50,9 +68,11 @@ export default function CreateFolderSheet({
   if (!visible) return null;
 
   const form = (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={embedded ? styles.embeddedOverlay : styles.overlay}
+    <View
+      style={[
+        embedded ? styles.embeddedOverlay : styles.overlay,
+        keyboardHeight > 0 && { paddingBottom: keyboardHeight },
+      ]}
     >
       <View style={[styles.sheet, { backgroundColor: colors.card }]}>
         <Text style={[styles.title, { color: colors.text }]}>{title}</Text>
@@ -81,7 +101,7 @@ export default function CreateFolderSheet({
           </TouchableOpacity>
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 
   if (embedded) return form;

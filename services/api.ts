@@ -108,6 +108,7 @@ const MOBILE_ENDPOINTS = {
   VERIFY_OTP: '/api/v1/mobile/auth/verify-otp',
   LOGIN_WITH_PHONE: '/api/v1/mobile/auth/login-with-phone',
   CHECK_PHONE: '/api/v1/mobile/auth/check-phone',
+  REGISTER_WITH_PHONE: '/api/v1/mobile/auth/register-with-phone',
   
   // User
   USER: '/api/v1/mobile/user',
@@ -885,14 +886,20 @@ class ApiService {
 
   // ==================== MOBILE 2FA AUTHENTICATION ====================
 
-  async requestOtp(phoneNumber: string, countryCode: string = 'US', purpose: string = 'verification'): Promise<ApiResponse> {
+  async requestOtp(
+    phoneNumber: string,
+    countryCode: string = 'US',
+    purpose: string = 'verification',
+    smsConsent: boolean = false,
+  ): Promise<ApiResponse> {
     try {
       console.log('🔄 Requesting OTP for:', { phoneNumber, countryCode, purpose });
       
       const response = await this.client.post(MOBILE_ENDPOINTS.REQUEST_OTP, {
         phoneNumber,
         countryCode,
-        purpose
+        purpose,
+        smsConsent,
       });
       
       console.log('✅ OTP request response:', response.status, response.data);
@@ -920,6 +927,33 @@ class ApiService {
     }
   }
 
+  async registerWithPhone(data: {
+    phoneNumber: string;
+    countryCode?: string;
+    username: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    smsConsent?: boolean;
+  }): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.REGISTER_WITH_PHONE, {
+        phoneNumber: data.phoneNumber,
+        countryCode: data.countryCode || 'US',
+        username: data.username,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        email: data.email,
+        password: data.password,
+        smsConsent: data.smsConsent ?? true,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Phone registration failed');
+    }
+  }
+
   async loginWithPhone(phoneNumber: string, password: string): Promise<AuthResponse> {
     try {
       console.log('🔄 Attempting phone login for:', { phoneNumber });
@@ -943,7 +977,8 @@ class ApiService {
           success: true,
           message: 'Login successful',
           user: result.user,
-          token: result.token,
+          token: result.token || result.access_token,
+          refresh_token: result.refresh_token,
           session_info: result.session_info,
         };
       }

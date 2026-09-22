@@ -1,4 +1,4 @@
-import { Link, useRouter } from 'expo-router';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     Alert,
@@ -16,8 +16,11 @@ import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { apiService } from '../../services/api';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
 import { useAuth } from '../context/auth';
+import {
+    loadMobilePendingInviteIntent,
+} from '../secure-message-invite';
 
-type PhoneLoginStep = 'phone' | 'verify' | 'password';
+type PhoneLoginStep = 'phone' | 'verify' | 'password' | 'register';
 
 const RESEND_COOLDOWN_SEC = 60;
 
@@ -25,19 +28,27 @@ const OTP_LENGTH = 6;
 
 export default function PhoneLoginScreen() {
     const router = useRouter();
+    const params = useLocalSearchParams<{ mode?: string; redirect?: string }>();
     const [step, setStep] = useState<PhoneLoginStep>('phone');
+    const [isRegistering, setIsRegistering] = useState(params.mode === 'register');
     const [phoneNumber, setPhoneNumber] = useState('');
     const [countryCode, setCountryCode] = useState('+1');
     const [otpCode, setOtpCode] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [smsConsent, setSmsConsent] = useState(true);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [maskedPhone, setMaskedPhone] = useState('');
-    const [testOtp, setTestOtp] = useState(''); // For development testing
+    const [testOtp, setTestOtp] = useState('');
     const [resendCooldown, setResendCooldown] = useState(0);
     const resendCooldownActive = resendCooldown > 0;
 
-    const { signIn } = useAuth();
+    const { setUserFromExternal } = useAuth();
 
     useEffect(() => {
         if (!resendCooldownActive) return undefined;
@@ -46,6 +57,35 @@ export default function PhoneLoginScreen() {
         }, 1000);
         return () => clearInterval(interval);
     }, [resendCooldownActive]);
+
+    const finishAuthenticated = async (
+        user: any,
+        auth?: { token?: string | null; refresh_token?: string | null },
+    ) => {
+        if (user) {
+            await setUserFromExternal(
+                user,
+                auth?.token || undefined,
+                auth?.refresh_token || undefined,
+            );
+        }
+
+        const pending = await loadMobilePendingInviteIntent();
+        if (pending?.kind === 'secure_message_invite' && pending.token) {
+            router.replace({
+                pathname: '/secure-message-invite',
+                params: { token: pending.token },
+            } as any);
+            return;
+        }
+        if (typeof params.redirect === 'string' && params.redirect.includes('secure-message-invite')) {
+            router.replace(params.redirect as any);
+            return;
+        }
+
+        const webPath = await resolveDefaultHomeWebPath(user as any);
+        navigateTabsThenDefaultHome(router, webPath);
+    };
 
     const handlePhoneSubmit = async () => {
         if (!phoneNumber) {
@@ -57,35 +97,43 @@ export default function PhoneLoginScreen() {
             setLoading(true);
             setError('');
 
-            // Check if phone is registered
             const checkResponse = await apiService.checkPhone(phoneNumber, countryCode);
-            
-            if (!checkResponse.registered) {
-                setError('Phone number not found. Please check your number or sign up.');
-                return;
+            const registered = !!checkResponse.registered;
+
+            if (!registered && !isRegistering) {
+                setIsRegistering(true);
+            }
+            if (registered && isRegistering) {
+                setIsRegistering(false);
             }
 
-            // Request OTP
-            const otpResponse = await apiService.requestOtp(phoneNumber, countryCode, 'login');
-            
+            const purpose = registered ? 'login' : 'registration';
+            const otpResponse = await apiService.requestOtp(
+                phoneNumber,
+                countryCode,
+                purpose,
+                !registered,
+            );
+
             if (otpResponse.success) {
-                setMaskedPhone(otpResponse.phoneNumber);
-                if (otpResponse.testMode && otpResponse.testOtp) {
-                    setTestOtp(otpResponse.testOtp);
+                setMaskedPhone((otpResponse as any).phoneNumber || phoneNumber);
+                if ((otpResponse as any).testMode && (otpResponse as any).testOtp) {
+                    setTestOtp((otpResponse as any).testOtp);
                     Alert.alert(
-                        'Development Mode', 
-                        `Test OTP: ${otpResponse.testOtp}`,
-                        [{ text: 'OK' }]
+                        'Development Mode',
+                        `Test OTP: ${(otpResponse as any).testOtp}`,
+                        [{ text: 'OK' }],
                     );
                 }
+                setIsRegistering(!registered);
                 setStep('verify');
                 setResendCooldown(RESEND_COOLDOWN_SEC);
             } else {
                 setError(otpResponse.message || 'Failed to send verification code');
             }
-        } catch (error: any) {
-            console.error('Phone submit error:', error);
-            setError(error.message || 'Failed to process phone number');
+        } catch (err: any) {
+            console.error('Phone submit error:', err);
+            setError(err.message || 'Failed to process phone number');
         } finally {
             setLoading(false);
         }
@@ -107,15 +155,15 @@ export default function PhoneLoginScreen() {
             setError('');
 
             const verifyResponse = await apiService.verifyOtp(phoneNumber, code);
-            
+
             if (verifyResponse.success) {
-                setStep('password');
+                setStep(isRegistering ? 'register' : 'password');
             } else {
                 setError(verifyResponse.message || 'Invalid verification code');
             }
-        } catch (error: any) {
-            console.error('OTP verification error:', error);
-            setError(error.message || 'Invalid verification code');
+        } catch (err: any) {
+            console.error('OTP verification error:', err);
+            setError(err.message || 'Invalid verification code');
         } finally {
             setLoading(false);
         }
@@ -132,18 +180,75 @@ export default function PhoneLoginScreen() {
             setError('');
 
             const loginResponse = await apiService.loginWithPhone(phoneNumber, password);
-            
+
             if (loginResponse.success && loginResponse.user) {
-                // Auth context session (same credentials path as email login)
-                await signIn(phoneNumber, password);
-                const webPath = await resolveDefaultHomeWebPath(loginResponse.user as any);
-                navigateTabsThenDefaultHome(router, webPath);
+                await finishAuthenticated(loginResponse.user, {
+                    token: (loginResponse as any).token || (loginResponse as any).access_token,
+                    refresh_token: (loginResponse as any).refresh_token,
+                });
             } else {
                 setError(loginResponse.message || 'Login failed');
             }
-        } catch (error: any) {
-            console.error('Password login error:', error);
-            setError(error.message || 'Login failed');
+        } catch (err: any) {
+            console.error('Password login error:', err);
+            setError(err.message || 'Login failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleRegisterSubmit = async () => {
+        if (!username || !email || !firstName || !lastName || !password) {
+            setError('Please fill in all fields');
+            return;
+        }
+        if (password !== confirmPassword) {
+            setError('Passwords do not match');
+            return;
+        }
+        if (!smsConsent) {
+            setError('SMS consent is required to create an account with your phone number');
+            return;
+        }
+
+        try {
+            setLoading(true);
+            setError('');
+
+            const reg = await apiService.registerWithPhone({
+                phoneNumber,
+                countryCode,
+                username,
+                firstName,
+                lastName,
+                email,
+                password,
+                smsConsent: true,
+            });
+
+            if (!reg.success) {
+                setError((reg as any).message || 'Could not create account');
+                return;
+            }
+
+            // Establish session with the password just set
+            const loginResponse = await apiService.loginWithPhone(phoneNumber, password);
+            if (loginResponse.success && loginResponse.user) {
+                await finishAuthenticated(loginResponse.user, {
+                    token: (loginResponse as any).token || (loginResponse as any).access_token,
+                    refresh_token: (loginResponse as any).refresh_token,
+                });
+            } else {
+                Alert.alert(
+                    'Account created',
+                    'Please sign in with your new phone number and password.',
+                );
+                setIsRegistering(false);
+                setStep('password');
+            }
+        } catch (err: any) {
+            console.error('Phone register error:', err);
+            setError(err.message || 'Could not create account');
         } finally {
             setLoading(false);
         }
@@ -155,15 +260,21 @@ export default function PhoneLoginScreen() {
             setLoading(true);
             setError('');
 
-            const otpResponse = await apiService.requestOtp(phoneNumber, countryCode, 'login');
-            
+            const purpose = isRegistering ? 'registration' : 'login';
+            const otpResponse = await apiService.requestOtp(
+                phoneNumber,
+                countryCode,
+                purpose,
+                isRegistering,
+            );
+
             if (otpResponse.success) {
-                if (otpResponse.testMode && otpResponse.testOtp) {
-                    setTestOtp(otpResponse.testOtp);
+                if ((otpResponse as any).testMode && (otpResponse as any).testOtp) {
+                    setTestOtp((otpResponse as any).testOtp);
                     Alert.alert(
-                        'Development Mode', 
-                        `New Test OTP: ${otpResponse.testOtp}`,
-                        [{ text: 'OK' }]
+                        'Development Mode',
+                        `New Test OTP: ${(otpResponse as any).testOtp}`,
+                        [{ text: 'OK' }],
                     );
                 }
                 Alert.alert('Success', 'New verification code sent!');
@@ -171,8 +282,8 @@ export default function PhoneLoginScreen() {
             } else {
                 setError(otpResponse.message || 'Failed to resend code');
             }
-        } catch (error: any) {
-            setError(error.message || 'Failed to resend code');
+        } catch (err: any) {
+            setError(err.message || 'Failed to resend code');
         } finally {
             setLoading(false);
         }
@@ -180,7 +291,9 @@ export default function PhoneLoginScreen() {
 
     const renderPhoneStep = () => (
         <View style={styles.stepContainer}>
-            <Text style={styles.stepTitle}>Enter Phone Number</Text>
+            <Text style={styles.stepTitle}>
+                {isRegistering ? 'Create account with phone' : 'Enter Phone Number'}
+            </Text>
             <Text style={styles.stepDescription}>
                 We&apos;ll send you a verification code to confirm your identity
             </Text>
@@ -213,6 +326,17 @@ export default function PhoneLoginScreen() {
             >
                 <Text style={styles.buttonText}>Send Code</Text>
             </FeedbackTouchable>
+
+            <Pressable
+                style={styles.linkButton}
+                onPress={() => setIsRegistering((v) => !v)}
+            >
+                <Text style={styles.linkText}>
+                    {isRegistering
+                        ? 'Already have an account? Sign in'
+                        : 'New here? Create an account with this phone'}
+                </Text>
+            </Pressable>
         </View>
     );
 
@@ -222,12 +346,12 @@ export default function PhoneLoginScreen() {
             <Text style={styles.stepDescription}>
                 We sent a 6-character code to {maskedPhone}
             </Text>
-            
-            {testOtp && (
+
+            {testOtp ? (
                 <View style={styles.testModeContainer}>
                     <Text style={styles.testModeText}>🔧 Dev Mode - OTP: {testOtp}</Text>
                 </View>
-            )}
+            ) : null}
 
             <TextInput
                 style={styles.otpInput}
@@ -314,6 +438,89 @@ export default function PhoneLoginScreen() {
         </View>
     );
 
+    const renderRegisterStep = () => (
+        <View style={styles.stepContainer}>
+            <Text style={styles.stepTitle}>Finish creating your account</Text>
+            <Text style={styles.stepDescription}>
+                Phone verified. Add your details to join GrabDocs.
+            </Text>
+
+            <TextInput
+                style={styles.input}
+                placeholder="Username"
+                placeholderTextColor="#999"
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+            />
+            <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#999"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+            />
+            <TextInput
+                style={styles.input}
+                placeholder="First name"
+                placeholderTextColor="#999"
+                value={firstName}
+                onChangeText={setFirstName}
+            />
+            <TextInput
+                style={styles.input}
+                placeholder="Last name"
+                placeholderTextColor="#999"
+                value={lastName}
+                onChangeText={setLastName}
+            />
+            <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#999"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCorrect={false}
+                autoCapitalize="none"
+            />
+            <TextInput
+                style={styles.input}
+                placeholder="Confirm password"
+                placeholderTextColor="#999"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+                autoCorrect={false}
+                autoCapitalize="none"
+            />
+
+            <Pressable
+                style={styles.consentRow}
+                onPress={() => setSmsConsent((v) => !v)}
+            >
+                <Text style={styles.consentBox}>{smsConsent ? '☑' : '☐'}</Text>
+                <Text style={styles.consentText}>
+                    I agree to receive SMS messages for verification and account notices.
+                </Text>
+            </Pressable>
+
+            <FeedbackTouchable
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleRegisterSubmit}
+                disabled={loading}
+                loading={loading}
+                spinnerColor="#fff"
+            >
+                <Text style={styles.buttonText}>Create account</Text>
+            </FeedbackTouchable>
+        </View>
+    );
+
     return (
         <SafeAreaView style={styles.container}>
             <KeyboardAvoidingView
@@ -323,12 +530,15 @@ export default function PhoneLoginScreen() {
                 <ScrollView contentContainerStyle={styles.scrollContent}>
                     <View style={styles.header}>
                         <Text style={styles.title}>GrabDocs</Text>
-                        <Text style={styles.subtitle}>2FA Phone Login</Text>
+                        <Text style={styles.subtitle}>
+                            {isRegistering ? 'Phone sign up' : '2FA Phone Login'}
+                        </Text>
                     </View>
 
                     {step === 'phone' && renderPhoneStep()}
                     {step === 'verify' && renderVerifyStep()}
                     {step === 'password' && renderPasswordStep()}
+                    {step === 'register' && renderRegisterStep()}
 
                     {error ? (
                         <View style={styles.errorContainer}>
@@ -341,14 +551,6 @@ export default function PhoneLoginScreen() {
                             <Pressable style={styles.linkButton}>
                                 <Text style={styles.linkText}>
                                     Back to regular login
-                                </Text>
-                            </Pressable>
-                        </Link>
-
-                        <Link href="/sign-up" asChild>
-                            <Pressable style={styles.linkButton}>
-                                <Text style={styles.linkText}>
-                                    Don&apos;t have an account? Sign up
                                 </Text>
                             </Pressable>
                         </Link>
@@ -400,59 +602,65 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     stepDescription: {
-        fontSize: 16,
+        fontSize: 15,
         color: '#666',
         textAlign: 'center',
-        marginBottom: 32,
+        marginBottom: 24,
         lineHeight: 22,
     },
     phoneContainer: {
         flexDirection: 'row',
-        gap: 12,
-        marginBottom: 24,
+        gap: 8,
+        marginBottom: 16,
     },
     countryInput: {
-        backgroundColor: '#f5f5f5',
-        padding: 16,
-        borderRadius: 8,
+        width: 72,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 14,
         fontSize: 16,
-        width: 80,
-        textAlign: 'center',
         color: '#333',
     },
     phoneInput: {
-        backgroundColor: '#f5f5f5',
-        padding: 16,
-        borderRadius: 8,
-        fontSize: 16,
         flex: 1,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 14,
+        fontSize: 16,
         color: '#333',
     },
     input: {
-        backgroundColor: '#f5f5f5',
-        padding: 16,
-        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 14,
         fontSize: 16,
-        marginBottom: 24,
         color: '#333',
+        marginBottom: 12,
     },
     otpInput: {
-        backgroundColor: '#f5f5f5',
-        padding: 16,
-        borderRadius: 8,
-        fontSize: 24,
-        fontWeight: 'bold',
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 14,
+        fontSize: 22,
+        letterSpacing: 4,
         textAlign: 'center',
-        letterSpacing: 8,
-        marginBottom: 24,
         color: '#333',
+        marginBottom: 16,
     },
     button: {
         backgroundColor: '#007AFF',
-        padding: 16,
-        borderRadius: 8,
+        borderRadius: 10,
+        paddingVertical: 14,
         alignItems: 'center',
-        marginBottom: 16,
+        marginTop: 8,
     },
     buttonDisabled: {
         opacity: 0.6,
@@ -463,46 +671,56 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     linkButton: {
-        padding: 8,
+        marginTop: 16,
         alignItems: 'center',
     },
     linkText: {
         color: '#007AFF',
-        fontSize: 14,
-        fontWeight: '500',
+        fontSize: 15,
     },
     linkTextDisabled: {
         color: '#999',
     },
     errorContainer: {
-        backgroundColor: '#FFF5F5',
-        padding: 12,
-        borderRadius: 8,
         marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#FEB2B2',
+        padding: 12,
+        backgroundColor: '#fee',
+        borderRadius: 8,
     },
     error: {
-        color: '#E53E3E',
-        fontSize: 14,
+        color: '#c00',
         textAlign: 'center',
-    },
-    testModeContainer: {
-        backgroundColor: '#F0F9FF',
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 16,
-        borderWidth: 1,
-        borderColor: '#BAE6FD',
-    },
-    testModeText: {
-        color: '#1E40AF',
-        fontSize: 14,
-        textAlign: 'center',
-        fontWeight: '500',
     },
     footer: {
-        marginTop: 32,
-        gap: 16,
+        marginTop: 24,
+        alignItems: 'center',
     },
-}); 
+    testModeContainer: {
+        backgroundColor: '#fff8e1',
+        padding: 10,
+        borderRadius: 8,
+        marginBottom: 12,
+    },
+    testModeText: {
+        color: '#8a6d00',
+        textAlign: 'center',
+    },
+    consentRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 8,
+        marginBottom: 8,
+        marginTop: 4,
+    },
+    consentBox: {
+        fontSize: 18,
+        color: '#333',
+        lineHeight: 22,
+    },
+    consentText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#555',
+        lineHeight: 18,
+    },
+});

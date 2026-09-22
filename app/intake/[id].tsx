@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Modal,
   Platform,
   RefreshControl,
@@ -142,6 +143,7 @@ export default function IntakeDetailScreen() {
   const [newFolderName, setNewFolderName] = useState('');
   const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [overlayKeyboardHeight, setOverlayKeyboardHeight] = useState(0);
   const [editTitle, setEditTitle] = useState('');
   const [editClientName, setEditClientName] = useState('');
   const [editClientIds, setEditClientIds] = useState<number[]>([]);
@@ -906,6 +908,23 @@ export default function IntakeDetailScreen() {
     }
   };
 
+  useEffect(() => {
+    if (!showFolderPicker && !showDatePicker) {
+      setOverlayKeyboardHeight(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setOverlayKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setOverlayKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [showFolderPicker, showDatePicker]);
+
   const dynamicStyles = useMemo(() => StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
@@ -1051,13 +1070,14 @@ export default function IntakeDetailScreen() {
       backgroundColor: 'rgba(0,0,0,0.5)',
       justifyContent: 'flex-end',
       zIndex: 20,
+      paddingBottom: overlayKeyboardHeight,
     },
     editSheetCard: {
       backgroundColor: colors.card,
       borderTopLeftRadius: 16,
       borderTopRightRadius: 16,
       maxHeight: '80%',
-      paddingBottom: Math.max(insets.bottom, 12),
+      paddingBottom: overlayKeyboardHeight > 0 ? 12 : Math.max(insets.bottom, 12),
     },
     modalHeader: {
       flexDirection: 'row',
@@ -1145,7 +1165,7 @@ export default function IntakeDetailScreen() {
     customLabel: { fontSize: 11, color: colors.textSecondary, marginBottom: 4 },
     switchInlineRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
     switchInlineLabel: { fontSize: 14, color: colors.text },
-  }), [colors, insets.bottom]);
+  }), [colors, insets.bottom, overlayKeyboardHeight]);
 
   const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
     draft: { bg: '#E5E7EB', text: '#374151' },

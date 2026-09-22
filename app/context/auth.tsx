@@ -489,10 +489,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Bypasses checkAuth so a missing or cookie-only session cannot bounce the user back to login.
   const setUserFromExternal = async (userData: User, token?: string, refreshToken?: string) => {
     try {
-      await persistMobileAuthTokens({
-        token: token ?? null,
-        refresh_token: refreshToken,
-      });
+      // Only touch token storage when caller explicitly passes token/refresh;
+      // undefined must not clear a JWT already persisted by loginWithPhone.
+      if (token !== undefined || refreshToken !== undefined) {
+        await persistMobileAuthTokens({
+          ...(token !== undefined ? { token: token || null } : {}),
+          ...(refreshToken !== undefined ? { refresh_token: refreshToken || null } : {}),
+        });
+      }
       await secureStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
       void (async () => {

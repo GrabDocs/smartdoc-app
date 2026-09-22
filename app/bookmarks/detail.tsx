@@ -5,6 +5,8 @@ import {
     ActivityIndicator,
     Alert,
     FlatList,
+    Keyboard,
+    KeyboardAvoidingView,
     Modal,
     Platform,
     RefreshControl,
@@ -1338,39 +1340,47 @@ export default function BookmarkDetailScreen() {
         animationType="fade"
         onRequestClose={() => !renaming && setShowRenameModal(false)}
       >
-        <TouchableOpacity
-          style={dynamicStyles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => !renaming && setShowRenameModal(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <View style={dynamicStyles.renameModalContent} onStartShouldSetResponder={() => true}>
-            <Text style={dynamicStyles.renameModalTitle}>Rename File</Text>
-            <TextInput
-              style={dynamicStyles.textInput}
-              value={renameInputValue}
-              onChangeText={setRenameInputValue}
-              placeholder="File name (without extension)"
-              placeholderTextColor={themeColors.textLight}
-              autoFocus
-            />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 12 }}>
-              <TouchableOpacity onPress={() => !renaming && setShowRenameModal(false)}>
-                <Text style={dynamicStyles.modalCancelButton}>Cancel</Text>
-              </TouchableOpacity>
-              <FeedbackTouchable
-                onPress={handleConfirmRename}
-                disabled={renaming || !renameInputValue.trim()}
-                loading={renaming}
-                spinnerColor="#007AFF"
-                replaceWithSpinner={false}
-              >
-                <Text style={[dynamicStyles.modalSaveButton, (renaming || !renameInputValue.trim()) && dynamicStyles.disabledButton]}>
-                  {renaming ? 'Saving...' : 'Save'}
-                </Text>
-              </FeedbackTouchable>
+          <TouchableOpacity
+            style={dynamicStyles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => {
+              Keyboard.dismiss();
+              if (!renaming) setShowRenameModal(false);
+            }}
+          >
+            <View style={dynamicStyles.renameModalContent} onStartShouldSetResponder={() => true}>
+              <Text style={dynamicStyles.renameModalTitle}>Rename File</Text>
+              <TextInput
+                style={dynamicStyles.textInput}
+                value={renameInputValue}
+                onChangeText={setRenameInputValue}
+                placeholder="File name (without extension)"
+                placeholderTextColor={themeColors.textLight}
+                autoFocus
+              />
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16, gap: 12 }}>
+                <TouchableOpacity onPress={() => !renaming && setShowRenameModal(false)}>
+                  <Text style={dynamicStyles.modalCancelButton}>Cancel</Text>
+                </TouchableOpacity>
+                <FeedbackTouchable
+                  onPress={handleConfirmRename}
+                  disabled={renaming || !renameInputValue.trim()}
+                  loading={renaming}
+                  spinnerColor="#007AFF"
+                  replaceWithSpinner={false}
+                >
+                  <Text style={[dynamicStyles.modalSaveButton, (renaming || !renameInputValue.trim()) && dynamicStyles.disabledButton]}>
+                    {renaming ? 'Saving...' : 'Save'}
+                  </Text>
+                </FeedbackTouchable>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Document Viewer */}
