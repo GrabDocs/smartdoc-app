@@ -28,6 +28,7 @@ import {
     emailApiError,
     emailSyncWorkspaceId,
     listMailboxThreads,
+    markMailboxThreadAwaiting,
     mailboxCapabilities,
     mailboxPendingCount,
     mailboxPendingCounts,
@@ -797,8 +798,24 @@ export default function EmailInboxScreen() {
 
       {selectMode && filter !== 'dismissed' ? (
         <View style={styles.selectBar}>
-          <Text style={{ color: colors.textSecondary, flex: 1, fontSize: 13 }}>Long-press to select · swipe to dismiss one</Text>
+          {filter !== 'awaiting' ? (
+            <TouchableOpacity
+              onPress={async () => {
+                if (!selected.length) return;
+                try {
+                  await Promise.all(selected.map((id) => markMailboxThreadAwaiting(id)));
+                  exitSelect();
+                  await load();
+                } catch (e) {
+                  Alert.alert('Awaiting', emailApiError(e, 'Could not mark awaiting reply'));
+                }
+              }}
+            >
+              <Text style={{ color: '#007AFF', fontWeight: '700' }}>Awaiting reply</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
+            style={{ marginLeft: 'auto' }}
             onPress={async () => {
               if (!selected.length) return;
               await dismissMailboxThreads(selected);
