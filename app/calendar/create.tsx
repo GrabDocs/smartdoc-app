@@ -44,17 +44,10 @@ import {
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import EventRemindersEditor from '../../components/calendar/EventRemindersEditor';
+import { DEFAULT_REMINDERS, type CalendarReminder } from '../../utils/calendarReminders';
 
 type Participant = { email: string; name: string; type: string };
-
-const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
-  { minutes: 5, label: '5 min before' },
-  { minutes: 15, label: '15 min before' },
-  { minutes: 30, label: '30 min before' },
-  { minutes: 60, label: '1 hr before' },
-  { minutes: 120, label: '2 hr before' },
-  { minutes: 180, label: '3 hr before' },
-];
 
 /** End time = start + duration; presets aligned with web-style dropdown */
 const DURATION_PRESETS: { minutes: number; label: string }[] = [
@@ -131,7 +124,7 @@ export default function CalendarCreateScreen() {
   const [newName, setNewName] = useState('');
 
   const [additionalExpanded, setAdditionalExpanded] = useState(false);
-  const [reminderMinutes, setReminderMinutes] = useState<number[]>([15]);
+  const [reminders, setReminders] = useState<CalendarReminder[]>(DEFAULT_REMINDERS);
 
   const [showPicker, setShowPicker] = useState<'date' | 'time' | null>(null);
   const [durationPickerOpen, setDurationPickerOpen] = useState(false);
@@ -220,20 +213,14 @@ export default function CalendarCreateScreen() {
     return r;
   };
 
-  const toggleReminderMinute = useCallback((minutes: number) => {
-    setReminderMinutes((prev) =>
-      prev.includes(minutes) ? prev.filter((m) => m !== minutes) : [...prev, minutes].sort((a, b) => a - b)
-    );
-  }, []);
-
   const additionalConfiguredCount = useMemo(() => {
     let n = participants.length;
     if (isRecurring) n += 1;
-    if (reminderMinutes.length > 0) n += 1;
+    if (reminders.length > 0) n += 1;
     if (description.trim().length > 0) n += 1;
     if (notesField.trim().length > 0) n += 1;
     return n;
-  }, [participants.length, isRecurring, reminderMinutes.length, description, notesField]);
+  }, [participants.length, isRecurring, reminders.length, description, notesField]);
 
   const addParticipant = () => {
     const email = newEmail.trim();
@@ -412,7 +399,8 @@ export default function CalendarCreateScreen() {
           location: loc || undefined,
           meeting_url: videoMeetingUrl,
           participants,
-          reminder_minutes: reminderMinutes.length > 0 ? reminderMinutes : undefined,
+          reminders,
+          reminder_minutes: reminders.map((r) => r.minutes),
           rrule: buildRRule(),
           event_type: eventType,
           assigned_user_id: eventType === 'company' ? assignedMemberId : undefined,
@@ -505,7 +493,7 @@ export default function CalendarCreateScreen() {
     recurringCount,
     categoryId,
     recordId,
-    reminderMinutes,
+    reminders,
     router,
     networkState,
     profile?.id,
@@ -664,26 +652,7 @@ export default function CalendarCreateScreen() {
               />
 
               <Text style={styles.label}>Reminders</Text>
-              <View style={styles.chipRow}>
-                {REMINDER_OPTIONS.map(({ minutes, label }) => (
-                  <TouchableOpacity
-                    key={minutes}
-                    style={[styles.chip, reminderMinutes.includes(minutes) && styles.chipOn]}
-                    onPress={() => toggleReminderMinute(minutes)}
-                  >
-                    <Text
-                      style={{
-                        color: reminderMinutes.includes(minutes) ? colors.tint : colors.text,
-                        fontSize: 12,
-                        fontWeight: reminderMinutes.includes(minutes) ? '700' : '500',
-                      }}
-                      numberOfLines={1}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <EventRemindersEditor reminders={reminders} onChange={setReminders} colors={colors} />
 
               <Text style={styles.label}>Participants</Text>
               {participants.map((p) => (

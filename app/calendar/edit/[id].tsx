@@ -48,20 +48,13 @@ import { htmlToPlainText } from '../../../utils/linkifyPlainText';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import EventRemindersEditor from '../../../components/calendar/EventRemindersEditor';
+import { DEFAULT_REMINDERS, remindersFromEvent, type CalendarReminder } from '../../../utils/calendarReminders';
 
 type Participant = { email: string; name: string; type: string };
 
 /** Matches `app/calendar/create.tsx` and Reach meeting name limits. */
 const MAX_EVENT_TITLE_LENGTH = 50;
-
-const REMINDER_OPTIONS: { minutes: number; label: string }[] = [
-  { minutes: 5, label: '5 min before' },
-  { minutes: 15, label: '15 min before' },
-  { minutes: 30, label: '30 min before' },
-  { minutes: 60, label: '1 hr before' },
-  { minutes: 120, label: '2 hr before' },
-  { minutes: 180, label: '3 hr before' },
-];
 
 /** Same presets as `app/calendar/create.tsx` */
 const DURATION_PRESETS: { minutes: number; label: string }[] = [
@@ -116,7 +109,7 @@ export default function CalendarEditScreen() {
   const [newName, setNewName] = useState('');
 
   const [additionalExpanded, setAdditionalExpanded] = useState(false);
-  const [reminderMinutes, setReminderMinutes] = useState<number[]>([15]);
+  const [reminders, setReminders] = useState<CalendarReminder[]>(DEFAULT_REMINDERS);
 
   const [eventType, setEventType] = useState<'personal' | 'company'>('personal');
   const [assignedMemberId, setAssignedMemberId] = useState<number | null>(null);
@@ -242,12 +235,7 @@ export default function CalendarEditScreen() {
       : [];
     setParticipants(plist);
 
-    const rawRm = (event as Record<string, unknown>).reminder_minutes;
-    if (Array.isArray(rawRm) && rawRm.length > 0 && rawRm.every((x) => typeof x === 'number')) {
-      setReminderMinutes([...(rawRm as number[])].sort((a, b) => a - b));
-    } else {
-      setReminderMinutes([15]);
-    }
+    setReminders(remindersFromEvent(event as Record<string, unknown>));
   }, [eventId, profile, router]);
 
   useEffect(() => {
@@ -339,19 +327,13 @@ export default function CalendarEditScreen() {
 
   const iosPickerTheme = colors.isDark ? 'dark' : 'light';
 
-  const toggleReminderMinute = useCallback((minutes: number) => {
-    setReminderMinutes((prev) =>
-      prev.includes(minutes) ? prev.filter((m) => m !== minutes) : [...prev, minutes].sort((a, b) => a - b)
-    );
-  }, []);
-
   const additionalConfiguredCount = useMemo(() => {
     let n = participants.length;
-    if (reminderMinutes.length > 0) n += 1;
+    if (reminders.length > 0) n += 1;
     if (description.trim().length > 0) n += 1;
     if (notesField.trim().length > 0) n += 1;
     return n;
-  }, [participants.length, reminderMinutes.length, description, notesField]);
+  }, [participants.length, reminders.length, description, notesField]);
 
   const addParticipant = () => {
     const email = newEmail.trim();
@@ -458,7 +440,8 @@ export default function CalendarEditScreen() {
         location: location.trim() || undefined,
         meeting_url: useReach ? meetingUrlForPut : meetingUrl.trim() || undefined,
         participants,
-        reminder_minutes: reminderMinutes.length > 0 ? reminderMinutes : undefined,
+        reminders,
+        reminder_minutes: reminders.map((r) => r.minutes),
         linked_category_id: categoryId ?? undefined,
         linked_category_record_id: recordId ?? undefined,
       };
@@ -643,26 +626,7 @@ export default function CalendarEditScreen() {
               />
 
               <Text style={styles.label}>Reminders</Text>
-              <View style={styles.chipRow}>
-                {REMINDER_OPTIONS.map(({ minutes, label }) => (
-                  <TouchableOpacity
-                    key={minutes}
-                    style={[styles.chip, reminderMinutes.includes(minutes) && styles.chipOn]}
-                    onPress={() => toggleReminderMinute(minutes)}
-                  >
-                    <Text
-                      style={{
-                        color: reminderMinutes.includes(minutes) ? colors.tint : colors.text,
-                        fontSize: 12,
-                        fontWeight: reminderMinutes.includes(minutes) ? '700' : '500',
-                      }}
-                      numberOfLines={1}
-                    >
-                      {label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+              <EventRemindersEditor reminders={reminders} onChange={setReminders} colors={colors} />
 
               <Text style={styles.label}>Participants</Text>
               {participants.map((p) => (
