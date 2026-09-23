@@ -85,7 +85,15 @@ export type EmailThread = {
     reply_mode?: string;
     updated_at?: string | null;
   };
+  sent_orphan?: boolean;
 };
+
+/** Real thread that GET /threads/:id can open. Synthetic sent leftovers are not listed. */
+export function isOpenableMailboxThread(t: { id?: number; sent_orphan?: boolean } | null | undefined): boolean {
+  if (!t) return false;
+  const id = Number(t.id);
+  return Number.isFinite(id) && id > 0 && !t.sent_orphan;
+}
 
 export type EmailMessage = {
   id: number;
@@ -306,7 +314,7 @@ export async function listMailboxThreads(workspaceId: number, attention: ThreadA
   const { data } = await client().get(`${MAILBOX}/threads`, {
     params: { workspace_id: workspaceId, attention },
   });
-  return (data?.threads ?? []) as EmailThread[];
+  return ((data?.threads ?? []) as EmailThread[]).filter(isOpenableMailboxThread);
 }
 
 export async function nextPendingMailboxThread(workspaceId: number, after?: number) {

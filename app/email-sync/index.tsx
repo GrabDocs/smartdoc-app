@@ -27,6 +27,7 @@ import {
     dismissMailboxThreads,
     emailApiError,
     emailSyncWorkspaceId,
+    isOpenableMailboxThread,
     listMailboxThreads,
     markMailboxThreadAwaiting,
     mailboxCapabilities,
@@ -516,6 +517,10 @@ export default function EmailInboxScreen() {
   const openThread = (t: EmailThread) => {
     if (selectMode) {
       toggleSelect(t.id);
+      return;
+    }
+    if (!isOpenableMailboxThread(t)) {
+      setThreads((prev) => prev.filter((x) => x.id !== t.id));
       return;
     }
     router.push({

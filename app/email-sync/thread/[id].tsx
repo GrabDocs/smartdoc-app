@@ -41,6 +41,7 @@ import {
     generateMailboxDraft,
     getMailboxSettings,
     getMailboxThread,
+    isOpenableMailboxThread,
     listMailboxThreads,
     mailboxCapabilities,
     markMailboxThreadAwaiting,
@@ -270,6 +271,12 @@ export default function EmailThreadScreen() {
 
   useEffect(() => {
     let alive = true;
+    if (!isOpenableMailboxThread({ id: threadId })) {
+      router.back();
+      return () => {
+        alive = false;
+      };
+    }
     (async () => {
       setLoading(true);
       setAnalysis(null);
@@ -301,8 +308,12 @@ export default function EmailThreadScreen() {
             setWorkspaceOpen(settings.workspace_search_expanded === true);
           }
         }
-      } catch (e) {
-        Alert.alert('Mail', emailApiError(e, 'Could not load'));
+      } catch (e: any) {
+        if (e?.response?.status === 404) {
+          if (alive) router.back();
+        } else {
+          Alert.alert('Mail', emailApiError(e, 'Could not load'));
+        }
       } finally {
         if (alive) setLoading(false);
       }
