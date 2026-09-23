@@ -301,6 +301,7 @@ export default function ClientDetailScreen() {
           parentId: item.parent_id,
           sourceType: item.source_type,
           sourceId: item.source_id,
+          action: item.action,
         })
       }
     >

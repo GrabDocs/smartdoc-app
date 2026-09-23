@@ -490,6 +490,7 @@ export const NOTIFICATION_TYPES = [
   'transcript_ready',
   'intake_file_received',
   'inbound_email',
+  'awaiting_reply_received',
   'workspace_meeting_started',
   'chat_call_started',
   'meeting_started',
@@ -587,11 +588,13 @@ export function getNotificationScreen(data: Record<string, any>): string {
     case 'intake_file_received':
       // Backend already sends extra_data.screen = `/intake/{id}` (handled above); this is a defensive fallback.
       return data?.intake_id != null ? `/intake/${data.intake_id}` : '/intake';
+    case 'awaiting_reply_received':
     case 'inbound_email': {
       const tid = data?.thread_id ?? data?.threadId;
       const ws = data?.workspace_id ?? data?.workspaceId;
       if (tid != null) {
-        const q = new URLSearchParams({ threadId: String(tid), compose: '1' });
+        const q = new URLSearchParams({ threadId: String(tid) });
+        if (type === 'inbound_email' || data?.needs_reply) q.set('compose', '1');
         if (ws != null) q.set('workspaceId', String(ws));
         return `/email-sync?${q.toString()}`;
       }

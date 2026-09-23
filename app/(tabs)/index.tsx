@@ -1119,10 +1119,23 @@ function DashboardScreen() {
                   >
                     <Text style={{ color: colors.text, fontWeight: '600' }}>{item.client.display_name}</Text>
                     <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 2 }} numberOfLines={2}>
-                      {item.attention?.next_step?.label ||
-                        (item.attention?.status === 'needs_attention'
-                          ? 'Needs attention'
-                          : 'Waiting')}
+                      {(() => {
+                        const step = item.attention?.next_step;
+                        const who = step?.waiting_on === 'client'
+                          ? 'Waiting on client'
+                          : step?.waiting_on === 'us'
+                            ? 'Waiting on us'
+                            : '';
+                        if (step?.label && who) return `${who} · ${step.label}`;
+                        if (step?.label) return step.label;
+                        const woc = item.attention?.open_counts?.waiting_on_client || 0;
+                        const wou = item.attention?.open_counts?.waiting_on_us || 0;
+                        if (item.attention?.status === 'needs_attention' && !woc && !wou) return 'Needs attention';
+                        if (woc && !wou) return 'Waiting on client';
+                        if (wou && !woc) return 'Waiting on us';
+                        if (woc && wou) return 'Waiting on client';
+                        return item.attention?.status === 'needs_attention' ? 'Needs attention' : 'Waiting';
+                      })()}
                     </Text>
                   </TouchableOpacity>
                 ))}

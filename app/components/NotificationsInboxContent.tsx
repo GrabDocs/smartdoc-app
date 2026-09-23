@@ -154,7 +154,7 @@ export function NotificationsInboxContent({
   const isEmailReplyNotification = (n: AppNotification) => {
     const meta = n.metadata;
     return (
-      (n.type === 'inbound_email' || meta?.action_type === 'email_reply') &&
+      (n.type === 'inbound_email' || n.type === 'awaiting_reply_received' || meta?.action_type === 'email_reply') &&
       Boolean(meta?.has_actions) &&
       meta?.action_type === 'email_reply' &&
       (meta?.thread_id != null || meta?.threadId != null || Boolean(meta?.screen))
@@ -164,7 +164,7 @@ export function NotificationsInboxContent({
   const resolveNotificationPath = useCallback((n: AppNotification) => {
     const meta = n.metadata || {};
     // Prefer mobile `screen` / type resolver — web `navigation_path` is not valid in Expo.
-    if (n.type === 'inbound_email' || meta.action_type === 'email_reply') {
+    if (n.type === 'inbound_email' || n.type === 'awaiting_reply_received' || meta.action_type === 'email_reply') {
       return getNotificationScreen({ type: n.type || 'inbound_email', ...meta });
     }
     if (isReachMeetingStartedNotificationType(n.type) || isReachMeetingStartedNotificationType(meta.action_type)) {

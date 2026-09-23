@@ -143,11 +143,24 @@ export function senderNameAndEmail(raw?: string | null): string {
   return '';
 }
 
+export function formatWaitingAge(iso?: string | null): string {
+  if (!iso) return '';
+  const raw = iso.trim();
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  const d = new Date(hasZone ? raw : `${raw}Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  const days = Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
+  if (days <= 0) return 'waiting today';
+  if (days === 1) return '1 day waiting';
+  return `${days} days waiting`;
+}
+
 export function threadStatusDotColor(t: {
   attention_status?: string | null;
   reply_status?: string | null;
 }): string {
   if (t.attention_status === 'needs_reply') return '#EF4444';
+  if (t.attention_status === 'awaiting_reply') return '#3B82F6';
   if (t.attention_status === 'draft_ready') return '#FBBF24';
   if (t.reply_status === 'waiting_for_response') return '#10B981';
   if (t.reply_status === 'closed') return '#9CA3AF';

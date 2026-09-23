@@ -29,6 +29,8 @@ import {
     listMailboxThreads,
     mailboxCapabilities,
     mailboxPendingCount,
+    mailboxPendingCounts,
+    stopMailboxThreadAwaiting,
     syncMailbox,
     undismissMailboxThread,
     undoMailboxSend,
@@ -38,7 +40,7 @@ import {
 import { formatRemainingCountdown } from '../../utils/timeFormatting';
 import { AttachmentNamesRow } from './_components/AttachmentNamesRow';
 import { confirmCloseMailboxThread } from './_components/confirmCloseThread';
-import { formatEmailWhen, threadStatusDotColor } from './_components/emailFormat';
+import { formatEmailWhen, formatWaitingAge, threadStatusDotColor } from './_components/emailFormat';
 import { openEmailInboxOAuth } from './_components/emailOAuth';
 import {
     emailSyncCachePending,
@@ -55,13 +57,24 @@ import { EmailSyncTopTabs, type EmailSyncTab } from './_components/EmailSyncTopT
 import { EmailImportsPane } from './imports';
 import { EmailSetupPane } from './mailbox';
 
-const FILTERS: { id: ThreadAttention; label: string }[] = [
-  { id: 'pending', label: 'To reply' },
+const PRIMARY_FILTERS: { id: ThreadAttention; label: string }[] = [
+  { id: 'pending', label: 'Needs reply' },
+  { id: 'awaiting', label: 'Awaiting reply' },
   { id: 'candidates', label: 'Review' },
-  { id: 'drafts', label: 'Drafts' },
   { id: 'sent', label: 'Sent' },
+];
+const MORE_FILTERS: { id: ThreadAttention; label: string }[] = [
+  { id: 'drafts', label: 'Drafts' },
+  { id: 'closed', label: 'Closed' },
   { id: 'dismissed', label: 'Dismissed' },
 ];
+const ALL_FILTERS = new Set<ThreadAttention>([
+  'pending', 'awaiting', 'candidates', 'drafts', 'sent', 'closed', 'dismissed',
+]);
+
+function isThreadAttention(v: string | undefined): v is ThreadAttention {
+  return !!v && ALL_FILTERS.has(v as ThreadAttention);
+}
 
 export default function EmailInboxScreen() {
   const router = useRouter();
@@ -88,18 +101,17 @@ export default function EmailInboxScreen() {
   const [workspaceId, setWorkspaceId] = useState<number | null>(
     params.workspaceId ? Number(params.workspaceId) : null
   );
-  const initialFilter: ThreadAttention =
-    params.filter === 'dismissed'
-    || params.filter === 'candidates'
-    || params.filter === 'pending'
-    || params.filter === 'drafts'
-    || params.filter === 'sent'
-    || params.filter === 'closed'
-      ? params.filter
-      : 'pending';
+  const initialFilter: ThreadAttention = isThreadAttention(
+    Array.isArray(params.filter) ? params.filter[0] : params.filter
+  )
+    ? ((Array.isArray(params.filter) ? params.filter[0] : params.filter) as ThreadAttention)
+    : 'pending';
   const [filter, setFilter] = useState<ThreadAttention>(initialFilter);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [threads, setThreads] = useState<EmailThread[]>(() => emailSyncCacheReplies('pending')?.threads || []);
   const [pending, setPending] = useState(emailSyncCachePending());
+  const [awaitingCount, setAwaitingCount] = useState(0);
   const [hasMailbox, setHasMailbox] = useState<boolean | null>(() => {
     const hit = emailSyncCacheReplies('pending');
     return hit ? hit.hasMailbox : null;
@@ -131,14 +143,7 @@ export default function EmailInboxScreen() {
 
   useEffect(() => {
     const f = Array.isArray(params.filter) ? params.filter[0] : params.filter;
-    if (
-      f === 'dismissed'
-      || f === 'candidates'
-      || f === 'pending'
-      || f === 'drafts'
-      || f === 'sent'
-      || f === 'closed'
-    ) {
+    if (isThreadAttention(f)) {
       setFilter(f);
     }
   }, [params.filter]);
@@ -163,16 +168,17 @@ export default function EmailInboxScreen() {
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
-    const [caps, count, list] = await Promise.all([
+    const [caps, counts, list] = await Promise.all([
       mailboxCapabilities(workspaceId),
-      mailboxPendingCount(workspaceId),
+      mailboxPendingCounts(workspaceId),
       listMailboxThreads(workspaceId, filter),
     ]);
     setHasMailbox(!!caps.has_oauth_mailbox);
     setCanSend((caps.connections || []).some((c) => c.send_enabled));
-    setPending(count);
+    setPending(counts.count);
+    setAwaitingCount(counts.awaiting_count);
     setThreads(list);
-    emailSyncCacheSetPending(count);
+    emailSyncCacheSetPending(counts.count);
     emailSyncCacheSetReplies(filter, { threads: list, hasMailbox: !!caps.has_oauth_mailbox });
   }, [workspaceId, filter]);
 
@@ -239,15 +245,7 @@ export default function EmailInboxScreen() {
     const composeFlag = Array.isArray(params.compose) ? params.compose[0] : params.compose;
     const wantCompose = composeFlag === '1' || composeFlag === 'true';
     const filterParam = Array.isArray(params.filter) ? params.filter[0] : params.filter;
-    const attention =
-      filterParam === 'dismissed'
-      || filterParam === 'candidates'
-      || filterParam === 'pending'
-      || filterParam === 'drafts'
-      || filterParam === 'sent'
-      || filterParam === 'closed'
-        ? filterParam
-        : filter;
+    const attention = isThreadAttention(filterParam) ? filterParam : filter;
     router.push({
       pathname: '/email-sync/thread/[id]',
       params: {
@@ -307,17 +305,18 @@ export default function EmailInboxScreen() {
   useEffect(() => {
     if (!workspaceId) return;
     const t = setInterval(() => {
-      mailboxPendingCount(workspaceId).then((n) => {
-        setPending(n);
-        emailSyncCacheSetPending(n);
+      mailboxPendingCounts(workspaceId).then((counts) => {
+        setPending(counts.count);
+        setAwaitingCount(counts.awaiting_count);
+        emailSyncCacheSetPending(counts.count);
       }).catch(() => {});
     }, 60000);
     return () => clearInterval(t);
   }, [workspaceId]);
 
-  const onRefresh = useCallback(async () => {
+  const triggerSync = useCallback(async () => {
     if (!workspaceId) return;
-    setRefreshing(true);
+    setSyncing(true);
     try {
       await syncMailbox(workspaceId);
       await new Promise((r) => setTimeout(r, 2000));
@@ -325,9 +324,18 @@ export default function EmailInboxScreen() {
     } catch (e) {
       Alert.alert('Sync', emailApiError(e, 'Failed'));
     } finally {
-      setRefreshing(false);
+      setSyncing(false);
     }
   }, [workspaceId, load]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await triggerSync();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [triggerSync]);
 
   const connect = async (provider: 'gmail' | 'outlook') => {
     if (!workspaceId) return;
@@ -385,16 +393,32 @@ export default function EmailInboxScreen() {
         iconBtn: { padding: 10 },
         pills: {
           flexDirection: 'row',
-          marginHorizontal: 16,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          marginHorizontal: 12,
           marginBottom: 8,
-          backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-          borderRadius: 10,
-          padding: 3,
+          gap: 4,
         },
-        pill: { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center' },
+        pill: {
+          paddingVertical: 7,
+          paddingHorizontal: 8,
+          borderRadius: 8,
+          alignItems: 'center',
+          backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+        },
         pillOn: { backgroundColor: colors.surface },
         pillTxt: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
         pillTxtOn: { color: colors.text },
+        moreMenu: {
+          marginHorizontal: 12,
+          marginBottom: 8,
+          borderRadius: 10,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.surface,
+          overflow: 'hidden',
+        },
+        moreItem: { paddingHorizontal: 14, paddingVertical: 10 },
         selectBar: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -531,14 +555,25 @@ export default function EmailInboxScreen() {
             ? undefined
             : () => (
                 <TouchableOpacity
-                  style={[styles.swipe, { backgroundColor: '#F59E0B' }]}
-                  onPress={() => {
+                  style={[styles.swipe, { backgroundColor: filter === 'awaiting' ? '#3B82F6' : '#F59E0B' }]}
+                  onPress={async () => {
                     swipeRefs.current.get(item.id)?.close();
+                    if (filter === 'awaiting') {
+                      try {
+                        await stopMailboxThreadAwaiting(item.id);
+                        await load();
+                      } catch (e) {
+                        Alert.alert('Awaiting', emailApiError(e, 'Could not stop awaiting'));
+                      }
+                      return;
+                    }
                     confirmCloseMailboxThread(item.id, load);
                   }}
                 >
-                  <Ionicons name="archive" size={22} color="#fff" />
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12, marginTop: 4 }}>Close</Text>
+                  <Ionicons name={filter === 'awaiting' ? 'pause-circle' : 'archive'} size={22} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12, marginTop: 4 }}>
+                    {filter === 'awaiting' ? 'Stop' : 'Close'}
+                  </Text>
                 </TouchableOpacity>
               )
         }
@@ -571,7 +606,7 @@ export default function EmailInboxScreen() {
                 {formatEmailWhen(
                   filter === 'dismissed'
                     ? item.dismissed_at || item.last_message_at
-                    : filter === 'sent'
+                    : filter === 'sent' || filter === 'awaiting'
                       ? item.last_outbound_at || item.last_message_at
                       : item.last_message_at,
                 )}
@@ -581,6 +616,13 @@ export default function EmailInboxScreen() {
               <Text style={{ fontSize: 12, color: colors.textSecondary }} numberOfLines={1}>
                 {item.draft_preview?.reply_mode === 'new' ? 'New message' : 'Reply draft'}
                 {item.draft_preview?.to?.length ? ` · ${item.draft_preview.to.join(', ')}` : ''}
+              </Text>
+            ) : null}
+            {filter === 'awaiting' ? (
+              <Text style={{ fontSize: 12, color: colors.textSecondary }} numberOfLines={1}>
+                {(item.participants || []).filter(Boolean).slice(0, 2).join(', ') || 'Recipient'}
+                {item.last_outbound_at ? ` · Sent ${formatEmailWhen(item.last_outbound_at)}` : ''}
+                {item.last_outbound_at ? ` · ${formatWaitingAge(item.last_outbound_at)}` : ''}
               </Text>
             ) : null}
             <AttachmentNamesRow attachments={item.attachments} names={item.attachment_names} />
@@ -620,14 +662,24 @@ export default function EmailInboxScreen() {
             <Ionicons name="close-circle-outline" size={24} color={colors.text} />
           </FeedbackTouchable>
         ) : tab === 'replies' && hasMailbox && !selectMode ? (
-          <FeedbackTouchable
-            style={styles.iconBtn}
-            onPress={() => void startCompose()}
-            disabled={!canSend || composing}
-            accessibilityLabel="Compose"
-          >
-            <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
-          </FeedbackTouchable>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => void triggerSync()}
+              disabled={syncing}
+              accessibilityLabel={syncing ? 'Syncing mailbox' : 'Sync mailbox'}
+            >
+              <Ionicons name="sync-outline" size={22} color={syncing ? '#007AFF' : colors.text} />
+            </FeedbackTouchable>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => void startCompose()}
+              disabled={!canSend || composing}
+              accessibilityLabel="Compose"
+            >
+              <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
+            </FeedbackTouchable>
+          </View>
         ) : (
           <View style={{ width: 44 }} />
         )}
@@ -670,15 +722,21 @@ export default function EmailInboxScreen() {
       ) : null}
       {hasMailbox ? (
         <View style={styles.pills}>
-          {FILTERS.map((f) => {
+          {PRIMARY_FILTERS.map((f) => {
             const on = filter === f.id;
-            const label = f.id === 'pending' && pending > 0 ? `${f.label} ${pending}` : f.label;
+            const label =
+              f.id === 'pending' && pending > 0
+                ? `${f.label} ${pending}`
+                : f.id === 'awaiting' && awaitingCount > 0
+                  ? `${f.label} ${awaitingCount}`
+                  : f.label;
             return (
               <TouchableOpacity
                 key={f.id}
                 style={[styles.pill, on && styles.pillOn]}
                 onPress={() => {
                   exitSelect();
+                  setMoreOpen(false);
                   setFilter(f.id);
                 }}
               >
@@ -686,7 +744,33 @@ export default function EmailInboxScreen() {
               </TouchableOpacity>
             );
           })}
+          <TouchableOpacity
+            style={[styles.pill, MORE_FILTERS.some((f) => f.id === filter) && styles.pillOn]}
+            onPress={() => setMoreOpen((o) => !o)}
+            accessibilityLabel="More lists"
+          >
+            <Text style={[styles.pillTxt, MORE_FILTERS.some((f) => f.id === filter) && styles.pillTxtOn]}>
+              {MORE_FILTERS.find((f) => f.id === filter)?.label || 'More'}
+            </Text>
+          </TouchableOpacity>
         </View>
+        {moreOpen ? (
+          <View style={styles.moreMenu}>
+            {MORE_FILTERS.map((f) => (
+              <TouchableOpacity
+                key={f.id}
+                style={styles.moreItem}
+                onPress={() => {
+                  exitSelect();
+                  setMoreOpen(false);
+                  setFilter(f.id);
+                }}
+              >
+                <Text style={[styles.pillTxt, filter === f.id && styles.pillTxtOn]}>{f.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
       ) : null}
 
       {selectMode && filter !== 'dismissed' ? (
@@ -740,10 +824,14 @@ export default function EmailInboxScreen() {
               <Text style={styles.emptyTitle}>
                 {filter === 'pending'
                   ? 'You’re caught up'
-                  : filter === 'dismissed'
+                  : filter === 'awaiting'
+                    ? 'Nothing waiting on a reply'
+                    : filter === 'dismissed'
                     ? 'Nothing dismissed'
                     : filter === 'drafts'
                       ? 'No unsent drafts'
+                      : filter === 'closed'
+                        ? 'No closed threads'
                       : filter === 'sent'
                         ? 'No sent mail yet'
                         : 'Nothing to review'}
@@ -751,6 +839,8 @@ export default function EmailInboxScreen() {
               <Text style={styles.emptySub}>
                 {filter === 'pending'
                   ? 'Pull down to sync. Swipe left to dismiss, right to close. Long-press to multi-select.'
+                  : filter === 'awaiting'
+                    ? 'Check Await reply when you send, or GrabDocs will flag asks automatically.'
                   : filter === 'drafts'
                     ? 'Compose a new email, or drafts from Clients and AI replies appear here until you send or discard them.'
                     : filter === 'sent'

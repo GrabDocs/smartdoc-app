@@ -65,6 +65,7 @@ export interface OpenCounts {
   file_requests_open: number;
   signatures_pending: number;
   emails_needs_reply: number;
+  emails_awaiting_reply?: number;
 }
 
 export interface ClientAttention {
@@ -741,6 +742,7 @@ export function itemHref(
     parentId?: number | null;
     sourceType?: string | null;
     sourceId?: number | null;
+    action?: string | null;
   }
 ): Href | null {
   if (!itemType || itemId == null) return null;
@@ -757,7 +759,11 @@ export function itemHref(
     case 'signature_envelope':
       return `/signatures/${itemId}` as Href;
     case 'email_thread':
-      return `/email-sync/thread/${itemId}` as Href;
+      return (
+        opts?.action === 'follow_up_email'
+          ? `/email-sync?filter=awaiting&threadId=${itemId}`
+          : `/email-sync/thread/${itemId}`
+      ) as Href;
     case 'file_upload_link':
       return `/upload-links/${itemId}` as Href;
     case 'note':

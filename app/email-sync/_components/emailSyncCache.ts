@@ -21,6 +21,7 @@ let setup: {
   senders: string[];
   patterns: string[];
   needsReplySensitivity?: 'conservative' | 'balanced' | 'aggressive';
+  awaitingReplySensitivity?: 'conservative' | 'balanced' | 'aggressive';
   grabdocsResearch?: boolean | null;
   at: number;
 } | null = null;
@@ -87,6 +88,7 @@ export function emailSyncCacheSetSetup(data: {
   senders: string[];
   patterns: string[];
   needsReplySensitivity?: 'conservative' | 'balanced' | 'aggressive';
+  awaitingReplySensitivity?: 'conservative' | 'balanced' | 'aggressive';
   grabdocsResearch?: boolean | null;
 }) {
   setup = { ...data, at: Date.now() };

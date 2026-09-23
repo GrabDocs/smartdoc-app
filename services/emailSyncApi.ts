@@ -72,6 +72,7 @@ export type EmailThread = {
   dismissed_at?: string | null;
   last_message_at?: string | null;
   last_outbound_at?: string | null;
+  awaiting_suppressed_at?: string | null;
   participants?: string[];
   surface_reason?: string | null;
   provider_thread_id?: string | null;
@@ -108,6 +109,7 @@ export type EmailDraft = {
   body_text?: string | null;
   reply_mode?: string;
   tone?: string | null;
+  expects_reply?: boolean;
   attachments?: { id: number; filename?: string; size_bytes?: number; source_type?: string; file_id?: number | null }[];
 };
 
@@ -157,7 +159,7 @@ export type ConnectionRules = {
   sync_start_date?: string | null;
 };
 
-export type ThreadAttention = 'pending' | 'candidates' | 'dismissed' | 'drafts' | 'closed' | 'sent';
+export type ThreadAttention = 'pending' | 'awaiting' | 'candidates' | 'dismissed' | 'drafts' | 'closed' | 'sent';
 
 function apiErrorMessage(err: any, fallback: string): string {
   return err?.response?.data?.error || err?.message || fallback;
@@ -282,9 +284,22 @@ export async function mailboxCapabilities(workspaceId: number) {
   };
 }
 
-export async function mailboxPendingCount(workspaceId: number) {
+export async function mailboxPendingCounts(workspaceId: number) {
   const { data } = await client().get(`${MAILBOX}/pending-count`, { params: { workspace_id: workspaceId } });
-  return Number(data?.count ?? 0);
+  return {
+    count: Number(data?.count ?? 0),
+    awaiting_count: Number(data?.awaiting_count ?? 0),
+  };
+}
+
+export async function mailboxPendingCount(workspaceId: number) {
+  const { count } = await mailboxPendingCounts(workspaceId);
+  return count;
+}
+
+export async function mailboxAwaitingCount(workspaceId: number) {
+  const { awaiting_count } = await mailboxPendingCounts(workspaceId);
+  return awaiting_count;
 }
 
 export async function listMailboxThreads(workspaceId: number, attention: ThreadAttention) {
@@ -329,6 +344,16 @@ export async function getMailboxThread(threadId: number, opts?: { before?: numbe
 
 export async function closeMailboxThread(threadId: number) {
   await client().post(`${MAILBOX}/threads/${threadId}/close`);
+}
+
+export async function markMailboxThreadAwaiting(threadId: number) {
+  const { data } = await client().post(`${MAILBOX}/threads/${threadId}/await`);
+  return data;
+}
+
+export async function stopMailboxThreadAwaiting(threadId: number) {
+  const { data } = await client().post(`${MAILBOX}/threads/${threadId}/unawait`);
+  return data;
 }
 
 export async function dismissMailboxThread(threadId: number) {
@@ -434,6 +459,7 @@ export async function getMailboxSettings(workspaceId: number) {
     allowed_senders?: string[];
     subject_patterns?: string[];
     needs_reply_sensitivity?: NeedsReplySensitivity;
+    awaiting_reply_sensitivity?: NeedsReplySensitivity;
     grabdocs_research_enabled?: boolean | null;
     workspace_search_expanded?: boolean | null;
     undo_send_seconds?: number;

@@ -43,6 +43,8 @@ import {
     getMailboxThread,
     listMailboxThreads,
     mailboxCapabilities,
+    markMailboxThreadAwaiting,
+    stopMailboxThreadAwaiting,
     nextPendingMailboxThread,
     patchMailboxDraft,
     patchMailboxSettings,
@@ -122,7 +124,7 @@ export default function EmailThreadScreen() {
   }>();
   const threadId = Number(id);
   const wantCompose = compose === '1' || compose === 'true';
-  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'drafts' || filter === 'sent' || filter === 'closed'
+  const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'awaiting' || filter === 'drafts' || filter === 'sent' || filter === 'closed'
     ? filter
     : 'pending') as ThreadAttention;
   const dismissed = attention === 'dismissed';
@@ -151,6 +153,7 @@ export default function EmailThreadScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [busy, setBusy] = useState(false);
   const [body, setBody] = useState('');
+  const [expectsReply, setExpectsReply] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
   const [subject, setSubject] = useState('');
@@ -238,6 +241,7 @@ export default function EmailThreadScreen() {
     setCc((d.cc || []).join(', '));
     setSubject(d.subject || '');
     setBody(d.body_text || '');
+    setExpectsReply(!!d.expects_reply);
     if (d.tone) setReplyTone(restoreTone(d.tone));
     setReplyAll(d.reply_mode === 'reply_all');
     if (openComposer) setComposing(true);
@@ -344,6 +348,7 @@ export default function EmailThreadScreen() {
       cc: splitAddrs(cc),
       subject,
       body_text: body,
+      expects_reply: expectsReply,
     });
   };
 
@@ -561,6 +566,7 @@ export default function EmailThreadScreen() {
         cc: splitAddrs(cc),
         subject,
         body_text: body,
+        expects_reply: expectsReply,
       });
       if (res.pending_send?.id) setPendingSend({ id: res.pending_send.id });
       const secsRaw = Number(res.undo_seconds ?? 20);
@@ -959,6 +965,29 @@ export default function EmailThreadScreen() {
               </View>
             ) : null}
           </View>
+          {!dismissed && !isNewCompose && thread ? (
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              accessibilityLabel={
+                thread.attention_status === 'awaiting_reply' ? 'Stop awaiting' : 'Mark awaiting reply'
+              }
+              onPress={async () => {
+                try {
+                  if (thread.attention_status === 'awaiting_reply') await stopMailboxThreadAwaiting(threadId);
+                  else await markMailboxThreadAwaiting(threadId);
+                  await load();
+                } catch (e) {
+                  Alert.alert('Awaiting', emailApiError(e, 'Could not update awaiting'));
+                }
+              }}
+            >
+              <Ionicons
+                name={thread.attention_status === 'awaiting_reply' ? 'pause-circle-outline' : 'time-outline'}
+                size={22}
+                color={colors.text}
+              />
+            </FeedbackTouchable>
+          ) : null}
           <FeedbackTouchable
             style={styles.iconBtn}
             onPress={async () => {
@@ -1420,6 +1449,22 @@ export default function EmailThreadScreen() {
                     <Ionicons name="trash-outline" size={20} color={colors.textSecondary} />
                   </TouchableOpacity>
                   <View style={styles.sendRow}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}
+                      onPress={() => {
+                        const next = !expectsReply;
+                        setExpectsReply(next);
+                        if (draft) void patchMailboxDraft(draft.id, { expects_reply: next }).catch(() => {});
+                      }}
+                      disabled={drafting || busy}
+                    >
+                      <Ionicons
+                        name={expectsReply ? 'checkbox' : 'square-outline'}
+                        size={18}
+                        color={expectsReply ? '#007AFF' : colors.textSecondary}
+                      />
+                      <Text style={{ fontSize: 13, color: colors.text }}>Await reply</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
                       onPress={() => send(true)}

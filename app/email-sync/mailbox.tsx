@@ -102,6 +102,9 @@ export function EmailSetupPane({
   const [needsReplySensitivity, setNeedsReplySensitivity] = useState<NeedsReplySensitivity>(
     cached?.needsReplySensitivity || 'balanced',
   );
+  const [awaitingReplySensitivity, setAwaitingReplySensitivity] = useState<NeedsReplySensitivity>(
+    cached?.awaitingReplySensitivity || 'balanced',
+  );
   const [grabdocsResearch, setGrabdocsResearch] = useState<boolean | null>(
     cached?.grabdocsResearch ?? null,
   );
@@ -134,6 +137,7 @@ export function EmailSetupPane({
       senders: s.allowed_senders || [],
       patterns: s.subject_patterns || [],
       needsReplySensitivity: (s.needs_reply_sensitivity || 'balanced') as NeedsReplySensitivity,
+      awaitingReplySensitivity: (s.awaiting_reply_sensitivity || 'balanced') as NeedsReplySensitivity,
       grabdocsResearch: (s.grabdocs_research_enabled ?? null) as boolean | null,
     };
     setConns(next.conns);
@@ -141,6 +145,7 @@ export function EmailSetupPane({
     setSenders(next.senders);
     setPatterns(next.patterns);
     setNeedsReplySensitivity(next.needsReplySensitivity);
+    setAwaitingReplySensitivity(next.awaitingReplySensitivity || 'balanced');
     setGrabdocsResearch(next.grabdocsResearch);
     emailSyncCacheSetSetup(next);
     const n = Number(count) || 0;
@@ -252,6 +257,14 @@ export function EmailSetupPane({
     if (!workspaceId) return;
     setNeedsReplySensitivity(level);
     void patchMailboxSettings({ workspace_id: workspaceId, needs_reply_sensitivity: level }).catch((e) =>
+      Alert.alert('Settings', emailApiError(e, 'Could not save')),
+    );
+  };
+
+  const patchAwaitingSensitivity = (level: NeedsReplySensitivity) => {
+    if (!workspaceId) return;
+    setAwaitingReplySensitivity(level);
+    void patchMailboxSettings({ workspace_id: workspaceId, awaiting_reply_sensitivity: level }).catch((e) =>
       Alert.alert('Settings', emailApiError(e, 'Could not save')),
     );
   };
@@ -573,6 +586,31 @@ export function EmailSetupPane({
             <Text style={[styles.sub, { marginTop: 10, fontSize: 11, lineHeight: 15 }]}>
               {SENSITIVITY_HINT[needsReplySensitivity]}
             </Text>
+          </View>
+
+          <View style={[styles.card, { padding: 14, marginTop: 8 }]}>
+            <Text style={[styles.name, { fontSize: 15 }]}>Awaiting-reply sensitivity</Text>
+            <Text style={[styles.sub, { marginTop: 6, lineHeight: 18 }]}>
+              How eagerly to watch sent mail for an expected recipient reply.
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
+              {SENSITIVITY_LEVELS.map((level) => {
+                const selected = awaitingReplySensitivity === level;
+                const label = level.charAt(0).toUpperCase() + level.slice(1);
+                return (
+                  <TouchableOpacity
+                    key={`await-${level}`}
+                    style={[styles.chip, selected && styles.chipOn, { marginTop: 0 }]}
+                    onPress={() => patchAwaitingSensitivity(level)}
+                  >
+                    <Text style={{ color: colors.text, fontWeight: selected ? '600' : '400' }}>
+                      {label}
+                      {level === 'balanced' ? ' (recommended)' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </View>
 
           <Text style={styles.section}>Reply settings</Text>
