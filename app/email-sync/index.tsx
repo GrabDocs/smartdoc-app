@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
@@ -61,12 +62,12 @@ const PRIMARY_FILTERS: { id: ThreadAttention; label: string }[] = [
   { id: 'pending', label: 'Needs reply' },
   { id: 'awaiting', label: 'Awaiting reply' },
   { id: 'candidates', label: 'Review' },
-  { id: 'sent', label: 'Sent' },
 ];
-const MORE_FILTERS: { id: ThreadAttention; label: string }[] = [
-  { id: 'drafts', label: 'Drafts' },
-  { id: 'closed', label: 'Closed' },
-  { id: 'dismissed', label: 'Dismissed' },
+const MORE_FILTERS: { id: ThreadAttention; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'drafts', label: 'Drafts', icon: 'document-text-outline' },
+  { id: 'sent', label: 'Sent', icon: 'paper-plane-outline' },
+  { id: 'closed', label: 'Closed', icon: 'close-circle-outline' },
+  { id: 'dismissed', label: 'Dismissed', icon: 'ban-outline' },
 ];
 const ALL_FILTERS = new Set<ThreadAttention>([
   'pending', 'awaiting', 'candidates', 'drafts', 'sent', 'closed', 'dismissed',
@@ -328,6 +329,28 @@ export default function EmailInboxScreen() {
     }
   }, [workspaceId, load]);
 
+  const moreItems = useMemo<ActionMenuItem[]>(() => {
+    const lists: ActionMenuItem[] = MORE_FILTERS.map((f) => ({
+      id: f.id,
+      label: f.label,
+      icon: f.icon,
+      onPress: () => {
+        setSelectMode(false);
+        setSelected([]);
+        setFilter(f.id);
+      },
+    }));
+    lists.push({
+      id: 'sync',
+      label: syncing ? 'Syncing…' : 'Sync mailbox',
+      icon: 'sync-outline',
+      onPress: () => {
+        if (!syncing) void triggerSync();
+      },
+    });
+    return lists;
+  }, [syncing, triggerSync]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -393,32 +416,43 @@ export default function EmailInboxScreen() {
         iconBtn: { padding: 10 },
         pills: {
           flexDirection: 'row',
-          flexWrap: 'wrap',
           alignItems: 'center',
           marginHorizontal: 12,
           marginBottom: 8,
-          gap: 4,
+        },
+        pillGroup: {
+          flex: 1,
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+          borderRadius: 10,
+          padding: 2,
+          gap: 2,
+          marginRight: 8,
         },
         pill: {
           paddingVertical: 7,
           paddingHorizontal: 8,
           borderRadius: 8,
           alignItems: 'center',
-          backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
         },
         pillOn: { backgroundColor: colors.surface },
         pillTxt: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
         pillTxtOn: { color: colors.text },
-        moreMenu: {
-          marginHorizontal: 12,
-          marginBottom: 8,
-          borderRadius: 10,
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-          backgroundColor: colors.surface,
-          overflow: 'hidden',
+        moreBtn: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 7,
+          paddingHorizontal: 10,
+          borderRadius: 8,
+          gap: 2,
         },
-        moreItem: { paddingHorizontal: 14, paddingVertical: 10 },
+        moreBtnOn: {
+          backgroundColor: colors.isDark ? '#F3F4F6' : '#111827',
+        },
+        moreTxt: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+        moreTxtOn: { color: colors.isDark ? '#111827' : '#fff' },
         selectBar: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -662,24 +696,14 @@ export default function EmailInboxScreen() {
             <Ionicons name="close-circle-outline" size={24} color={colors.text} />
           </FeedbackTouchable>
         ) : tab === 'replies' && hasMailbox && !selectMode ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <FeedbackTouchable
-              style={styles.iconBtn}
-              onPress={() => void triggerSync()}
-              disabled={syncing}
-              accessibilityLabel={syncing ? 'Syncing mailbox' : 'Sync mailbox'}
-            >
-              <Ionicons name="sync-outline" size={22} color={syncing ? '#007AFF' : colors.text} />
-            </FeedbackTouchable>
-            <FeedbackTouchable
-              style={styles.iconBtn}
-              onPress={() => void startCompose()}
-              disabled={!canSend || composing}
-              accessibilityLabel="Compose"
-            >
-              <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
-            </FeedbackTouchable>
-          </View>
+          <FeedbackTouchable
+            style={styles.iconBtn}
+            onPress={() => void startCompose()}
+            disabled={!canSend || composing}
+            accessibilityLabel="Compose"
+          >
+            <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
+          </FeedbackTouchable>
         ) : (
           <View style={{ width: 44 }} />
         )}
@@ -723,53 +747,49 @@ export default function EmailInboxScreen() {
       {hasMailbox ? (
         <>
           <View style={styles.pills}>
-            {PRIMARY_FILTERS.map((f) => {
-              const on = filter === f.id;
-              const label =
-                f.id === 'pending' && pending > 0
-                  ? `${f.label} ${pending}`
-                  : f.id === 'awaiting' && awaitingCount > 0
-                    ? `${f.label} ${awaitingCount}`
-                    : f.label;
-              return (
-                <TouchableOpacity
-                  key={f.id}
-                  style={[styles.pill, on && styles.pillOn]}
-                  onPress={() => {
-                    exitSelect();
-                    setMoreOpen(false);
-                    setFilter(f.id);
-                  }}
-                >
-                  <Text style={[styles.pillTxt, on && styles.pillTxtOn]}>{label}</Text>
-                </TouchableOpacity>
-              );
-            })}
+            <View style={styles.pillGroup}>
+              {PRIMARY_FILTERS.map((f) => {
+                const on = filter === f.id;
+                const label =
+                  f.id === 'pending' && pending > 0
+                    ? `${f.label} ${pending}`
+                    : f.id === 'awaiting' && awaitingCount > 0
+                      ? `${f.label} ${awaitingCount}`
+                      : f.label;
+                return (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={[styles.pill, on && styles.pillOn]}
+                    onPress={() => {
+                      exitSelect();
+                      setMoreOpen(false);
+                      setFilter(f.id);
+                    }}
+                  >
+                    <Text style={[styles.pillTxt, on && styles.pillTxtOn]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <TouchableOpacity
-              style={[styles.pill, MORE_FILTERS.some((f) => f.id === filter) && styles.pillOn]}
-              onPress={() => setMoreOpen((o) => !o)}
+              style={[styles.moreBtn, MORE_FILTERS.some((f) => f.id === filter) && styles.moreBtnOn]}
+              onPress={() => setMoreOpen(true)}
               accessibilityLabel="More lists"
             >
-              <Text style={[styles.pillTxt, MORE_FILTERS.some((f) => f.id === filter) && styles.pillTxtOn]}>
+              <Text style={[styles.moreTxt, MORE_FILTERS.some((f) => f.id === filter) && styles.moreTxtOn]}>
                 {MORE_FILTERS.find((f) => f.id === filter)?.label || 'More'}
               </Text>
+              <Ionicons
+                name="chevron-down"
+                size={14}
+                color={MORE_FILTERS.some((f) => f.id === filter) ? (colors.isDark ? '#111827' : '#fff') : colors.textSecondary}
+              />
             </TouchableOpacity>
           </View>
-          {moreOpen ? (
-            <View style={styles.moreMenu}>
-              {MORE_FILTERS.map((f) => (
-                <TouchableOpacity
-                  key={f.id}
-                  style={styles.moreItem}
-                  onPress={() => {
-                    exitSelect();
-                    setMoreOpen(false);
-                    setFilter(f.id);
-                  }}
-                >
-                  <Text style={[styles.pillTxt, filter === f.id && styles.pillTxtOn]}>{f.label}</Text>
-                </TouchableOpacity>
-              ))}
+          {syncing ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, gap: 6 }}>
+              <ActivityIndicator size="small" color="#007AFF" />
+              <Text style={{ color: '#007AFF', fontSize: 13 }}>Syncing mailbox…</Text>
             </View>
           ) : null}
         </>
@@ -863,6 +883,12 @@ export default function EmailInboxScreen() {
         />
       )}
       </View>
+      <ActionMenuModal
+        visible={moreOpen}
+        title="More"
+        items={moreItems}
+        onClose={() => setMoreOpen(false)}
+      />
     </SafeAreaView>
   );
 }
