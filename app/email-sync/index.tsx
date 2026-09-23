@@ -721,56 +721,58 @@ export default function EmailInboxScreen() {
         </View>
       ) : null}
       {hasMailbox ? (
-        <View style={styles.pills}>
-          {PRIMARY_FILTERS.map((f) => {
-            const on = filter === f.id;
-            const label =
-              f.id === 'pending' && pending > 0
-                ? `${f.label} ${pending}`
-                : f.id === 'awaiting' && awaitingCount > 0
-                  ? `${f.label} ${awaitingCount}`
-                  : f.label;
-            return (
-              <TouchableOpacity
-                key={f.id}
-                style={[styles.pill, on && styles.pillOn]}
-                onPress={() => {
-                  exitSelect();
-                  setMoreOpen(false);
-                  setFilter(f.id);
-                }}
-              >
-                <Text style={[styles.pillTxt, on && styles.pillTxtOn]}>{label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-          <TouchableOpacity
-            style={[styles.pill, MORE_FILTERS.some((f) => f.id === filter) && styles.pillOn]}
-            onPress={() => setMoreOpen((o) => !o)}
-            accessibilityLabel="More lists"
-          >
-            <Text style={[styles.pillTxt, MORE_FILTERS.some((f) => f.id === filter) && styles.pillTxtOn]}>
-              {MORE_FILTERS.find((f) => f.id === filter)?.label || 'More'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        {moreOpen ? (
-          <View style={styles.moreMenu}>
-            {MORE_FILTERS.map((f) => (
-              <TouchableOpacity
-                key={f.id}
-                style={styles.moreItem}
-                onPress={() => {
-                  exitSelect();
-                  setMoreOpen(false);
-                  setFilter(f.id);
-                }}
-              >
-                <Text style={[styles.pillTxt, filter === f.id && styles.pillTxtOn]}>{f.label}</Text>
-              </TouchableOpacity>
-            ))}
+        <>
+          <View style={styles.pills}>
+            {PRIMARY_FILTERS.map((f) => {
+              const on = filter === f.id;
+              const label =
+                f.id === 'pending' && pending > 0
+                  ? `${f.label} ${pending}`
+                  : f.id === 'awaiting' && awaitingCount > 0
+                    ? `${f.label} ${awaitingCount}`
+                    : f.label;
+              return (
+                <TouchableOpacity
+                  key={f.id}
+                  style={[styles.pill, on && styles.pillOn]}
+                  onPress={() => {
+                    exitSelect();
+                    setMoreOpen(false);
+                    setFilter(f.id);
+                  }}
+                >
+                  <Text style={[styles.pillTxt, on && styles.pillTxtOn]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.pill, MORE_FILTERS.some((f) => f.id === filter) && styles.pillOn]}
+              onPress={() => setMoreOpen((o) => !o)}
+              accessibilityLabel="More lists"
+            >
+              <Text style={[styles.pillTxt, MORE_FILTERS.some((f) => f.id === filter) && styles.pillTxtOn]}>
+                {MORE_FILTERS.find((f) => f.id === filter)?.label || 'More'}
+              </Text>
+            </TouchableOpacity>
           </View>
-        ) : null}
+          {moreOpen ? (
+            <View style={styles.moreMenu}>
+              {MORE_FILTERS.map((f) => (
+                <TouchableOpacity
+                  key={f.id}
+                  style={styles.moreItem}
+                  onPress={() => {
+                    exitSelect();
+                    setMoreOpen(false);
+                    setFilter(f.id);
+                  }}
+                >
+                  <Text style={[styles.pillTxt, filter === f.id && styles.pillTxtOn]}>{f.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+        </>
       ) : null}
 
       {selectMode && filter !== 'dismissed' ? (
