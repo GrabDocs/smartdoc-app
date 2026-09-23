@@ -23,6 +23,7 @@ export type CalendarOfflineStore = {
   v: 2;
   listByKey: Record<string, ListCacheEntry>;
   eventsById: Record<string, DetailCacheEntry>;
+  identityEmails?: string[];
 };
 
 function isValidOfflineStore(p: unknown): p is CalendarOfflineStore {
@@ -263,6 +264,27 @@ export async function removeCalendarEventDetailOffline(eventId: number): Promise
     await writeStore(store);
   } catch {
     /* ignore */
+  }
+}
+
+export async function saveCalendarIdentityEmails(emails: string[]): Promise<void> {
+  try {
+    const store = await readStore();
+    store.identityEmails = emails
+      .map((e) => (e || '').trim().toLowerCase())
+      .filter(Boolean);
+    await writeStore(store);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function getCalendarIdentityEmails(): Promise<string[]> {
+  try {
+    const store = await readStore();
+    return Array.isArray(store.identityEmails) ? [...store.identityEmails] : [];
+  } catch {
+    return [];
   }
 }
 

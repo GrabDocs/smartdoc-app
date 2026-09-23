@@ -54,7 +54,7 @@ interface Enhanced2FAContextType {
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; requires2FA?: boolean; authMethod?: string; message?: string }>;
   loginWithBiometric: () => Promise<{ success: boolean; message?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; requires2FA?: boolean; authMethod?: string; message?: string; completedViaDeepLink?: boolean }>;
-  signup: (data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) => Promise<{ success: boolean; message?: string }>;
+  signup: (data: { username: string; email: string; password: string; firstName?: string; lastName?: string; smsConsent?: boolean; dataRightsConsent?: boolean }) => Promise<{ success: boolean; message?: string }>;
   logout: () => Promise<void>;
   
   // 2FA methods
@@ -705,7 +705,7 @@ export function Enhanced2FAAuthProvider({ children }: { children: React.ReactNod
   // ==================== SIGNUP ====================
   // Uses web signup endpoint (/api/v1/web/signup), then mobile login to get token/user
 
-  const signup = useCallback(async (data: { username: string; email: string; password: string; firstName?: string; lastName?: string }) => {
+  const signup = useCallback(async (data: { username: string; email: string; password: string; firstName?: string; lastName?: string; smsConsent?: boolean; dataRightsConsent?: boolean }) => {
     try {
       setAuthState(prev => ({ ...prev, isLoading: true }));
 
@@ -715,6 +715,8 @@ export function Enhanced2FAAuthProvider({ children }: { children: React.ReactNod
         password: data.password,
         firstName: (data.firstName && data.firstName.trim()) ? data.firstName.trim() : 'Mobile',
         lastName: (data.lastName && data.lastName.trim()) ? data.lastName.trim() : 'User',
+        smsConsent: !!data.smsConsent,
+        dataRightsConsent: !!data.dataRightsConsent,
       };
 
       const signupRes = await fetch(`${API_BASE_URL}/api/v1/web/signup`, {

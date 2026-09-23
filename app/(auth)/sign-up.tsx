@@ -28,7 +28,8 @@ export default function SignUpScreen() {
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [smsConsent, setSmsConsent] = useState(false);
+  const [dataRightsConsent, setDataRightsConsent] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -61,8 +62,8 @@ export default function SignUpScreen() {
         return;
       }
 
-      if (!agreeToTerms) {
-        setError('Please agree to the Terms of Service and Privacy Policy');
+      if (!dataRightsConsent) {
+        setError('Please confirm you have the necessary rights and permissions to upload others\' information');
         return;
       }
 
@@ -73,6 +74,8 @@ export default function SignUpScreen() {
         password,
         firstName: firstName || undefined,
         lastName: lastName || undefined,
+        smsConsent,
+        dataRightsConsent: true,
       });
 
       if (result.success) {
@@ -94,8 +97,8 @@ export default function SignUpScreen() {
     try {
       setError('');
 
-      if (!agreeToTerms) {
-        setError('Please agree to the Terms of Service and Privacy Policy before continuing');
+      if (!dataRightsConsent) {
+        setError('Please confirm you have the necessary rights and permissions to upload others\' information before continuing');
         return;
       }
 
@@ -235,8 +238,8 @@ export default function SignUpScreen() {
       setError('');
       setIsLoading(true);
 
-      if (!agreeToTerms) {
-        setError('Please agree to the Terms of Service and Privacy Policy before continuing');
+      if (!dataRightsConsent) {
+        setError('Please confirm you have the necessary rights and permissions to upload others\' information before continuing');
         return;
       }
 
@@ -316,11 +319,11 @@ export default function SignUpScreen() {
   };
 
   const openTermsOfService = () => {
-    WebBrowser.openBrowserAsync('https://yourdomain.com/terms');
+    WebBrowser.openBrowserAsync('https://grabdocs.com/terms-of-service');
   };
 
   const openPrivacyPolicy = () => {
-    WebBrowser.openBrowserAsync('https://yourdomain.com/privacy');
+    WebBrowser.openBrowserAsync('https://grabdocs.com/privacy-policy');
   };
 
   // Ensure content clears status bar (time, battery). Use insets; on Android fallback if insets are 0.
@@ -483,19 +486,28 @@ export default function SignUpScreen() {
         <View style={styles.termsContainer}>
           <Pressable
             style={styles.checkbox}
-            onPress={() => setAgreeToTerms(!agreeToTerms)}
+            onPress={() => setSmsConsent(!smsConsent)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: smsConsent }}
           >
-            <View style={[styles.checkboxInner, agreeToTerms && styles.checkboxChecked]} />
+            <View style={[styles.checkboxInner, smsConsent && styles.checkboxChecked]} />
           </Pressable>
           <Text style={styles.termsText}>
-            By signing up, you agree to our{' '}
-            <Text style={styles.link} onPress={openTermsOfService}>
-              Terms of Service
-            </Text>{' '}
-            and{' '}
-            <Text style={styles.link} onPress={openPrivacyPolicy}>
-              Privacy Policy
-            </Text>
+            I consent to receiving text messages for account notifications. Message and data rates may apply.
+          </Text>
+        </View>
+
+        <View style={styles.termsContainer}>
+          <Pressable
+            style={styles.checkbox}
+            onPress={() => setDataRightsConsent(!dataRightsConsent)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: dataRightsConsent }}
+          >
+            <View style={[styles.checkboxInner, dataRightsConsent && styles.checkboxChecked]} />
+          </Pressable>
+          <Text style={styles.termsText}>
+            I confirm I have the necessary rights and permissions to upload others' information to GrabDocs.
           </Text>
         </View>
 
@@ -511,6 +523,17 @@ export default function SignUpScreen() {
             {isLoading ? 'Creating Account...' : 'Sign Up'}
           </Text>
         </FeedbackTouchable>
+
+        <Text style={[styles.termsText, styles.termsFooter]}>
+          By signing up, you agree to our{' '}
+          <Text style={styles.link} onPress={openTermsOfService}>
+            Terms of Service
+          </Text>
+          {' '}and{' '}
+          <Text style={styles.link} onPress={openPrivacyPolicy}>
+            Privacy Policy
+          </Text>
+        </Text>
 
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
@@ -670,6 +693,12 @@ const styles = StyleSheet.create({
     fontSize: isAndroid ? 13 : 14,
     lineHeight: isAndroid ? 18 : 20,
     color: Colors.text,
+  },
+  termsFooter: {
+    width: '100%',
+    textAlign: 'center',
+    marginTop: isAndroid ? 10 : 14,
+    paddingHorizontal: isAndroid ? 4 : 10,
   },
   link: {
     color: Colors.primary,

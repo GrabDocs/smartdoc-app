@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
+    Linking,
     Platform,
     Pressable,
     ScrollView,
@@ -41,6 +42,7 @@ export default function PhoneLoginScreen() {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [smsConsent, setSmsConsent] = useState(true);
+    const [dataRightsConsent, setDataRightsConsent] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [maskedPhone, setMaskedPhone] = useState('');
@@ -210,6 +212,10 @@ export default function PhoneLoginScreen() {
             setError('SMS consent is required to create an account with your phone number');
             return;
         }
+        if (!dataRightsConsent) {
+            setError('Please confirm you have the necessary rights and permissions to upload others\' information');
+            return;
+        }
 
         try {
             setLoading(true);
@@ -224,6 +230,7 @@ export default function PhoneLoginScreen() {
                 email,
                 password,
                 smsConsent: true,
+                dataRightsConsent: true,
             });
 
             if (!reg.success) {
@@ -509,6 +516,16 @@ export default function PhoneLoginScreen() {
                 </Text>
             </Pressable>
 
+            <Pressable
+                style={styles.consentRow}
+                onPress={() => setDataRightsConsent((v) => !v)}
+            >
+                <Text style={styles.consentBox}>{dataRightsConsent ? '☑' : '☐'}</Text>
+                <Text style={styles.consentText}>
+                    I confirm I have the necessary rights and permissions to upload others' information to GrabDocs.
+                </Text>
+            </Pressable>
+
             <FeedbackTouchable
                 style={[styles.button, loading && styles.buttonDisabled]}
                 onPress={handleRegisterSubmit}
@@ -518,6 +535,23 @@ export default function PhoneLoginScreen() {
             >
                 <Text style={styles.buttonText}>Create account</Text>
             </FeedbackTouchable>
+
+            <Text style={styles.consentText}>
+                By signing up, you agree to our{' '}
+                <Text
+                    style={styles.linkText}
+                    onPress={() => Linking.openURL('https://grabdocs.com/terms-of-service')}
+                >
+                    Terms of Service
+                </Text>
+                {' '}and{' '}
+                <Text
+                    style={styles.linkText}
+                    onPress={() => Linking.openURL('https://grabdocs.com/privacy-policy')}
+                >
+                    Privacy Policy
+                </Text>
+            </Text>
         </View>
     );
 

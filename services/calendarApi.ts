@@ -32,6 +32,7 @@ export type CalendarEvent = {
   event_origin?: CalendarEventOrigin | string;
   organizer?: { id?: number; name?: string; email?: string };
   permissions?: CalendarEventPermissions;
+  viewer_identity_emails?: string[];
   participants?: {
     id?: number;
     email?: string;
@@ -45,21 +46,44 @@ export type CalendarEvent = {
   [key: string]: unknown;
 };
 
-/** Prefer API `permissions`; fall back to organizer / participant flags when list/offline omit them. */
+function _normEmail(raw?: string | null): string {
+  return (raw || '').trim().toLowerCase();
+}
+
+export function calendarIdentityEmails(
+  user?: { email?: string | null } | null,
+  connections?: Array<{ external_user_email?: string | null }> | null,
+  extra?: Array<string | null | undefined> | null
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [user?.email, ...(connections || []).map((c) => c.external_user_email), ...(extra || [])]) {
+    const email = _normEmail(raw);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    out.push(email);
+  }
+  return out;
+}
+
+/** Prefer API `permissions: true`; stale `false` still allows mailbox-identity fallback. */
 export function calendarEventIsOrganizer(
   event: CalendarEvent | null | undefined,
-  user: { id?: number | null; email?: string | null } | null | undefined
+  user: { id?: number | null; email?: string | null } | null | undefined,
+  identityEmails?: Array<string | null | undefined> | null
 ): boolean {
   if (!event || !user) return false;
-  if (typeof event.permissions?.is_organizer === 'boolean') {
-    return event.permissions.is_organizer;
-  }
+  if (event.permissions?.is_organizer === true) return true;
   const userId = user.id != null ? Number(user.id) : null;
   if (userId != null && Number(event.organizer?.id) === userId) return true;
-  const email = (user.email || '').trim().toLowerCase();
-  if (!email || !Array.isArray(event.participants)) return false;
+  const identities = new Set<string>(
+    calendarIdentityEmails(user, null, [...(identityEmails || []), ...(event.viewer_identity_emails || [])])
+  );
+  const organizerEmail = _normEmail(event.organizer?.email);
+  if (organizerEmail && identities.has(organizerEmail)) return true;
+  if (!identities.size || !Array.isArray(event.participants)) return false;
   return event.participants.some(
-    (p) => !!p.is_organizer && (p.email || '').trim().toLowerCase() === email
+    (p) => !!p.is_organizer && identities.has(_normEmail(p.email))
   );
 }
 
@@ -91,6 +115,7 @@ export interface CalendarConnection {
   sync_enabled: boolean;
   is_default?: boolean;
   last_sync_at?: string;
+  external_user_email?: string | null;
 }
 
 export type CalendarSyncResult = {

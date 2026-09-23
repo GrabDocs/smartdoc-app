@@ -21,11 +21,13 @@ import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalen
 import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
+    calendarConnections,
     calendarDeleteEvent,
     calendarEventCanRemoveFromCalendar,
     calendarEventIsOrganizer,
     calendarEventMeeting,
     calendarGetEvent,
+    calendarIdentityEmails,
     calendarRemoveFromCalendar,
     calendarResendInvite,
     calendarRsvp,
@@ -38,10 +40,12 @@ import {
 } from '../../services/calendarApi';
 import {
     getCalendarEventDetailOffline,
+    getCalendarIdentityEmails,
     invalidateCalendarListCache,
     isCalendarFetchOfflineError,
     removeCalendarEventDetailOffline,
     saveCalendarEventDetailOffline,
+    saveCalendarIdentityEmails,
 } from '../../utils/calendarCache';
 import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { navigateJoinMeeting } from '../../utils/calendarReachJoin';
@@ -135,6 +139,7 @@ export default function CalendarEventDetailScreen() {
 
   const [loading, setLoading] = useState(true);
   const [event, setEvent] = useState<CalendarEvent | null>(null);
+  const [identityEmails, setIdentityEmails] = useState<string[]>([]);
   const [meetingInfo, setMeetingInfo] = useState<any | null>(null);
   const [notes, setNotes] = useState<any[]>([]);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -203,27 +208,36 @@ export default function CalendarEventDetailScreen() {
         }
         const blocking = !initialDetailLoadRef.current;
         if (blocking) setLoading(true);
+        const cachedIds = await getCalendarIdentityEmails();
+        if (!cancelled && cachedIds.length) setIdentityEmails(cachedIds);
         await loadEvent();
         initialDetailLoadRef.current = true;
         if (!cancelled) setLoading(false);
+        if (deviceOffline) return;
+        try {
+          const conns = await calendarConnections();
+          const emails = calendarIdentityEmails(profile, conns);
+          if (!cancelled) setIdentityEmails(emails);
+          await saveCalendarIdentityEmails(emails);
+        } catch {
+          /* keep cached identities */
+        }
+        try {
+          await calendarSyncGoogleWithStaleConnectionRecovery({ silent: true });
+          if (!cancelled) await loadEvent();
+        } catch {
+          /* sync is best-effort; GET already computed permissions */
+        }
       })();
       return () => {
         cancelled = true;
       };
-    }, [eventId, loadEvent])
+    }, [eventId, loadEvent, deviceOffline, profile])
   );
 
   useEffect(() => {
     refreshProfile();
   }, [refreshProfile]);
-
-  useFocusEffect(
-    useCallback(() => {
-      if (!deviceOffline) {
-        calendarSyncGoogleWithStaleConnectionRecovery().catch(() => {});
-      }
-    }, [deviceOffline])
-  );
 
   const loadNotes = useCallback(async () => {
     if (!Number.isFinite(eventId)) return;
@@ -320,7 +334,7 @@ export default function CalendarEventDetailScreen() {
 
   const userNumericId = profile?.id ?? null;
   const isPersonalAccount = useMemo(() => (profile?.company_id ?? 0) === 0, [profile?.company_id]);
-  const isOrganizer = calendarEventIsOrganizer(event, profile);
+  const isOrganizer = calendarEventIsOrganizer(event, profile, identityEmails);
   const isAdmin = calendarIsCompanyAdmin(profile);
   /** Organizer authority, or company-admin for company events (matches web). */
   const canManageEvent = !!(

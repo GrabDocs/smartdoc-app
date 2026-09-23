@@ -27,14 +27,16 @@ import { calendarIsCompanyAdmin, useCalendarProfile } from '../../../hooks/useCa
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import {
   calendarCategoriesWithRecords,
+  calendarConnections,
   calendarEventIsOrganizer,
   calendarGetEvent,
+  calendarIdentityEmails,
   calendarSearchCompanyMembers,
   calendarSyncGoogleWithStaleConnectionRecovery,
   calendarUpdateEvent,
   scheduleReachMeeting,
 } from '../../../services/calendarApi';
-import { invalidateCalendarListCache } from '../../../utils/calendarCache';
+import { getCalendarIdentityEmails, invalidateCalendarListCache, saveCalendarIdentityEmails } from '../../../utils/calendarCache';
 import { isDeviceOfflineForCalendar } from '../../../utils/calendarOffline';
 import {
   combineLocalDateAndTimeStrings,
@@ -177,9 +179,20 @@ export default function CalendarEditScreen() {
   const load = useCallback(async () => {
     if (!Number.isFinite(eventId)) return;
     const event = await calendarGetEvent(eventId);
+    let identityEmails = await getCalendarIdentityEmails();
+    try {
+      const conns = await calendarConnections();
+      identityEmails = calendarIdentityEmails(profile, conns, event.viewer_identity_emails);
+      await saveCalendarIdentityEmails(identityEmails);
+    } catch {
+      identityEmails = calendarIdentityEmails(profile, null, [
+        ...identityEmails,
+        ...(event.viewer_identity_emails || []),
+      ]);
+    }
     // Wait for profile before gating — null profile is "not loaded yet", not "not organizer".
     if (profile) {
-      const isOrganizer = calendarEventIsOrganizer(event, profile);
+      const isOrganizer = calendarEventIsOrganizer(event, profile, identityEmails);
       const canManage =
         isOrganizer || (event.event_type === 'company' && calendarIsCompanyAdmin(profile));
       if (!canManage) {

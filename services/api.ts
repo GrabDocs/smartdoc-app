@@ -983,6 +983,7 @@ class ApiService {
     email: string;
     password: string;
     smsConsent?: boolean;
+    dataRightsConsent?: boolean;
   }): Promise<ApiResponse> {
     try {
       const response = await this.client.post(MOBILE_ENDPOINTS.REGISTER_WITH_PHONE, {
@@ -994,6 +995,7 @@ class ApiService {
         email: data.email,
         password: data.password,
         smsConsent: data.smsConsent ?? true,
+        dataRightsConsent: data.dataRightsConsent ?? false,
       });
       return response.data;
     } catch (error: any) {

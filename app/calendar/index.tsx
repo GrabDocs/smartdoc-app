@@ -33,6 +33,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import {
     calendarAssetsMetadata,
     calendarConnections,
+    calendarIdentityEmails,
     calendarDeleteConnection,
     calendarGetStats,
     calendarListEvents,
@@ -54,6 +55,7 @@ import {
     getCalendarListFallback,
     isCalendarFetchOfflineError,
     saveCalendarListCache,
+    saveCalendarIdentityEmails,
 } from '../../utils/calendarCache';
 import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { addCalendarPeriod, formatCalendarTitle, type CalendarSubView } from '../../utils/calendarRange';
@@ -177,10 +179,11 @@ export default function CalendarHomeScreen() {
     try {
       const list = await calendarConnections();
       setCalendarConnectionsList(list);
+      await saveCalendarIdentityEmails(calendarIdentityEmails(profile, list));
     } catch {
       setCalendarConnectionsList([]);
     }
-  }, []);
+  }, [profile]);
 
   const hasGoogleConnection = useMemo(
     () => calendarConnectionsList.some((c) => calendarConnectionProvider(c) === 'google'),
