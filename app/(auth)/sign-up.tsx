@@ -97,11 +97,6 @@ export default function SignUpScreen() {
     try {
       setError('');
 
-      if (!dataRightsConsent) {
-        setError('Please confirm you have the necessary rights and permissions to upload others\' information before continuing');
-        return;
-      }
-
       setGoogleLoading(true);
 
       const googleResult = await googleAuthService.signInWithGoogle();
@@ -237,11 +232,6 @@ export default function SignUpScreen() {
     try {
       setError('');
       setIsLoading(true);
-
-      if (!dataRightsConsent) {
-        setError('Please confirm you have the necessary rights and permissions to upload others\' information before continuing');
-        return;
-      }
 
       // Use Apple Auth service for sign-up
       const result = await appleAuthService.signInWithAppleEnhanced();

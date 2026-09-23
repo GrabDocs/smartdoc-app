@@ -1260,6 +1260,14 @@ export default function SettingsScreen() {
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
     },
+    profileFieldRow: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    profileFieldHalf: {
+      flex: 1,
+      minWidth: 0,
+    },
     profileFieldLabel: {
       fontSize: scaledFontSize(13),
       fontWeight: '500',
@@ -1755,26 +1763,32 @@ export default function SettingsScreen() {
           onToggle={() => toggleSection('profile')}
         >
           <View style={dynamicStyles.profileFormBlock}>
-            <Text style={dynamicStyles.profileFieldLabel}>First name</Text>
-            <TextInput
-              style={dynamicStyles.profileInput}
-              value={editFirstName}
-              onChangeText={setEditFirstName}
-              autoCapitalize="words"
-              autoComplete="given-name"
-              placeholder="First name"
-              placeholderTextColor={colors.textSecondary}
-            />
-            <Text style={dynamicStyles.profileFieldLabel}>Last name</Text>
-            <TextInput
-              style={dynamicStyles.profileInput}
-              value={editLastName}
-              onChangeText={setEditLastName}
-              autoCapitalize="words"
-              autoComplete="family-name"
-              placeholder="Last name"
-              placeholderTextColor={colors.textSecondary}
-            />
+            <View style={dynamicStyles.profileFieldRow}>
+              <View style={dynamicStyles.profileFieldHalf}>
+                <Text style={dynamicStyles.profileFieldLabel}>First name</Text>
+                <TextInput
+                  style={dynamicStyles.profileInput}
+                  value={editFirstName}
+                  onChangeText={setEditFirstName}
+                  autoCapitalize="words"
+                  autoComplete="given-name"
+                  placeholder="First name"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+              <View style={dynamicStyles.profileFieldHalf}>
+                <Text style={dynamicStyles.profileFieldLabel}>Last name</Text>
+                <TextInput
+                  style={dynamicStyles.profileInput}
+                  value={editLastName}
+                  onChangeText={setEditLastName}
+                  autoCapitalize="words"
+                  autoComplete="family-name"
+                  placeholder="Last name"
+                  placeholderTextColor={colors.textSecondary}
+                />
+              </View>
+            </View>
             <TouchableOpacity
               style={[dynamicStyles.profilePrimaryButton, savingName && { opacity: 0.6 }]}
               disabled={savingName}
@@ -1946,26 +1960,32 @@ export default function SettingsScreen() {
                 placeholder="Current password"
                 placeholderTextColor={colors.textSecondary}
               />
-              <Text style={dynamicStyles.profileFieldLabel}>New password</Text>
-              <TextInput
-                style={dynamicStyles.profileInput}
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry
-                autoComplete="new-password"
-                placeholder="At least 8 characters"
-                placeholderTextColor={colors.textSecondary}
-              />
-              <Text style={dynamicStyles.profileFieldLabel}>Confirm password</Text>
-              <TextInput
-                style={dynamicStyles.profileInput}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                autoComplete="new-password"
-                placeholder="Confirm new password"
-                placeholderTextColor={colors.textSecondary}
-              />
+              <View style={dynamicStyles.profileFieldRow}>
+                <View style={dynamicStyles.profileFieldHalf}>
+                  <Text style={dynamicStyles.profileFieldLabel}>New password</Text>
+                  <TextInput
+                    style={dynamicStyles.profileInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry
+                    autoComplete="new-password"
+                    placeholder="At least 8 characters"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+                <View style={dynamicStyles.profileFieldHalf}>
+                  <Text style={dynamicStyles.profileFieldLabel}>Confirm</Text>
+                  <TextInput
+                    style={dynamicStyles.profileInput}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
+                    autoComplete="new-password"
+                    placeholder="Confirm new password"
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                </View>
+              </View>
               <TouchableOpacity
                 style={[
                   dynamicStyles.profilePrimaryButton,

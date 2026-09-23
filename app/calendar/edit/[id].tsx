@@ -57,6 +57,8 @@ type Participant = { email: string; name: string; type: string };
 
 /** Matches `app/calendar/create.tsx` and Reach meeting name limits. */
 const MAX_EVENT_TITLE_LENGTH = 50;
+/** `CalendarEvent.title` is String(255). Used for imported / already-long titles. */
+const MAX_STORED_TITLE_LENGTH = 255;
 
 /** Same presets as `app/calendar/create.tsx` */
 const DURATION_PRESETS: { minutes: number; label: string }[] = [
@@ -95,6 +97,8 @@ export default function CalendarEditScreen() {
 
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
+  const [loadedTitleLen, setLoadedTitleLen] = useState(0);
+  const [isExternallySourced, setIsExternallySourced] = useState(false);
   const [description, setDescription] = useState('');
   const [notesField, setNotesField] = useState('');
   const [location, setLocation] = useState('');
@@ -203,7 +207,16 @@ export default function CalendarEditScreen() {
       }
     }
 
-    setTitle(event.title || '');
+    const loadedTitle = event.title || '';
+    setTitle(loadedTitle);
+    setLoadedTitleLen(loadedTitle.trim().length);
+    const origin = String(event.event_origin || 'created');
+    setIsExternallySourced(
+      origin === 'external_sync' ||
+        origin === 'participant_copy' ||
+        Boolean(event.external_event_id) ||
+        Boolean(event.external_provider)
+    );
     setDescription(htmlToPlainText(event.description || ''));
     setNotesField(
       htmlToPlainText(
@@ -334,9 +347,18 @@ export default function CalendarEditScreen() {
         },
         btn: { backgroundColor: '#007AFF', padding: 14, borderRadius: 10, marginTop: 20, alignItems: 'center' },
         btnText: { color: '#fff', fontWeight: '600' },
+        titleCount: { fontSize: 12, marginTop: 4, color: colors.textSecondary },
+        titleCountOver: { color: '#FF3B30' },
       }),
     [colors]
   );
+
+  const titleMax = useMemo(() => {
+    if (isExternallySourced || loadedTitleLen > MAX_EVENT_TITLE_LENGTH) {
+      return MAX_STORED_TITLE_LENGTH;
+    }
+    return MAX_EVENT_TITLE_LENGTH;
+  }, [isExternallySourced, loadedTitleLen]);
 
   const iosPickerTheme = colors.isDark ? 'dark' : 'light';
 
@@ -362,8 +384,8 @@ export default function CalendarEditScreen() {
       Alert.alert('Title', 'Required');
       return;
     }
-    if (title.trim().length > MAX_EVENT_TITLE_LENGTH) {
-      Alert.alert('Title', `Max ${MAX_EVENT_TITLE_LENGTH} characters`);
+    if (title.trim().length > titleMax) {
+      Alert.alert('Title', `Max ${titleMax} characters`);
       return;
     }
     if (newEmail.trim().length > 0) {
@@ -417,6 +439,7 @@ export default function CalendarEditScreen() {
           const durationMinutes = Math.max(1, durationMin);
           const videoMeetingData = {
             room_name: title.trim(),
+            meeting_subject: title.trim(),
             description: description.trim() || 'Reach Video Meeting',
             scheduled_time: startDt.toISOString(),
             duration_minutes: durationMinutes,
@@ -526,8 +549,15 @@ export default function CalendarEditScreen() {
           value={title}
           onChangeText={setTitle}
           placeholderTextColor={colors.textSecondary}
-          maxLength={MAX_EVENT_TITLE_LENGTH}
         />
+        <Text
+          style={[
+            styles.titleCount,
+            title.trim().length > titleMax && styles.titleCountOver,
+          ]}
+        >
+          {title.trim().length}/{titleMax} characters
+        </Text>
 
         {isAdmin && eventType === 'company' ? (
           <>

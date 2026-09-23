@@ -44,6 +44,7 @@ import { refreshDefaultHomePathFromWebUser } from '../utils/defaultHomePath';
 import { runSignatureGCOnLaunch } from '../services/signatureFileGC';
 import { evictStaleSessions } from '../services/signatureSessionCache';
 import AppLockScreen from './components/AppLockScreen';
+import DataRightsConsentScreen from './components/DataRightsConsentScreen';
 import OtaUpdateBanner from './components/OtaUpdateBanner';
 import SoftStoreUpdateBanner from './components/SoftStoreUpdateBanner';
 import PersistentBottomNavigation from './components/PersistentBottomNavigation';
@@ -75,6 +76,7 @@ function RootLayoutNav() {
   // start with an existing session, never right after sign-in/sign-up in the same app session.
   const coldStartAuthenticatedUserIdRef = useRef<string | null | undefined>(undefined);
   const [appLockReminderVisible, setAppLockReminderVisible] = useState(false);
+  const [needsDataRightsConsent, setNeedsDataRightsConsent] = useState(false);
   const [meetingStartedBanner, setMeetingStartedBanner] = useState<{
     meetingId: string;
     message: string;
@@ -477,6 +479,30 @@ function RootLayoutNav() {
     };
   }, [handleNotificationResponse]);
 
+  useEffect(() => {
+    if (!user) {
+      setNeedsDataRightsConsent(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiClient.getUserProfile();
+        const data = (res as any)?.data ?? res;
+        if (!cancelled) {
+          setNeedsDataRightsConsent(!!data?.needsDataRightsConsent);
+        }
+      } catch {
+        if (!cancelled) {
+          setNeedsDataRightsConsent(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   const showLock = !!user && appLockEnabled && isLocked;
   const mainContentRef = useRef<any>(null);
 
@@ -515,6 +541,9 @@ function RootLayoutNav() {
   return (
     <>
       {showLock && <AppLockScreen />}
+      {!showLock && needsDataRightsConsent && (
+        <DataRightsConsentScreen onAccepted={() => setNeedsDataRightsConsent(false)} />
+      )}
       <StatusBar style={isMeetingScreen ? "light" : isDark ? "light" : "dark"} />
       {meetingStartedBanner && !isMeetingScreen && !isJoinMeetingScreen && (
         <ReachMeetingStartedBanner

@@ -114,6 +114,7 @@ const MOBILE_ENDPOINTS = {
   
   // User
   USER: '/api/v1/mobile/user',
+  USER_DATA_RIGHTS_CONSENT: '/api/v1/mobile/user/data-rights-consent',
   USER_REQUEST_EMAIL_CHANGE: '/api/v1/mobile/user/request-email-change',
   USER_CANCEL_EMAIL_CHANGE: '/api/v1/mobile/user/cancel-email-change',
   USER_VERIFY_EMAIL_CHANGE: '/api/v1/mobile/user/verify-email-change',
@@ -1068,6 +1069,17 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to fetch user profile');
+    }
+  }
+
+  async acceptDataRightsConsent(): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_DATA_RIGHTS_CONSENT, {
+        dataRightsConsent: true,
+      });
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to save confirmation');
     }
   }
 
