@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import PhoneNumberInput from '../PhoneNumberInput';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import type { RecipientInput } from '../../types/signature';
 
@@ -80,15 +81,13 @@ export default function RecipientEditor({ recipients, onChange }: Props) {
                 />
               </View>
               {r.phone_verification_required ? (
-                <TextInput
-                  style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-                  placeholder="Phone (E.164, e.g. +12405551234)"
-                  placeholderTextColor={colors.textSecondary}
-                  value={r.phone_number ?? ''}
-                  onChangeText={(phone_number) => update(i, { phone_number })}
-                  keyboardType="phone-pad"
-                  autoCapitalize="none"
-                />
+                <View style={styles.phoneInputWrap}>
+                  <PhoneNumberInput
+                    value={r.phone_number ?? ''}
+                    onChange={(phone_number) => update(i, { phone_number })}
+                    placeholder="Phone number"
+                  />
+                </View>
               ) : null}
             </>
           ) : null}
@@ -119,6 +118,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 8,
     fontSize: 16,
+  },
+  phoneInputWrap: {
+    marginBottom: 8,
   },
   switchRow: {
     flexDirection: 'row',

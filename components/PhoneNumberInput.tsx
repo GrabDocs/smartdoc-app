@@ -30,9 +30,14 @@ export default function PhoneNumberInput({
   const [showCountryPicker, setShowCountryPicker] = useState(false);
 
   useEffect(() => {
+    // Keep the selected country when the field is still empty (user picks +44 first).
+    if (!(value || '').trim()) {
+      setNationalDigits('');
+      return;
+    }
     setCountryCode(parsed.countryCode);
     setNationalDigits(parsed.nationalDigits);
-  }, [parsed.countryCode, parsed.nationalDigits]);
+  }, [value, parsed.countryCode, parsed.nationalDigits]);
 
   const displayNational = formatNationalDisplay(countryCode, nationalDigits);
   const selectedCountry =

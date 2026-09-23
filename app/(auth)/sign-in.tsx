@@ -7,6 +7,7 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
+    Pressable,
     StyleSheet,
     Switch,
     Text,
@@ -17,6 +18,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { GoogleLogo } from '../../components/GoogleLogo';
+import { Colors } from '../../constants/Colors';
 import { API_BASE_URL } from '../../constants/Config';
 import { useEnhanced2FAAuth } from '../../contexts/Enhanced2FAAuthContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -44,6 +46,7 @@ export default function SignInScreen() {
   const [appleSignInAvailable, setAppleSignInAvailable] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [dataRightsConsent, setDataRightsConsent] = useState(false);
   const insets = useSafeAreaInsets();
 
   // Use regular auth for normal login, Enhanced2FA only for biometric
@@ -365,6 +368,10 @@ export default function SignInScreen() {
     let deepLinkHandled = false;
     try {
       setError('');
+      if (!dataRightsConsent) {
+        setError('Please confirm you have the necessary rights and permissions to upload others\' information');
+        return;
+      }
       setGoogleLoading(true);
 
       const googleResult = await googleAuthService.signInWithGoogle();
@@ -498,6 +505,10 @@ export default function SignInScreen() {
   const handleAppleSignIn = async () => {
     try {
       setError('');
+      if (!dataRightsConsent) {
+        setError('Please confirm you have the necessary rights and permissions to upload others\' information');
+        return;
+      }
       
       // Use enhanced Apple Sign In with backend integration
       const result = await appleAuthService.signInWithAppleEnhanced();
@@ -684,6 +695,18 @@ export default function SignInScreen() {
             <View style={styles.dividerLine} />
           </View>
 
+          <Pressable
+            style={styles.consentRow}
+            onPress={() => setDataRightsConsent((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: dataRightsConsent }}
+          >
+            <View style={[styles.consentBox, dataRightsConsent && styles.consentBoxChecked]} />
+            <Text style={styles.consentText}>
+              I confirm I have the necessary rights and permissions to upload others' information to GrabDocs.
+            </Text>
+          </Pressable>
+
           {/* Social sign-in: regular full-width buttons with "Sign in with Google" / "Sign in with Apple" */}
           <View style={styles.socialContainer}>
             <FeedbackTouchable
@@ -754,7 +777,7 @@ const styles = StyleSheet.create({
   welcomeText: {
     fontSize: isAndroid ? 26 : 32,
     fontWeight: '700',
-    color: '#333',
+    color: Colors.primary,
   },
   form: {
     flex: 1,
@@ -862,6 +885,30 @@ const styles = StyleSheet.create({
     marginHorizontal: isAndroid ? 8 : 10,
     color: '#666',
     fontSize: 14,
+  },
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+    paddingHorizontal: 2,
+  },
+  consentBox: {
+    width: 20,
+    height: 20,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    borderRadius: 4,
+    marginRight: 10,
+    marginTop: 2,
+  },
+  consentBoxChecked: {
+    backgroundColor: Colors.primary,
+  },
+  consentText: {
+    flex: 1,
+    fontSize: isAndroid ? 13 : 14,
+    lineHeight: isAndroid ? 18 : 20,
+    color: '#333',
   },
   socialContainer: {
     width: '100%',

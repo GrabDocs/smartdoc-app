@@ -14,8 +14,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import PhoneNumberInput from '../../components/PhoneNumberInput';
 import { apiService } from '../../services/api';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
+import { isValidPhoneNumber, parsePhoneNumber } from '../../utils/phoneUtils';
 import { useAuth } from '../context/auth';
 import {
     loadMobilePendingInviteIntent,
@@ -33,7 +35,6 @@ export default function PhoneLoginScreen() {
     const [step, setStep] = useState<PhoneLoginStep>('phone');
     const [isRegistering, setIsRegistering] = useState(params.mode === 'register');
     const [phoneNumber, setPhoneNumber] = useState('');
-    const [countryCode, setCountryCode] = useState('+1');
     const [otpCode, setOtpCode] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -90,8 +91,12 @@ export default function PhoneLoginScreen() {
     };
 
     const handlePhoneSubmit = async () => {
-        if (!phoneNumber) {
+        if (!phoneNumber || !isValidPhoneNumber(phoneNumber)) {
             setError('Please enter your phone number');
+            return;
+        }
+        if (isRegistering && !dataRightsConsent) {
+            setError('Please confirm you have the necessary rights and permissions to upload others\' information');
             return;
         }
 
@@ -99,6 +104,7 @@ export default function PhoneLoginScreen() {
             setLoading(true);
             setError('');
 
+            const countryCode = parsePhoneNumber(phoneNumber).countryCode;
             const checkResponse = await apiService.checkPhone(phoneNumber, countryCode);
             const registered = !!checkResponse.registered;
 
@@ -223,7 +229,7 @@ export default function PhoneLoginScreen() {
 
             const reg = await apiService.registerWithPhone({
                 phoneNumber,
-                countryCode,
+                countryCode: parsePhoneNumber(phoneNumber).countryCode,
                 username,
                 firstName,
                 lastName,
@@ -270,7 +276,7 @@ export default function PhoneLoginScreen() {
             const purpose = isRegistering ? 'registration' : 'login';
             const otpResponse = await apiService.requestOtp(
                 phoneNumber,
-                countryCode,
+                parsePhoneNumber(phoneNumber).countryCode,
                 purpose,
                 isRegistering,
             );
@@ -306,23 +312,24 @@ export default function PhoneLoginScreen() {
             </Text>
 
             <View style={styles.phoneContainer}>
-                <TextInput
-                    style={styles.countryInput}
-                    value={countryCode}
-                    onChangeText={setCountryCode}
-                    placeholder="+1"
-                    placeholderTextColor="#999"
-                />
-                <TextInput
-                    style={styles.phoneInput}
-                    placeholder="Phone number"
-                    placeholderTextColor="#999"
+                <PhoneNumberInput
                     value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    keyboardType="phone-pad"
-                    autoFocus
+                    onChange={setPhoneNumber}
+                    placeholder="Phone number"
                 />
             </View>
+
+            {isRegistering ? (
+                <Pressable
+                    style={styles.consentRow}
+                    onPress={() => setDataRightsConsent((v) => !v)}
+                >
+                    <Text style={styles.consentBox}>{dataRightsConsent ? '☑' : '☐'}</Text>
+                    <Text style={styles.consentText}>
+                        I confirm I have the necessary rights and permissions to upload others' information to GrabDocs.
+                    </Text>
+                </Pressable>
+            ) : null}
 
             <FeedbackTouchable
                 style={[styles.button, loading && styles.buttonDisabled]}
@@ -615,7 +622,7 @@ const styles = StyleSheet.create({
     title: {
         fontSize: 36,
         fontWeight: 'bold',
-        color: '#333',
+        color: '#2563eb',
         textAlign: 'center',
         fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
     },
