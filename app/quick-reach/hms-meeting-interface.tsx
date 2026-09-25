@@ -212,7 +212,12 @@ export default function HMSMeetingInterfaceScreen() {
   const [joinStuckExhausted, setJoinStuckExhausted] = useState(false);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const recordingPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingNotificationShownRef = useRef(false);
+  const previousRecordingStateRef = useRef<boolean | null>(null);
+  const recordingActiveRef = useRef(false);
+  const notificationShownForCurrentStartRef = useRef(false);
+  const locallyInitiatedThisStartRef = useRef(false);
+  const pendingLocalStartAtRef = useRef<number | null>(null);
+  const LOCAL_START_WINDOW_MS = 12000;
 
   const notificationDisplayedRef = useRef(false);
   const pipFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -514,49 +519,151 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, [roomId, inHmsRoom]);
 
-  // Poll recording status only after token is ready - notify when joining a meeting that is already being recorded.
-  // Defer first check so we never show the popup during GrabDocs / HMS prejoin.
+  const consumePendingLocalStart = useCallback(() => {
+    const at = pendingLocalStartAtRef.current;
+    pendingLocalStartAtRef.current = null;
+    return at != null && Date.now() - at < LOCAL_START_WINDOW_MS;
+  }, []);
+
+  const handleRecordingStarted = useCallback((opts?: { locallyInitiated?: boolean }) => {
+    if (opts?.locallyInitiated) {
+      locallyInitiatedThisStartRef.current = true;
+    }
+    recordingActiveRef.current = true;
+    if (!presenceConfirmed) {
+      return;
+    }
+    if (notificationShownForCurrentStartRef.current) {
+      return;
+    }
+    notificationShownForCurrentStartRef.current = true;
+    if (locallyInitiatedThisStartRef.current) {
+      return;
+    }
+    setBannerQueue((prev) => [
+      ...prev,
+      {
+        message: 'This meeting is being recorded',
+        subtitle: 'By staying, you consent to recording.',
+        type: 'recording',
+      },
+    ]);
+  }, [presenceConfirmed]);
+
+  const applyRecordingSample = useCallback((isRecording: boolean, opts?: { locallyInitiated?: boolean }) => {
+    if (opts?.locallyInitiated) {
+      locallyInitiatedThisStartRef.current = true;
+    }
+    recordingActiveRef.current = isRecording;
+    if (!presenceConfirmed) {
+      return;
+    }
+    if (previousRecordingStateRef.current === null) {
+      previousRecordingStateRef.current = isRecording;
+      if (isRecording) {
+        if (consumePendingLocalStart()) {
+          locallyInitiatedThisStartRef.current = true;
+        }
+        handleRecordingStarted();
+      }
+      return;
+    }
+    const prev = previousRecordingStateRef.current;
+    if (!prev && isRecording) {
+      previousRecordingStateRef.current = true;
+      if (consumePendingLocalStart()) {
+        locallyInitiatedThisStartRef.current = true;
+      }
+      handleRecordingStarted();
+      return;
+    }
+    if (prev && !isRecording) {
+      previousRecordingStateRef.current = false;
+      notificationShownForCurrentStartRef.current = false;
+      locallyInitiatedThisStartRef.current = false;
+      pendingLocalStartAtRef.current = null;
+    }
+  }, [presenceConfirmed, handleRecordingStarted, consumePendingLocalStart]);
+
+  useEffect(() => {
+    if (!presenceConfirmed) {
+      previousRecordingStateRef.current = null;
+      recordingActiveRef.current = false;
+      notificationShownForCurrentStartRef.current = false;
+      locallyInitiatedThisStartRef.current = false;
+      pendingLocalStartAtRef.current = null;
+    } else if (recordingActiveRef.current && previousRecordingStateRef.current === null) {
+      applyRecordingSample(true);
+    }
+  }, [presenceConfirmed, applyRecordingSample]);
+
+  // Room Kit starts recording through HMSManager (Record → startRTMPOrRecording,
+  // HLS+record → startHLSStreaming). Wrap those calls, not room-update listeners.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const mgr = NativeModules.HMSManager as
+      | Record<string, ((...args: any[]) => Promise<any>) | undefined>
+      | undefined;
+    if (!mgr) return;
+    const originals: Array<[string, (...args: any[]) => Promise<any>]> = [];
+    const wrap = (method: string, isLocalStart: (config: any) => boolean) => {
+      const current = mgr[method];
+      if (typeof current !== 'function') return;
+      const original = current.bind(mgr);
+      originals.push([method, original]);
+      mgr[method] = (...args: any[]) => {
+        if (isLocalStart(args[0])) {
+          pendingLocalStartAtRef.current = Date.now();
+        }
+        return original(...args);
+      };
+    };
+    wrap('startRTMPOrRecording', (config) => !config || config.record !== false);
+    wrap('startHLSStreaming', (config) => {
+      const rec = config?.hlsRecordingConfig ?? config?.recording;
+      return rec === true || rec?.singleFilePerLayer === true || rec?.videoOnDemand === true;
+    });
+    return () => {
+      for (const [method, original] of originals) {
+        mgr[method] = original;
+      }
+    };
+  }, []);
+
+  // Poll recording status after GrabDocs presence is confirmed (late join + mid-call start).
   useEffect(() => {
     if (!roomId || Platform.OS === 'web' || !joinConfig || !presenceConfirmed) return;
 
-    const RECORDING_POLL_INTERVAL = 6000; // 6 seconds
-    const FIRST_CHECK_DELAY_MS = 5000;   // Only check after user has been in the call for 5s (avoids showing when clicking "Start meeting")
+    const RECORDING_POLL_INTERVAL = 2000;
 
     const checkRecording = async () => {
       try {
+        const guestId = guestIdRef.current;
         const response = await apiClient.client.get(
           `/api/v1/video/room/${roomId}/recording-status`,
-          { withCredentials: true }
+          {
+            withCredentials: true,
+            params: guestId ? { guest_id: guestId } : undefined,
+          }
         );
-        if (response.data?.is_recording && !recordingNotificationShownRef.current) {
-          recordingNotificationShownRef.current = true;
-          setBannerQueue((prev) => [
-            ...prev,
-            {
-              message: 'This meeting is being recorded',
-              subtitle: 'By staying, you consent to recording.',
-              type: 'recording',
-            },
-          ]);
+        if (typeof response.data?.is_recording === 'boolean') {
+          applyRecordingSample(!!response.data.is_recording);
         }
       } catch {
-        // Silently fail - recording status is non-critical
+        // Status is non-critical
       }
     };
 
-    const timeoutId = setTimeout(() => {
-      checkRecording();
-      recordingPollIntervalRef.current = setInterval(checkRecording, RECORDING_POLL_INTERVAL);
-    }, FIRST_CHECK_DELAY_MS);
+    checkRecording();
+    recordingPollIntervalRef.current = setInterval(checkRecording, RECORDING_POLL_INTERVAL);
 
     return () => {
-      clearTimeout(timeoutId);
       if (recordingPollIntervalRef.current) {
         clearInterval(recordingPollIntervalRef.current);
         recordingPollIntervalRef.current = null;
       }
     };
-  }, [roomId, joinConfig, presenceConfirmed]);
+  }, [roomId, joinConfig, presenceConfirmed, applyRecordingSample]);
 
   // Cleanup on unmount (e.g., user swipes back). Do NOT call leave endpoint here.
   // Meeting must stay connected so user can return via active meeting card. Leave is only
@@ -945,14 +1052,19 @@ export default function HMSMeetingInterfaceScreen() {
       });
 
     try {
+      let confirmRes;
       try {
-        await doConfirm(ctx.startedWithForceJoin);
+        confirmRes = await doConfirm(ctx.startedWithForceJoin);
       } catch (firstErr: unknown) {
         if (!ctx.startedWithForceJoin && isActiveMeetingConflict(firstErr)) {
-          await doConfirm(true);
+          confirmRes = await doConfirm(true);
         } else {
           throw firstErr;
         }
+      }
+      const confirmedGuestId = parseJoinByIdResponse(confirmRes?.data).guestId;
+      if (confirmedGuestId) {
+        guestIdRef.current = confirmedGuestId;
       }
       setPresenceConfirmed(true);
     } catch (e) {
