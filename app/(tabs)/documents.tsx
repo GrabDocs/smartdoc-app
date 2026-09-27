@@ -27,6 +27,8 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import DeletedFolderGroups from '../../components/documents/DeletedFolderGroups';
 import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
+import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
+import { parseNumericId } from '../../components/meeting/meetingRecapTypes';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
@@ -303,6 +305,23 @@ export default function QuickFilesScreen() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showExternalFilePicker, setShowExternalFilePicker] = useState(false);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
+  const [showMeetingRecap, setShowMeetingRecap] = useState(false);
+  const [recapSummary, setRecapSummary] = useState('');
+  const [recapTranscript, setRecapTranscript] = useState('');
+  const [recapLoading, setRecapLoading] = useState(false);
+  const [recapInitialTab, setRecapInitialTab] = useState<'recap' | 'transcript'>('recap');
+  const [recapShareFiles, setRecapShareFiles] = useState<{
+    summaryFileId?: number | null;
+    transcriptFileId?: number | null;
+  } | null>(null);
+  const [recapAskContext, setRecapAskContext] = useState<{
+    fileIds?: number[];
+    transcriptIds?: number[];
+  } | null>(null);
+  const [recapClientLink, setRecapClientLink] = useState<{
+    itemType: 'video_call' | 'calendar_event';
+    itemId: number;
+  } | null>(null);
   const [showQuickFormViewer, setShowQuickFormViewer] = useState(false);
   const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
   
@@ -1730,6 +1749,96 @@ export default function QuickFilesScreen() {
     };
   }, [hasPendingFiles, loadDocuments, docNeedsClassificationPoll]);
 
+  const isMeetingRecapKind = (doc: Document) => {
+    const kind = (doc.file_kind || doc.category || '').toString().toLowerCase();
+    return (
+      kind === 'transcript' ||
+      kind === 'transcripts' ||
+      kind === 'meeting_summary' ||
+      kind === 'summary'
+    );
+  };
+
+  const openMeetingRecap = async (document: Document) => {
+    const kind = (document.file_kind || document.category || '').toString().toLowerCase();
+    const isTranscript = kind === 'transcript' || kind === 'transcripts';
+    const fileId = parseNumericId(document.id);
+    setSelectedDocument(document);
+    setShowMeetingRecap(true);
+    setRecapLoading(true);
+    setRecapSummary('');
+    setRecapTranscript('');
+    setRecapInitialTab(isTranscript ? 'transcript' : 'recap');
+    setRecapShareFiles(fileId != null ? { [isTranscript ? 'transcriptFileId' : 'summaryFileId']: fileId } : null);
+    setRecapAskContext(fileId != null ? { fileIds: [fileId] } : null);
+    setRecapClientLink(null);
+    try {
+      const text = fileId != null ? await apiClient.getWebFileContent(fileId) : '';
+      if (isTranscript) setRecapTranscript(text);
+      else setRecapSummary(text);
+
+      let videoCallId: number | null = parseNumericId((document as any).video_call_id);
+      if (fileId != null) {
+        try {
+          const meta: any = await apiClient.getFileById(fileId);
+          const file = meta?.file || meta?.data || meta;
+          videoCallId = parseNumericId(file?.video_call_id || file?.meeting_id) ?? videoCallId;
+        } catch {
+          /* optional */
+        }
+      }
+      if (videoCallId != null) {
+        setRecapClientLink({ itemType: 'video_call', itemId: videoCallId });
+        try {
+          const meetings = await apiClient.getMeetingAssets();
+          const list = (meetings as any)?.data?.meetings || (meetings as any)?.meetings || [];
+          const siblingType = isTranscript ? 'meeting_summary' : 'transcript';
+          for (const meeting of list) {
+            const assets = meeting.assets || [];
+            const sameMeeting =
+              parseNumericId(meeting.id) === videoCallId ||
+              parseNumericId(meeting.video_call_id) === videoCallId ||
+              String(meeting.meeting_id || '') === String(videoCallId);
+            if (!sameMeeting) continue;
+            const sibling = assets.find(
+              (a: any) =>
+                a.type === siblingType ||
+                (siblingType === 'meeting_summary' && a.type === 'summary') ||
+                (siblingType === 'transcript' && a.type === 'call_transcript')
+            );
+            if (!sibling) continue;
+            const siblingFileId = parseNumericId(sibling.file_id || sibling.db_id);
+            let siblingText = '';
+            if (siblingFileId != null) siblingText = await apiClient.getWebFileContent(siblingFileId);
+            else if (sibling.url) {
+              siblingText = await apiClient.getVideoAssetContent(
+                siblingType === 'meeting_summary' ? 'meeting_summary' : 'transcript',
+                sibling.url
+              );
+            }
+            if (isTranscript) setRecapSummary(siblingText);
+            else setRecapTranscript(siblingText);
+            setRecapShareFiles({
+              summaryFileId: isTranscript ? siblingFileId : fileId,
+              transcriptFileId: isTranscript ? fileId : siblingFileId,
+            });
+            setRecapAskContext({
+              fileIds: [fileId, siblingFileId].filter((n): n is number => n != null),
+            });
+            break;
+          }
+        } catch {
+          /* sibling optional */
+        }
+      }
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to load meeting recap');
+      setShowMeetingRecap(false);
+    } finally {
+      setRecapLoading(false);
+    }
+  };
+
   const handleDocumentPress = async (document: Document) => {
     if (document.listKind === 'bookmark' && document.bookmarkId != null) {
       router.push({
@@ -1771,14 +1880,8 @@ export default function QuickFilesScreen() {
       return;
     }
 
-    // If the document is a transcript, show transcript viewer
-    if (
-      document.category?.toLowerCase() === 'transcript' ||
-      document.category?.toLowerCase() === 'transcripts'
-    ) {
-      // For now, open in document viewer - can be enhanced later with transcript-specific viewer
-      setSelectedDocument(document);
-      setShowDocumentViewer(true);
+    if (isMeetingRecapKind(document)) {
+      await openMeetingRecap(document);
       return;
     }
 
@@ -1802,11 +1905,16 @@ export default function QuickFilesScreen() {
     prefetchShareDocumentFile(document.id, document.name);
   };
 
-  const handleViewDocument = () => {
+  const handleViewDocument = async () => {
     if (selectedDocumentForMenu) {
       if ((selectedDocumentForMenu.file_kind || '').toString().toLowerCase() === 'draft') {
         setShowKebabMenu(false);
         (router.push as (path: string) => void)(`/drafts/edit/${selectedDocumentForMenu.id}`);
+        return;
+      }
+      if (isMeetingRecapKind(selectedDocumentForMenu)) {
+        setShowKebabMenu(false);
+        await openMeetingRecap(selectedDocumentForMenu);
         return;
       }
       setSelectedDocument(selectedDocumentForMenu);
@@ -3548,6 +3656,36 @@ export default function QuickFilesScreen() {
           )
         }
       />
+
+      <Modal
+        visible={showMeetingRecap}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowMeetingRecap(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.headerBackground }}>
+            <TouchableOpacity onPress={() => setShowMeetingRecap(false)}>
+              <Text style={{ fontSize: 16, color: colors.tint || '#007AFF' }}>Close</Text>
+            </TouchableOpacity>
+            <Text style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600', color: colors.text }}>Meeting recap</Text>
+            <View style={{ width: 48 }} />
+          </View>
+          <View style={{ flex: 1, paddingHorizontal: 16 }}>
+            <MeetingAssetTabs
+              initialTab={recapInitialTab}
+              summaryContent={recapSummary}
+              transcriptContent={recapTranscript}
+              loadingSummary={recapLoading}
+              loadingTranscript={recapLoading}
+              hero={{ title: selectedDocument?.name || 'Meeting recap' }}
+              clientLink={recapClientLink}
+              shareFiles={recapShareFiles}
+              askContext={recapAskContext}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
 
       {/* Document Viewer */}
       {showDocumentViewer && selectedDocument && (

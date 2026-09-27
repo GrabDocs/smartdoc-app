@@ -489,15 +489,27 @@ export default function WorkspacesScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle pointerEvents="none">Workspaces</AppHeaderTitle>
-          <TouchableOpacity
-            style={dynamicStyles.headerIconButton}
-            onPress={() => router.push('/workspaces/create')}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            accessibilityRole="button"
-            accessibilityLabel="Create workspace"
-          >
-            <Ionicons name="add" size={28} color="#007AFF" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity
+              style={dynamicStyles.headerIconButton}
+              onPress={handleRefresh}
+              disabled={refreshing}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh"
+            >
+              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.headerIconButton}
+              onPress={() => router.push('/workspaces/create')}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityRole="button"
+              accessibilityLabel="Create workspace"
+            >
+              <Ionicons name="add" size={28} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={dynamicStyles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -512,15 +524,27 @@ export default function WorkspacesScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={handleBack} />
         <AppHeaderTitle pointerEvents="none">Workspaces</AppHeaderTitle>
-        <TouchableOpacity
-          style={dynamicStyles.headerIconButton}
-          onPress={() => router.push('/workspaces/create')}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          accessibilityRole="button"
-          accessibilityLabel="Create workspace"
-        >
-          <Ionicons name="add" size={28} color="#007AFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity
+            style={dynamicStyles.headerIconButton}
+            onPress={handleRefresh}
+            disabled={refreshing}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh"
+          >
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={dynamicStyles.headerIconButton}
+            onPress={() => router.push('/workspaces/create')}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityRole="button"
+            accessibilityLabel="Create workspace"
+          >
+            <Ionicons name="add" size={28} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList

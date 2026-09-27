@@ -198,6 +198,15 @@ export default function FillDocumentPickScreen() {
       <View style={styles.header}>
         <AppBackButton onPress={() => { if (openingId == null) router.back(); }} />
         <AppHeaderTitle>Choose document</AppHeaderTitle>
+        <TouchableOpacity
+          onPress={() => void refresh()}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={24} color={refreshing ? '#999' : colors.primary || '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.searchWrap}>

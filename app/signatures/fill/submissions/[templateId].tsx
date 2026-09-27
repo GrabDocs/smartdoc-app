@@ -100,6 +100,18 @@ export default function TemplateSubmissionsScreen() {
         <AppHeaderTitle shrink={false}>
           {truncateAppHeaderTitle(templateTitle || 'Submissions')}
         </AppHeaderTitle>
+        <TouchableOpacity
+          onPress={() => {
+            setRefreshing(true);
+            void load({ background: true });
+          }}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={24} color={refreshing ? '#999' : colors.primary || '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
       {loading && submissions.length === 0 ? (

@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -138,6 +139,7 @@ export default function CalendarEventDetailScreen() {
   );
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [event, setEvent] = useState<CalendarEvent | null>(null);
   const [identityEmails, setIdentityEmails] = useState<string[]>([]);
   const [meetingInfo, setMeetingInfo] = useState<any | null>(null);
@@ -190,6 +192,15 @@ export default function CalendarEventDetailScreen() {
       }
     }
   }, [eventId, deviceOffline]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadEvent();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadEvent]);
 
   /** First paint for this event id shows spinner; later focuses (e.g. back from Edit) refresh silently. */
   const initialDetailLoadRef = useRef(false);
@@ -546,9 +557,21 @@ export default function CalendarEventDetailScreen() {
         <AppHeaderTitle shrink={false}>
           {truncateAppHeaderTitle(event.title || 'Event')}
         </AppHeaderTitle>
+        <TouchableOpacity
+          onPress={() => void onRefresh()}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={24} color={refreshing ? '#999' : colors.tint ?? '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
+      >
         {deviceOffline ? (
           <Text style={[styles.meta, { marginBottom: 12, color: colors.text }]}>
             Offline — showing saved copy. Connect for live updates, notes, and RSVP.

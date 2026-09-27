@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
 import { Redirect, useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -38,8 +38,10 @@ import {
   type ConnectionRules,
   type EmailInboxAlias,
   type InboxConnection,
+  type MailboxSettings,
   type NeedsReplySensitivity,
 } from '../../services/emailSyncApi';
+import { parseAsUTC } from '../../utils/timeFormatting';
 import { CollapsibleChipList } from './_components/CollapsibleChipList';
 import { openEmailInboxOAuth } from './_components/emailOAuth';
 import {
@@ -48,7 +50,6 @@ import {
   emailSyncCacheSetup,
   emailSyncPeekOAuthRefresh,
 } from './_components/emailSyncCache';
-import { parseAsUTC } from '../../utils/timeFormatting';
 
 const FILE_TYPES = ['pdf', 'png', 'jpg', 'jpeg', 'docx', 'xlsx', 'csv'];
 
@@ -84,12 +85,18 @@ function connectionSendOn(c: InboxConnection): boolean {
   return !!c.send_enabled && !c.needs_reconnect_for_send;
 }
 
+export type EmailPaneRefreshHandle = {
+  refresh: () => Promise<void>;
+};
+
 export function EmailSetupPane({
   workspaceId,
   onPending,
+  refreshRef,
 }: {
   workspaceId: number;
   onPending: (n: number) => void;
+  refreshRef?: React.Ref<EmailPaneRefreshHandle | null>;
 }) {
   const router = useRouter();
   const colors = useThemeColors();
@@ -128,7 +135,7 @@ export function EmailSetupPane({
     const [c, a, s, count] = await Promise.all([
       listInboxConnections(),
       listInboxAliases(ws),
-      getMailboxSettings(ws).catch(() => ({})),
+      getMailboxSettings(ws).catch((): MailboxSettings => ({})),
       mailboxPendingCount(ws).catch(() => 0),
     ]);
     const next = {
@@ -152,6 +159,16 @@ export function EmailSetupPane({
     emailSyncCacheSetPending(n);
     onPending(n);
   }, [onPending]);
+
+  useImperativeHandle(
+    refreshRef,
+    () => ({
+      refresh: async () => {
+        await load(workspaceId);
+      },
+    }),
+    [load, workspaceId],
+  );
 
   useEffect(() => {
     const hit = emailSyncCacheSetup();
@@ -212,7 +229,7 @@ export function EmailSetupPane({
       if (r.result === 'success') await reloadAfterOAuth();
       else await load(workspaceId);
       if (r.result === 'success') {
-        const settings = await getMailboxSettings(workspaceId).catch(() => ({}));
+        const settings = await getMailboxSettings(workspaceId).catch((): MailboxSettings => ({}));
         if (settings.grabdocs_research_enabled == null) {
           Alert.alert(
             'GrabDocs research',

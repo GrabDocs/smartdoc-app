@@ -604,6 +604,9 @@ export default function ChatsScreen() {
   const [askClient, setAskClient] = useState<{ id: number; name: string } | null>(null);
   const askClientRef = useRef<{ id: number; name: string } | null>(null);
   askClientRef.current = askClient;
+  const [askMeeting, setAskMeeting] = useState<{ fileIds: number[]; transcriptIds: number[] } | null>(null);
+  const askMeetingRef = useRef<{ fileIds: number[]; transcriptIds: number[] } | null>(null);
+  askMeetingRef.current = askMeeting;
   const [askSuggestionChips, setAskSuggestionChips] = useState<string[]>(DEFAULT_ASK_CHIPS);
   /** Latest user ask text while client-scoped — used to drop duplicate suggestion chips. */
   const lastAskUserMessageRef = useRef<string | null>(null);
@@ -1081,6 +1084,19 @@ export default function ChatsScreen() {
       linkedAskChatRef.current = null;
     }
 
+    const parseIdList = (raw: unknown): number[] => {
+      const parts = Array.isArray(raw) ? raw : raw != null ? String(raw).split(',') : [];
+      return parts
+        .flatMap((p) => String(p).split(','))
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => Number.isFinite(n));
+    };
+    const meetingFileIds = parseIdList(params.fileIds ?? params.fileId);
+    const meetingTranscriptIds = parseIdList(params.transcriptIds);
+    if (meetingFileIds.length || meetingTranscriptIds.length) {
+      setAskMeeting({ fileIds: meetingFileIds, transcriptIds: meetingTranscriptIds });
+    }
+
     const v = params.openStartNew;
     const openStartNew =
       v === '1' ||
@@ -1094,7 +1110,7 @@ export default function ChatsScreen() {
     loadMessages(-1, true);
     // Do not call router.setParams here — useLayoutEffect runs before the root navigator is ready
     // after auth transitions; deferred clear in useEffect below.
-  }, [params.openStartNew, params.chatSource, params.chatPlaceholder, params.inputPlaceholder, params.client_id, params.client_name]);
+  }, [params.openStartNew, params.chatSource, params.chatPlaceholder, params.inputPlaceholder, params.client_id, params.client_name, params.fileIds, params.fileId, params.transcriptIds]);
 
   // Clear openStartNew (and related) query params after mount — safe for Expo Router; avoids "navigate before Root Layout" crash.
   useEffect(() => {
@@ -5526,6 +5542,25 @@ export default function ChatsScreen() {
           streamFilters.client_id = scopedClient.id;
         }
 
+        const meetingAsk = askMeetingRef.current;
+        if (meetingAsk && (meetingAsk.fileIds.length || meetingAsk.transcriptIds.length)) {
+          const files = Array.from(
+            new Set([
+              ...(Array.isArray(streamFilters.context_file_ids) ? streamFilters.context_file_ids.map(Number) : []),
+              ...meetingAsk.fileIds,
+            ].filter((n) => Number.isFinite(n)))
+          );
+          if (files.length) {
+            streamFilters.context_file_ids = files;
+            streamFilters.selected_files = files;
+            streamFilters.document_ids = files;
+          }
+          if (meetingAsk.transcriptIds.length) {
+            streamFilters.context_transcript_ids = meetingAsk.transcriptIds;
+            streamFilters.selected_transcripts = meetingAsk.transcriptIds;
+          }
+        }
+
         // FINAL FALLBACK: Ensure bookmark ID is sent when chat is bookmark_focused (backend reads context_bookmark_ids only)
         if (!streamFilters.context_bookmark_ids?.length && selectedChat?.bookmark_context?.id != null) {
           const bid = Number(selectedChat.bookmark_context.id);
@@ -9726,7 +9761,7 @@ export default function ChatsScreen() {
 
   // If fileId param is present, show chat messages view immediately (will be set by useEffect).
   // openStartNew: show composer chrome immediately — avoids flashing the ChatGD history list before useLayoutEffect selects the assistant.
-  const hasFileIdParam = !!params.fileId;
+  const hasFileIdParam = !!params.fileId || !!params.fileIds;
   const openStartRaw = params.openStartNew;
   const hasOpenStartNewParam =
     openStartRaw === '1' ||

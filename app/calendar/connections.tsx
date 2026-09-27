@@ -24,7 +24,7 @@ import { CalendarOAuthWebView } from './_components/CalendarOAuthWebView';
 import { ConnectCalendarModal } from './_components/ConnectCalendarModal';
 import { ConnectionChips } from './_components/ConnectionChips';
 
-import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
+import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 export default function CalendarConnectionsScreen() {
@@ -117,7 +117,15 @@ export default function CalendarConnectionsScreen() {
       <View style={styles.header}>
         <AppBackButton />
         <AppHeaderTitle>Calendar connections</AppHeaderTitle>
-        <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+        <TouchableOpacity
+          onPress={() => void load()}
+          disabled={loading}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={24} color={loading ? '#999' : colors.tint ?? '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
       {list.length === 0 || canConnectMore ? (

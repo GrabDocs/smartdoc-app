@@ -1040,6 +1040,15 @@ export default function BookmarkDetailScreen() {
             {truncateAppHeaderTitle(bookmark.name || 'Bookmark')}
           </AppHeaderTitle>
           <View style={dynamicStyles.headerActions}>
+            <TouchableOpacity
+              onPress={onRefresh}
+              disabled={refreshing}
+              style={dynamicStyles.headerIconButton}
+              accessibilityLabel="Refresh"
+              accessibilityRole="button"
+            >
+              <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            </TouchableOpacity>
             <FeedbackTouchable
               onPress={handleToggleLock}
               style={dynamicStyles.headerIconButton}

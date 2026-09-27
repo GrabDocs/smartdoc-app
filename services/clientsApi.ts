@@ -777,6 +777,10 @@ export function itemHref(
       return `/user-chat?chat_id=${itemId}` as Href;
     case 'form':
       return '/forms' as Href;
+    case 'video_call':
+      return `/quick-reach/meeting-details?roomId=${itemId}&meetingId=${itemId}&open_recap=1&initialTab=recap` as Href;
+    case 'calendar_event':
+      return `/calendar/${itemId}?open_recap=1` as Href;
     default:
       return null;
   }

@@ -1192,7 +1192,15 @@ export default function IntakeDetailScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton />
           <AppHeaderTitle>Intake</AppHeaderTitle>
-          <View style={dynamicStyles.placeholder} />
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -1222,18 +1230,27 @@ export default function IntakeDetailScreen() {
         <AppHeaderTitle shrink={false} style={{ marginRight: 8 }}>
           {truncateAppHeaderTitle(intake.title || 'Intake')}
         </AppHeaderTitle>
-        {intake.status !== 'archived' ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <TouchableOpacity
-            onPress={openEdit}
-            disabled={busy}
-            accessibilityLabel="Edit"
-            style={{ flexShrink: 0 }}
+            onPress={handleRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Text style={[dynamicStyles.linkText, busy && { opacity: 0.5 }]}>Edit</Text>
+            <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
-        ) : (
-          <View style={dynamicStyles.placeholder} />
-        )}
+          {intake.status !== 'archived' ? (
+            <TouchableOpacity
+              onPress={openEdit}
+              disabled={busy}
+              accessibilityLabel="Edit"
+              style={{ flexShrink: 0 }}
+            >
+              <Text style={[dynamicStyles.linkText, busy && { opacity: 0.5 }]}>Edit</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
       <ScrollView

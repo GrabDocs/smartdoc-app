@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../hooks/useThemeColors';
+import MeetingAssetTabs from './meeting/MeetingAssetTabs';
 
 // Helper function to render structured summary content
 const renderStructuredContent = (data: any, themeColors: any, depth: number = 0): React.ReactNode[] => {
@@ -501,6 +502,16 @@ export default function TextAssetViewer({
           <View style={dynamicStyles.loadingContainer}>
             <ActivityIndicator size="large" color={themeColors.tint || '#007AFF'} />
             <Text style={dynamicStyles.loadingText}>Loading content...</Text>
+          </View>
+        ) : assetType === 'transcript' || assetType === 'call_transcript' || assetType === 'meeting_summary' || assetType === 'summary' || assetType === 'meeting_recap' ? (
+          <View style={{ flex: 1, paddingHorizontal: 16, paddingTop: 8 }}>
+            <MeetingAssetTabs
+              initialTab={assetType === 'transcript' || assetType === 'call_transcript' ? 'transcript' : 'recap'}
+              summaryContent={assetType === 'transcript' || assetType === 'call_transcript' ? '' : content}
+              transcriptContent={assetType === 'transcript' || assetType === 'call_transcript' ? content : ''}
+              hero={{ title }}
+              showHeaderActions={false}
+            />
           </View>
         ) : (
           isCsv && csvData.length > 0 ? (

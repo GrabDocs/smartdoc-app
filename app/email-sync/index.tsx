@@ -129,6 +129,8 @@ export default function EmailInboxScreen() {
   const openedRef = useRef<string | null>(null);
   const composeBootRef = useRef(false);
   const swipeRefs = useRef<Map<number, Swipeable>>(new Map());
+  const setupRefreshRef = useRef<{ refresh: () => Promise<void> }>(null);
+  const importsRefreshRef = useRef<{ refresh: () => Promise<void> }>(null);
 
   const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
 
@@ -361,6 +363,23 @@ export default function EmailInboxScreen() {
       setRefreshing(false);
     }
   }, [triggerSync]);
+
+  const onHeaderRefresh = useCallback(async () => {
+    if (tab === 'replies') {
+      await onRefresh();
+      return;
+    }
+    setRefreshing(true);
+    try {
+      if (tab === 'imports') {
+        await importsRefreshRef.current?.refresh();
+      } else if (tab === 'setup') {
+        await setupRefreshRef.current?.refresh();
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [tab, onRefresh]);
 
   const connect = async (provider: 'gmail' | 'outlook') => {
     if (!workspaceId) return;
@@ -701,30 +720,47 @@ export default function EmailInboxScreen() {
           >
             <Ionicons name="close-circle-outline" size={24} color={colors.text} />
           </FeedbackTouchable>
-        ) : tab === 'replies' && hasMailbox && !selectMode ? (
-          <FeedbackTouchable
-            style={styles.iconBtn}
-            onPress={() => void startCompose()}
-            disabled={!canSend || composing}
-            accessibilityLabel="Compose"
-          >
-            <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
-          </FeedbackTouchable>
-        ) : (
+        ) : selectMode ? (
           <View style={{ width: 44 }} />
+        ) : (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => void onHeaderRefresh()}
+              disabled={refreshing || (tab === 'replies' && syncing)}
+              accessibilityLabel="Refresh"
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name="refresh"
+                size={24}
+                color={refreshing || (tab === 'replies' && syncing) ? colors.textSecondary : colors.text}
+              />
+            </FeedbackTouchable>
+            {tab === 'replies' && hasMailbox ? (
+              <FeedbackTouchable
+                style={styles.iconBtn}
+                onPress={() => void startCompose()}
+                disabled={!canSend || composing}
+                accessibilityLabel="Compose"
+              >
+                <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
+              </FeedbackTouchable>
+            ) : null}
+          </View>
         )}
       </View>
       {!selectMode ? <EmailSyncTopTabs active={tab} pendingCount={pending} onChange={selectTab} /> : null}
 
       {workspaceId && (visited.setup || tab === 'setup') ? (
         <View style={{ flex: 1, display: tab === 'setup' ? 'flex' : 'none', backgroundColor: colors.background }}>
-          <EmailSetupPane workspaceId={workspaceId} onPending={setPending} />
+          <EmailSetupPane workspaceId={workspaceId} onPending={setPending} refreshRef={setupRefreshRef} />
         </View>
       ) : null}
 
       {workspaceId && (visited.imports || tab === 'imports') ? (
         <View style={{ flex: 1, display: tab === 'imports' ? 'flex' : 'none', backgroundColor: colors.background }}>
-          <EmailImportsPane workspaceId={workspaceId} onPending={setPending} />
+          <EmailImportsPane workspaceId={workspaceId} onPending={setPending} refreshRef={importsRefreshRef} />
         </View>
       ) : null}
 

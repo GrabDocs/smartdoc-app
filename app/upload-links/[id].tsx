@@ -856,7 +856,15 @@ export default function UploadLinkDetailsScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle>File Request</AppHeaderTitle>
-          <View style={dynamicStyles.placeholder} />
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -890,9 +898,20 @@ export default function UploadLinkDetailsScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={handleBack} />
         <AppHeaderTitle>File Request</AppHeaderTitle>
-        <FeedbackTouchable onPress={handleDeleteLink} loading={deleting} spinnerColor="#FF3B30" hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="trash" size={24} color="#FF3B30" />
-        </FeedbackTouchable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
+          <FeedbackTouchable onPress={handleDeleteLink} loading={deleting} spinnerColor="#FF3B30" hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Ionicons name="trash" size={24} color="#FF3B30" />
+          </FeedbackTouchable>
+        </View>
       </View>
 
       <FlatList

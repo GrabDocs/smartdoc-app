@@ -557,6 +557,15 @@ export function NotificationsInboxContent({
 
   const headerActions = (
     <View style={{ flexDirection: 'row', gap: variant === 'modal' ? 10 : 16, alignItems: 'center' }}>
+      <TouchableOpacity
+        onPress={onRefresh}
+        disabled={refreshing}
+        accessibilityLabel="Refresh"
+        accessibilityRole="button"
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#007AFF'} />
+      </TouchableOpacity>
       {notifications.length > 0 && (
         <TouchableOpacity onPress={clearAll}>
           <Text style={[dynamicStyles.markAll, { color: '#FF3B30' }]}>Clear all</Text>

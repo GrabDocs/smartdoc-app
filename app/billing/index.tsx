@@ -954,7 +954,15 @@ export default function BillingScreen() {
       <View style={styles.header}>
         <AppBackButton onPress={handleBack} />
         <AppHeaderTitle>Billing & Usage</AppHeaderTitle>
-        <View style={styles.headerBtn} />
+        <TouchableOpacity
+          style={styles.headerBtn}
+          onPress={() => void onRefresh()}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+        >
+          <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#2563EB'} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.segments}>

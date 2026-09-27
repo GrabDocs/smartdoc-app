@@ -57,6 +57,7 @@ import {
     type EmailDraft,
     type EmailMessage,
     type EmailThread,
+    type MailboxSettings,
     type ReplyFromInfo,
     type ThreadAnalysis,
     type ThreadAttention,
@@ -299,7 +300,7 @@ export default function EmailThreadScreen() {
         if (ws) {
           const [caps, settings] = await Promise.all([
             mailboxCapabilities(ws),
-            getMailboxSettings(ws).catch(() => ({})),
+            getMailboxSettings(ws).catch((): MailboxSettings => ({})),
           ]);
           const send = (caps.connections || []).some((c) => c.send_enabled);
           if (alive) {

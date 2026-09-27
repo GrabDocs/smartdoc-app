@@ -983,7 +983,15 @@ export default function WorkspaceDetailsScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle pointerEvents="none">Workspace</AppHeaderTitle>
-          <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
         </View>
         <View style={dynamicStyles.loadingContainer}>
           <Text style={{ color: colors.textSecondary }}>Loading workspace...</Text>
@@ -1013,17 +1021,31 @@ export default function WorkspaceDetailsScreen() {
         <AppHeaderTitle pointerEvents="none" shrink={false}>
           {truncateAppHeaderTitle(workspace.name || 'Workspace')}
         </AppHeaderTitle>
-        {workspace.user_role !== 'owner' && workspace.user_role !== 'admin' && (
-          <FeedbackTouchable onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
-            <Ionicons name="exit-outline" size={24} color="#FF3B30" />
-          </FeedbackTouchable>
-        )}
-        {workspace.user_role === 'owner' || workspace.user_role === 'admin' ? (
-          <View style={{ width: APP_BACK_BUTTON_SLOT }} />
-        ) : null}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
+          {workspace.user_role !== 'owner' && workspace.user_role !== 'admin' ? (
+            <FeedbackTouchable onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
+              <Ionicons name="exit-outline" size={24} color="#FF3B30" />
+            </FeedbackTouchable>
+          ) : (
+            <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+          )}
+        </View>
       </View>
 
-      <ScrollView style={dynamicStyles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={dynamicStyles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         {/* Workspace Info Card */}
         <View style={dynamicStyles.infoCard}>
           <View style={dynamicStyles.infoHeader}>

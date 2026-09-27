@@ -487,6 +487,20 @@ export default function DraftsDeletedAndSharedScreen() {
             Notes in your account trash · invitations to co-edit notes
           </Text>
         </View>
+        <TouchableOpacity
+          onPress={onRefresh}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          style={{ padding: 6 }}
+        >
+          <Ionicons
+            name="refresh"
+            size={24}
+            color={refreshing ? '#999' : colors.primary || '#007AFF'}
+          />
+        </TouchableOpacity>
       </View>
 
       {loading ? (

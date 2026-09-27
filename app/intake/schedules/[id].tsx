@@ -314,7 +314,18 @@ export default function IntakeScheduleDetailScreen() {
         <AppHeaderTitle shrink={false}>
           {truncateAppHeaderTitle(schedule.title || 'Schedule')}
         </AppHeaderTitle>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity
+          onPress={() => {
+            setRefreshing(true);
+            void load(true);
+          }}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#0D9488'} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView

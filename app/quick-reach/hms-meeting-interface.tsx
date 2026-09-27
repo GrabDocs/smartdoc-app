@@ -543,8 +543,7 @@ export default function HMSMeetingInterfaceScreen() {
     setBannerQueue((prev) => [
       ...prev,
       {
-        message: 'This meeting is being recorded',
-        subtitle: 'By staying, you consent to recording.',
+        message: 'This meeting is being recorded. By staying, you consent to being recorded.',
         type: 'recording',
       },
     ]);
@@ -1430,7 +1429,7 @@ export default function HMSMeetingInterfaceScreen() {
                     <View style={[styles.networkDot, { backgroundColor: '#007AFF' }]} />
                   ) : null}
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={styles.networkBannerTitle} numberOfLines={2}>
+                    <Text style={styles.networkBannerTitle} numberOfLines={3}>
                       {bannerQueue[0].message}
                     </Text>
                     {bannerQueue[0].subtitle ? (

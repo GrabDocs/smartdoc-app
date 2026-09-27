@@ -56,7 +56,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'communication', label: 'Communication' },
 ];
 
-const WORK_TYPES = ['intake', 'intake_schedule', 'file_upload_link', 'signature_envelope', 'form'];
+const WORK_TYPES = ['intake', 'intake_schedule', 'file_upload_link', 'signature_envelope', 'form', 'video_call', 'calendar_event'];
 const FILE_TYPES = ['file', 'note'];
 const COMM_TYPES = ['email_thread', 'email_draft', 'chat_history', 'user_chat'];
 
@@ -413,13 +413,29 @@ export default function ClientDetailScreen() {
         <AppHeaderTitle shrink={false}>
           {truncateAppHeaderTitle(client?.display_name || 'Client')}
         </AppHeaderTitle>
-        <TouchableOpacity onPress={handleArchive} hitSlop={8}>
-          <Ionicons
-            name={client?.status === 'archived' ? 'refresh-outline' : 'archive-outline'}
-            size={22}
-            color={colors.textSecondary}
-          />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => void refresh()}
+            disabled={loading}
+            hitSlop={8}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={22} color={loading ? '#999' : '#0D9488'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={handleArchive}
+            hitSlop={8}
+            accessibilityLabel={client?.status === 'archived' ? 'Unarchive client' : 'Archive client'}
+            accessibilityRole="button"
+          >
+            <Ionicons
+              name={client?.status === 'archived' ? 'refresh-outline' : 'archive-outline'}
+              size={22}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading && !overview ? (

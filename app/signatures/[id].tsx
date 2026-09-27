@@ -211,6 +211,14 @@ export default function EnvelopeDetailScreen() {
             </View>
           </View>
         </View>
+        <TouchableOpacity
+          onPress={() => void load()}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={22} color={colors.primary || '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>

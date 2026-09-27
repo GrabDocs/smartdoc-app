@@ -1330,6 +1330,19 @@ export default function CalendarHomeScreen() {
         <AppHeaderTitle>Calendar</AppHeaderTitle>
         <View style={styles.headerRight}>
           <TouchableOpacity
+            onPress={() => void onRefresh()}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            style={styles.headerIconBtn}
+          >
+            <Ionicons
+              name="refresh"
+              size={24}
+              color={refreshing ? '#999' : colors.tint ?? '#007AFF'}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={openCreate}
             accessibilityLabel="New event"
             accessibilityRole="button"

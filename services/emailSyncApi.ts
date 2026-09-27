@@ -461,18 +461,19 @@ export async function syncMailbox(workspaceId: number) {
 
 export type NeedsReplySensitivity = 'conservative' | 'balanced' | 'aggressive';
 
+export type MailboxSettings = {
+  allowed_senders?: string[];
+  subject_patterns?: string[];
+  needs_reply_sensitivity?: NeedsReplySensitivity;
+  awaiting_reply_sensitivity?: NeedsReplySensitivity;
+  grabdocs_research_enabled?: boolean | null;
+  workspace_search_expanded?: boolean | null;
+  undo_send_seconds?: number;
+};
+
 export async function getMailboxSettings(workspaceId: number) {
   const { data } = await client().get(`${MAILBOX}/settings`, { params: { workspace_id: workspaceId } });
-  return data as {
-    allowed_senders?: string[];
-    subject_patterns?: string[];
-    needs_reply_sensitivity?: NeedsReplySensitivity;
-    awaiting_reply_sensitivity?: NeedsReplySensitivity;
-    grabdocs_research_enabled?: boolean | null;
-    workspace_search_expanded?: boolean | null;
-    undo_send_seconds?: number;
-    [key: string]: unknown;
-  };
+  return data as MailboxSettings;
 }
 
 export async function patchMailboxSettings(body: Record<string, unknown>) {

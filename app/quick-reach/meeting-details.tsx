@@ -26,6 +26,23 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import DocumentViewer from '../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import TextAssetViewer from '../../components/TextAssetViewer';
+import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
+import {
+  collapseMeetingRecapAssets,
+  isChatAssetType,
+  formatMeetingDurationLabel,
+  isAudioTrackType,
+  isSummaryAssetType,
+  isTranscriptAssetType,
+  parseNumericId,
+  type MeetingRecapAskContext,
+  type MeetingRecapEnrichment,
+  type MeetingRecapClientLink,
+  type MeetingRecapHero,
+  type MeetingRecapRecording,
+  type MeetingRecapShareFiles,
+  type MeetingRecapTab,
+} from '../../components/meeting/meetingRecapTypes';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -40,7 +57,10 @@ interface MeetingAsset {
   id: string;
   meetingId?: string;
   title: string;
-  type: 'recording' | 'transcript' | 'chat_log' | 'shared_files' | 'whiteboard' | 'notes' | 'meeting_report' | 'video' | 'call_transcript' | 'summary' | 'report' | 'chat' | 'meeting_chat' | 'files' | 'meeting_summary';
+  type: 'recording' | 'transcript' | 'chat_log' | 'shared_files' | 'whiteboard' | 'notes' | 'meeting_report' | 'video' | 'call_transcript' | 'summary' | 'report' | 'chat' | 'meeting_chat' | 'files' | 'meeting_summary' | 'meeting_recap';
+  _recapTranscript?: MeetingAsset;
+  _recapSummary?: MeetingAsset;
+  _recapChat?: MeetingAsset;
   date: string;
   duration?: number;
   participants?: string[];
@@ -93,12 +113,24 @@ export default function MeetingDetailsScreen() {
   const router = useRouter();
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { meetingId, meetingTitle, roomCode, entry } = useLocalSearchParams<{
-    meetingId: string;
+  const {
+    meetingId: meetingIdParam,
+    roomId,
+    meetingTitle,
+    roomCode,
+    entry,
+    open_recap,
+    initialTab,
+  } = useLocalSearchParams<{
+    meetingId?: string;
+    roomId?: string;
     meetingTitle: string;
     roomCode: string;
     entry?: string;
+    open_recap?: string;
+    initialTab?: string;
   }>();
+  const meetingId = meetingIdParam || roomId;
 
   /** Folder icon on Reach: compact top bar on assets entry */
   const fromAssetsShortcut = entry === 'assets';
@@ -138,6 +170,22 @@ export default function MeetingDetailsScreen() {
   const [textViewerTitle, setTextViewerTitle] = useState<string>('');
   const [textViewerAssetType, setTextViewerAssetType] = useState<string>('');
   const [textViewerLoading, setTextViewerLoading] = useState(false);
+  const [showRecapViewer, setShowRecapViewer] = useState(false);
+  const [recapSummary, setRecapSummary] = useState('');
+  const [recapTranscript, setRecapTranscript] = useState('');
+  const [recapLoadingSummary, setRecapLoadingSummary] = useState(false);
+  const [recapLoadingTranscript, setRecapLoadingTranscript] = useState(false);
+  const [recapInitialTab, setRecapInitialTab] = useState<MeetingRecapTab | undefined>();
+  const [recapHero, setRecapHero] = useState<MeetingRecapHero | undefined>();
+  const [recapRecording, setRecapRecording] = useState<MeetingRecapRecording | null>(null);
+  const [recapRecordings, setRecapRecordings] = useState<MeetingRecapRecording[]>([]);
+  const [recapChat, setRecapChat] = useState('');
+  const [recapDurationSeconds, setRecapDurationSeconds] = useState<number | null>(null);
+  const [recapClientLink, setRecapClientLink] = useState<MeetingRecapClientLink | null>(null);
+  const [recapShareFiles, setRecapShareFiles] = useState<MeetingRecapShareFiles | null>(null);
+  const [recapAskContext, setRecapAskContext] = useState<MeetingRecapAskContext | null>(null);
+  const [recapEnrichment, setRecapEnrichment] = useState<MeetingRecapEnrichment | null>(null);
+  const recapOpenedRef = useRef(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [audioSound, setAudioSound] = useState<Audio.Sound | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -172,6 +220,16 @@ export default function MeetingDetailsScreen() {
   useEffect(() => {
     organizeAssetsBySession();
   }, [assets, searchQuery, meetingId, meetingTitle]);
+
+  useEffect(() => {
+    if (open_recap !== '1' || recapOpenedRef.current || !assets.length) return;
+    const recap = collapseMeetingRecapAssets(assets).find((a) => a.type === 'meeting_recap');
+    if (!recap) return;
+    recapOpenedRef.current = true;
+    const tab: MeetingRecapTab =
+      initialTab === 'transcript' || initialTab === 'recap' || initialTab === 'chat' ? initialTab : undefined;
+    void viewRecap(recap, tab);
+  }, [assets, open_recap, initialTab]);
 
   useEffect(() => {
     // Cleanup video when component unmounts
@@ -567,7 +625,7 @@ export default function MeetingDetailsScreen() {
           sessionNumber: sessionNumber,
           sessionTitle: `Session ${sessionNumber}`,
           date: sessionDate,
-          assets: sessionAssets,
+          assets: collapseMeetingRecapAssets(sessionAssets),
           isExpanded: false, // set below: exactly one group expanded
         };
       })
@@ -1193,14 +1251,164 @@ export default function MeetingDetailsScreen() {
     }
   };
 
+  const loadAssetText = async (asset?: MeetingAsset | null): Promise<string> => {
+    if (!asset) return '';
+    try {
+      if (asset.file_id) {
+        return await apiClient.getWebFileContent(Number(asset.file_id));
+      }
+      if (asset.url) {
+        const assetType = isTranscriptAssetType(asset.type)
+          ? 'transcript'
+          : isSummaryAssetType(asset.type)
+            ? 'meeting_summary'
+            : asset.type === 'meeting_report' || asset.type === 'report'
+              ? 'meeting_report'
+              : asset.type === 'chat_log' || asset.type === 'chat' || asset.type === 'meeting_chat'
+                ? 'meeting_chat'
+                : asset.type === 'notes'
+                  ? 'meeting_note'
+                  : 'transcript';
+        return await apiClient.getVideoAssetContent(assetType, asset.url);
+      }
+    } catch (error) {
+      console.error('Failed to fetch text asset content:', error);
+    }
+    return '';
+  };
+
+  const buildRecordingStreamUrl = async (recording?: MeetingAsset | null): Promise<string | null> => {
+    if (!recording) return null;
+    let token: string | null = null;
+    try {
+      token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+    } catch {
+      token = null;
+    }
+    const recId =
+      recording.recording_db_id ??
+      parseNumericId(String(recording.id || '').match(/call_recording[_-](\d+)/i)?.[1]) ??
+      parseNumericId((recording.url || '').match(/\/recording\/(\d+)\//)?.[1]);
+    if (recId != null) {
+      const qs = token
+        ? `?token=${encodeURIComponent(token)}&format=mp4`
+        : '?format=mp4';
+      return `${API_BASE_URL}/api/v1/video/recording/${recId}/stream${qs}`;
+    }
+    const raw = recording.url || recording.downloadUrl;
+    if (!raw) return null;
+    let url = raw;
+    if (token && !url.includes('token=')) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    if (url.includes('/recording/') && url.includes('/stream') && !url.includes('format=mp4')) {
+      url += `${url.includes('?') ? '&' : '?'}format=mp4`;
+    }
+    return url;
+  };
+
+  const viewRecap = async (asset: MeetingAsset, tab?: MeetingRecapTab) => {
+    const transcriptAsset = asset.type === 'meeting_recap' ? asset._recapTranscript || null : isTranscriptAssetType(asset.type) ? asset : null;
+    const summaryAsset = asset.type === 'meeting_recap' ? asset._recapSummary || null : isSummaryAssetType(asset.type) ? asset : null;
+    const sessionAssets = assets.filter((a) => {
+      const sameMeeting =
+        String(a.meeting_id || a.meetingId || '') === String(asset.meeting_id || asset.meetingId || '') ||
+        (asset.meeting_title && a.meeting_title === asset.meeting_title);
+      return sameMeeting;
+    });
+    const recordingAssets = sessionAssets.filter((a) => a.type === 'recording' || a.type === 'video');
+    const recording =
+      recordingAssets.find((a) => isAudioTrackType(a.track_type)) ||
+      recordingAssets[0] ||
+      null;
+    const chatAsset = asset._recapChat || sessionAssets.find((a) => isChatAssetType(a.type)) || null;
+
+    setShowRecapViewer(true);
+    setRecapSummary('');
+    setRecapTranscript('');
+    setRecapLoadingSummary(true);
+    setRecapLoadingTranscript(true);
+    setRecapInitialTab(tab || (summaryAsset ? 'recap' : 'transcript'));
+    setRecapHero({
+      title: (asset.meeting_title || meetingTitle || 'Meeting recap') as string,
+      dateLabel: asset.date ? formatDate(asset.date) : undefined,
+      durationLabel: formatMeetingDurationLabel(null, null, asset.duration != null ? Number(asset.duration) : null),
+    });
+    const videoCallId = parseNumericId(asset.video_call_id || meetingId);
+    setRecapClientLink(videoCallId != null ? { itemType: 'video_call', itemId: videoCallId } : null);
+    const summaryFileId = parseNumericId(summaryAsset?.file_id);
+    const transcriptFileId = parseNumericId(transcriptAsset?.file_id);
+    setRecapShareFiles({
+      summaryFileId,
+      summaryFileName: 'Meeting recap',
+      transcriptFileId,
+      transcriptFileName: 'Meeting transcript',
+    });
+    const fileIds = [summaryFileId, transcriptFileId].filter((n): n is number => n != null);
+    const transcriptIds = String(transcriptAsset?.id || '').includes('call_transcript')
+      ? [parseNumericId(transcriptAsset?.id)].filter((n): n is number => n != null)
+      : [];
+    setRecapAskContext(
+      fileIds.length || transcriptIds.length
+        ? {
+            fileIds,
+            transcriptIds,
+            labels: [
+              summaryFileId ? { id: summaryFileId, name: 'Meeting summary', kind: 'file' as const } : null,
+              transcriptIds[0]
+                ? { id: transcriptIds[0], name: 'Meeting transcript', kind: 'transcript' as const }
+                : transcriptFileId
+                  ? { id: transcriptFileId, name: 'Meeting transcript', kind: 'file' as const }
+                  : null,
+            ].filter((x): x is { id: number; name: string; kind: 'file' | 'transcript' } => !!x),
+          }
+        : null
+    );
+    setRecapDurationSeconds(asset.duration != null ? Number(asset.duration) : null);
+    const enrich =
+      (asset as any).recap_v2 ||
+      (transcriptAsset as any)?.recap_v2 ||
+      (summaryAsset as any)?.recap_v2 ||
+      null;
+    setRecapEnrichment(enrich);
+
+    const [summaryText, transcriptText, chatText, recordingPairs] = await Promise.all([
+      loadAssetText(summaryAsset),
+      loadAssetText(transcriptAsset),
+      loadAssetText(chatAsset),
+      Promise.all(
+        recordingAssets.map(async (row) => {
+          const streamUrl = await buildRecordingStreamUrl(row);
+          return streamUrl
+            ? {
+                streamUrl,
+                trackType: row.track_type,
+                label: isAudioTrackType(row.track_type) ? 'Audio' : 'Video',
+              }
+            : null;
+        })
+      ),
+    ]);
+    const availableRecordings = recordingPairs.filter((row): row is MeetingRecapRecording => !!row);
+    setRecapSummary(summaryText);
+    setRecapTranscript(transcriptText);
+    setRecapChat(chatText);
+    setRecapRecordings(availableRecordings);
+    setRecapRecording(
+      availableRecordings.find((row) => isAudioTrackType(row.trackType)) ||
+        availableRecordings[0] ||
+        null
+    );
+    setRecapLoadingSummary(false);
+    setRecapLoadingTranscript(false);
+  };
+
   const viewAsset = async (asset: MeetingAsset) => {
     try {
+      if (asset.type === 'meeting_recap' || isTranscriptAssetType(asset.type) || isSummaryAssetType(asset.type)) {
+        await viewRecap(asset, isTranscriptAssetType(asset.type) ? 'transcript' : undefined);
+        return;
+      }
       // Define text-based asset types that should open in DocumentViewer
       const textTypes = [
-        'transcript',
-        'call_transcript',
-        'meeting_summary',
-        'summary',
         'report',
         'meeting_report',
         'chat_log',
@@ -2152,6 +2360,7 @@ export default function MeetingDetailsScreen() {
       case 'whiteboard': return 'color-palette';
       case 'notes': return 'document';
       case 'meeting_summary': return 'sparkles';
+      case 'meeting_recap': return 'sparkles';
       case 'meeting_report': return 'analytics';
       case 'summary': return 'sparkles';
       case 'report': return 'analytics';
@@ -2168,6 +2377,7 @@ export default function MeetingDetailsScreen() {
       case 'whiteboard': return '#AF52DE';
       case 'notes': return '#5856D6';
       case 'meeting_summary': return '#FF6B35';
+      case 'meeting_recap': return '#FF6B35';
       case 'meeting_report': return '#5AC8FA';
       case 'summary': return '#FF6B35';
       case 'report': return '#5AC8FA';
@@ -2219,6 +2429,9 @@ export default function MeetingDetailsScreen() {
     }
     
     // Special cases for specific types
+    if (asset.type === 'meeting_recap') {
+      return 'Meeting recap';
+    }
     if (asset.type === 'meeting_summary' || asset.type === 'summary') {
       return 'Summary';
     }
@@ -2364,6 +2577,9 @@ export default function MeetingDetailsScreen() {
   };
 
   const getAssetDisplayTitle = (asset: MeetingAsset) => {
+    if (asset.type === 'meeting_recap') {
+      return 'Meeting recap';
+    }
     // Priority 1: Use original_filename (exact S3 filename from backend)
     if (asset.original_filename) {
       return asset.original_filename;
@@ -2395,6 +2611,8 @@ export default function MeetingDetailsScreen() {
       case 'summary':
       case 'meeting_summary':
         return 'Summary';
+      case 'meeting_recap':
+        return 'Meeting recap';
       case 'recording':
       case 'video':
         return 'Video';
@@ -3486,6 +3704,57 @@ export default function MeetingDetailsScreen() {
           setTextViewerLoading(false);
         }}
       />
+      <Modal
+        visible={showRecapViewer}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowRecapViewer(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }} edges={['bottom', 'left', 'right']}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingTop: Math.max(insets.top, 8),
+              paddingBottom: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: themeColors.border,
+              backgroundColor: themeColors.headerBackground || themeColors.card,
+            }}
+          >
+            <TouchableOpacity onPress={() => setShowRecapViewer(false)}>
+              <Text style={{ fontSize: 16, color: themeColors.tint || '#007AFF' }}>Close</Text>
+            </TouchableOpacity>
+            <Text
+              style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600', color: themeColors.text, marginHorizontal: 12 }}
+              numberOfLines={1}
+            >
+              Meeting recap
+            </Text>
+            <View style={{ width: 48 }} />
+          </View>
+          <View style={{ flex: 1, padding: 16 }}>
+            <MeetingAssetTabs
+              key={recapInitialTab || 'default'}
+              initialTab={recapInitialTab}
+              summaryContent={recapSummary}
+              transcriptContent={recapTranscript}
+              loadingSummary={recapLoadingSummary}
+              loadingTranscript={recapLoadingTranscript}
+              hero={recapHero}
+              recording={recapRecording}
+              recordings={recapRecordings}
+              chatContent={recapChat}
+              meetingDurationSeconds={recapDurationSeconds}
+              clientLink={recapClientLink}
+              shareFiles={recapShareFiles}
+              askContext={recapAskContext}
+              enrichment={recapEnrichment}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
       <ActionMenuModal
         visible={menuAsset != null}
         title={menuAsset?.title ?? 'Asset'}

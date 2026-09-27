@@ -148,9 +148,25 @@ export default function ClientsIndexScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <AppBackButton onPress={() => router.back()} />
         <AppHeaderTitle>My Clients</AppHeaderTitle>
-        <TouchableOpacity onPress={() => setShowCreate(true)} hitSlop={12}>
-          <Ionicons name="add-circle" size={28} color="#0D9488" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => void load()}
+            disabled={loading}
+            hitSlop={12}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={24} color={loading ? '#999' : '#0D9488'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowCreate(true)}
+            hitSlop={12}
+            accessibilityLabel="Add client"
+            accessibilityRole="button"
+          >
+            <Ionicons name="add-circle" size={28} color="#0D9488" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={[styles.searchWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>

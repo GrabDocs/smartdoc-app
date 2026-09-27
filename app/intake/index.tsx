@@ -1003,9 +1003,24 @@ export default function IntakeListScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton />
           <AppHeaderTitle>Intake</AppHeaderTitle>
-          <TouchableOpacity onPress={() => router.push('/intake/create')}>
-            <Ionicons name="add" size={24} color="#007AFF" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <TouchableOpacity
+              onPress={handleRefresh}
+              disabled={refreshing}
+              accessibilityLabel="Refresh"
+              accessibilityRole="button"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => router.push('/intake/create')}
+              accessibilityLabel="Create intake"
+              accessibilityRole="button"
+            >
+              <Ionicons name="add" size={24} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={dynamicStyles.tabsRow}>
           <View style={[dynamicStyles.tabButton, dynamicStyles.tabButtonActive]}>
@@ -1025,9 +1040,24 @@ export default function IntakeListScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton />
         <AppHeaderTitle>Intake</AppHeaderTitle>
-        <TouchableOpacity onPress={() => router.push('/intake/create')}>
-          <Ionicons name="add" size={24} color="#007AFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/intake/create')}
+            accessibilityLabel="Create intake"
+            accessibilityRole="button"
+          >
+            <Ionicons name="add" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={dynamicStyles.tabsRow}>

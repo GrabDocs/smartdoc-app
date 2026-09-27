@@ -12,7 +12,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
+import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -384,7 +384,19 @@ export default function CreateFormScreen() {
         <View style={[styles.header, dynamicStyles.header]}>
           <AppBackButton />
           <AppHeaderTitle>Create Form</AppHeaderTitle>
-          <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+          <TouchableOpacity
+            onPress={onRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name="refresh"
+              size={24}
+              color={refreshing ? '#999' : colors.primary || '#007AFF'}
+            />
+          </TouchableOpacity>
         </View>
         <View style={[styles.loadingContainer, dynamicStyles.content]}>
           <ActivityIndicator size="large" color={colors.primary || '#007AFF'} />
@@ -399,7 +411,19 @@ export default function CreateFormScreen() {
       <View style={[styles.header, dynamicStyles.header]}>
         <AppBackButton />
         <AppHeaderTitle>Create Form</AppHeaderTitle>
-        <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+        <TouchableOpacity
+          onPress={onRefresh}
+          disabled={refreshing}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name="refresh"
+            size={24}
+            color={refreshing ? '#999' : colors.primary || '#007AFF'}
+          />
+        </TouchableOpacity>
       </View>
 
       <View style={dynamicStyles.content}>

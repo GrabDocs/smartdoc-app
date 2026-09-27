@@ -568,7 +568,9 @@ export function getNotificationScreen(data: Record<string, any>): string {
     case 'meeting_started':
       return getReachMeetingJoinPath(data) || '/quick-reach/meeting-call';
     case 'transcript_ready':
-      return data?.video_call_id != null ? `/quick-reach/meeting-details?roomId=${data.video_call_id}` : '/quick-reach/meeting-call';
+      return data?.video_call_id != null
+        ? `/quick-reach/meeting-details?roomId=${data.video_call_id}&meetingId=${data.video_call_id}&open_recap=1&initialTab=transcript`
+        : '/quick-reach/meeting-call';
     case 'file_upload':
     case 'file_processing':
       return '/(tabs)/documents';

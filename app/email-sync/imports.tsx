@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import DocumentViewer from '../../components/DocumentViewer';
@@ -138,18 +138,25 @@ function ImportRow({
   );
 }
 
+export type EmailImportsRefreshHandle = {
+  refresh: () => Promise<void>;
+};
+
 export function EmailImportsPane({
   workspaceId,
   onPending,
+  refreshRef,
 }: {
   workspaceId: number;
   onPending: (n: number) => void;
+  refreshRef?: React.Ref<EmailImportsRefreshHandle | null>;
 }) {
   const colors = useThemeColors();
   const cached = emailSyncCacheImports();
   const [items, setItems] = useState<EmailImportEvent[]>(cached?.items || []);
   const [cursor, setCursor] = useState<string | null>(cached?.cursor || null);
   const [loading, setLoading] = useState(!cached);
+  const [refreshing, setRefreshing] = useState(false);
   const [viewer, setViewer] = useState<{ fileId: number; fileName: string } | null>(null);
 
   const load = useCallback(async (append = false) => {
@@ -170,6 +177,17 @@ export function EmailImportsPane({
       onPending(n);
     }
   }, [cursor, onPending, workspaceId]);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await load(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load]);
+
+  useImperativeHandle(refreshRef, () => ({ refresh }), [refresh]);
 
   useEffect(() => {
     const hit = emailSyncCacheImports();
@@ -217,7 +235,7 @@ export function EmailImportsPane({
           data={items}
           keyExtractor={(i) => String(i.id)}
           contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
-          refreshControl={<RefreshControl refreshing={false} onRefresh={() => load(false)} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
           onEndReached={() => {
             if (cursor) load(true).catch(() => {});
           }}

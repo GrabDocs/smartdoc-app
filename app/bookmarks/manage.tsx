@@ -17,7 +17,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
+import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -640,7 +640,15 @@ export default function ManageBookmarksScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton />
           <AppHeaderTitle>Bookmarks</AppHeaderTitle>
-          <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+          <TouchableOpacity
+            style={dynamicStyles.addButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
         </View>
         <View style={[dynamicStyles.loadingContainer, dynamicStyles.content]}>
           <ActivityIndicator size="large" color="#007AFF" />
@@ -655,12 +663,25 @@ export default function ManageBookmarksScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton />
         <AppHeaderTitle>Manage Bookmarks</AppHeaderTitle>
-        <TouchableOpacity
-          style={dynamicStyles.addButton}
-          onPress={() => setShowCreateModal(true)}
-        >
-          <Ionicons name="add" size={24} color="#007AFF" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity
+            style={dynamicStyles.addButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+            accessibilityLabel="Refresh"
+            accessibilityRole="button"
+          >
+            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={dynamicStyles.addButton}
+            onPress={() => setShowCreateModal(true)}
+            accessibilityLabel="Add bookmark"
+            accessibilityRole="button"
+          >
+            <Ionicons name="add" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList

@@ -1,21 +1,31 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
+import MeetingAssetTabs from '../../../components/meeting/MeetingAssetTabs';
+import {
+  formatMeetingDurationLabel,
+  isAudioTrackType,
+  parseNumericId,
+} from '../../../components/meeting/meetingRecapTypes';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { calendarAssetContent, calendarMeetingAssets } from '../../../services/calendarApi';
+import { API_BASE_URL, STORAGE_KEYS } from '../../../constants/Config';
+import { secureStorage } from '../../../utils/storage';
 
-import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../../components/AppBackButton';
+import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 
-type LazyAssetType = 'transcript' | 'summary' | 'chat';
+type LazyAssetType = 'transcript' | 'summary' | 'chat' | 'recap';
 type AssetItem = {
   key: string;
   type: LazyAssetType | 'recording' | 'note' | 'report';
   title: string;
   url?: string | null;
+  transcriptUrl?: string | null;
+  summaryUrl?: string | null;
   description?: string;
   lazy: boolean;
 };
@@ -23,14 +33,19 @@ type AssetItem = {
 export default function CalendarEventAssetsScreen() {
   const { eventId: idParam } = useLocalSearchParams<{ eventId?: string }>();
   const eventId = Number(idParam);
-  const router = useRouter();
   const colors = useThemeColors();
 
   const [loading, setLoading] = useState(true);
   const [payload, setPayload] = useState<any | null>(null);
-  const [open, setOpen] = useState<{ type: LazyAssetType; url: string; title: string } | null>(null);
+  const [open, setOpen] = useState<AssetItem | null>(null);
   const [content, setContent] = useState<string>('');
+  const [summaryContent, setSummaryContent] = useState('');
+  const [transcriptContent, setTranscriptContent] = useState('');
   const [contentLoading, setContentLoading] = useState(false);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingTrack, setRecordingTrack] = useState<string | null>(null);
+
+  const meeting = payload?.meeting ?? payload;
 
   const load = useCallback(async () => {
     if (!Number.isFinite(eventId)) return;
@@ -60,6 +75,51 @@ export default function CalendarEventAssetsScreen() {
   }, [eventId, load]);
 
   const openAsset = async (asset: AssetItem) => {
+    if (asset.type === 'recap') {
+      setOpen(asset);
+      setContentLoading(true);
+      setSummaryContent('');
+      setTranscriptContent('');
+      setRecordingUrl(null);
+      try {
+        const [summary, transcript] = await Promise.all([
+          asset.summaryUrl
+            ? calendarAssetContent(eventId, 'summary', asset.summaryUrl).catch(() => '')
+            : Promise.resolve(''),
+          asset.transcriptUrl
+            ? calendarAssetContent(eventId, 'transcript', asset.transcriptUrl).catch(() => '')
+            : Promise.resolve(''),
+        ]);
+        const asText = (data: any) =>
+          typeof data === 'string'
+            ? data
+            : data?.content ?? data?.text ?? data?.body ?? (data ? JSON.stringify(data, null, 2) : '');
+        setSummaryContent(asText(summary));
+        setTranscriptContent(asText(transcript));
+        const recordings = meeting?.recordings || [];
+        const preferred =
+          recordings.find((r: any) => isAudioTrackType(r.track_type)) || recordings[0];
+        if (preferred?.recording_db_id != null) {
+          let token: string | null = null;
+          try {
+            token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+          } catch {
+            token = null;
+          }
+          const qs = token ? `?token=${encodeURIComponent(token)}&format=mp4` : '?format=mp4';
+          setRecordingUrl(`${API_BASE_URL}/api/v1/video/recording/${preferred.recording_db_id}/stream${qs}`);
+          setRecordingTrack(preferred.track_type || null);
+        } else if (preferred?.url) {
+          setRecordingUrl(preferred.url);
+          setRecordingTrack(preferred.track_type || null);
+        }
+      } catch (e: any) {
+        Alert.alert('Error', e?.response?.data?.error || e?.message || 'Could not load recap');
+      } finally {
+        setContentLoading(false);
+      }
+      return;
+    }
     if (!asset.url) {
       Alert.alert('Asset unavailable', 'This asset does not have a downloadable URL yet.');
       return;
@@ -68,14 +128,11 @@ export default function CalendarEventAssetsScreen() {
       Linking.openURL(asset.url).catch(() => Alert.alert('Error', 'Could not open asset'));
       return;
     }
-    const type = asset.type as LazyAssetType;
-    const url = asset.url;
-    const title = asset.title;
-    setOpen({ type, url, title });
+    setOpen(asset);
     setContentLoading(true);
     setContent('');
     try {
-      const data = await calendarAssetContent(eventId, type, url);
+      const data = await calendarAssetContent(eventId, asset.type as 'transcript' | 'summary' | 'chat', asset.url);
       const text =
         typeof data === 'string'
           ? data
@@ -92,7 +149,7 @@ export default function CalendarEventAssetsScreen() {
     () =>
       StyleSheet.create({
         safe: { flex: 1, backgroundColor: colors.background },
-        header: { flexDirection: 'row', alignItems: 'center', padding: 12 , backgroundColor: colors.headerBackground },
+        header: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: colors.headerBackground },
         h1: { fontSize: 18, fontWeight: '700', color: colors.text, flex: 1 },
         card: {
           marginHorizontal: 16,
@@ -110,7 +167,6 @@ export default function CalendarEventAssetsScreen() {
   );
 
   const assets = useMemo<AssetItem[]>(() => {
-    const meeting = payload?.meeting ?? payload;
     if (!meeting) return [];
 
     const rows: AssetItem[] = [];
@@ -132,8 +188,17 @@ export default function CalendarEventAssetsScreen() {
       });
     };
 
-    pushUrl('transcript', 'Transcript', meeting.transcript_url, true, 'Meeting transcript');
-    pushUrl('summary', 'Summary', meeting.summary_url, true, 'AI meeting summary');
+    if (meeting.transcript_url || meeting.summary_url) {
+      rows.push({
+        key: 'meeting-recap',
+        type: 'recap',
+        title: 'Meeting recap',
+        transcriptUrl: meeting.transcript_url,
+        summaryUrl: meeting.summary_url,
+        lazy: true,
+        description: 'Recap and transcript',
+      });
+    }
 
     (meeting.chats || []).forEach((chat: any, idx: number) => {
       pushUrl('chat', chat.filename || `Chat ${idx + 1}`, chat.url, true, chat.file_size ? `${chat.file_size} bytes` : 'Meeting chat');
@@ -164,7 +229,7 @@ export default function CalendarEventAssetsScreen() {
     });
 
     return rows;
-  }, [payload]);
+  }, [meeting]);
 
   if (!Number.isFinite(eventId)) {
     return (
@@ -174,12 +239,22 @@ export default function CalendarEventAssetsScreen() {
     );
   }
 
+  const videoCallId = parseNumericId(meeting?.video_call_id);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
         <AppHeaderTitle>Meeting assets</AppHeaderTitle>
-        <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+        <TouchableOpacity
+          onPress={() => void load()}
+          disabled={loading}
+          accessibilityLabel="Refresh"
+          accessibilityRole="button"
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="refresh" size={24} color={loading ? '#999' : colors.tint ?? '#007AFF'} />
+        </TouchableOpacity>
       </View>
 
       {loading ? <ActivityIndicator style={{ marginTop: 32 }} /> : null}
@@ -208,13 +283,43 @@ export default function CalendarEventAssetsScreen() {
       ) : null}
 
       {open ? (
-        <ScrollView contentContainerStyle={{ padding: 16 }}>
+        <View style={{ flex: 1, padding: 16 }}>
           <TouchableOpacity onPress={() => setOpen(null)} style={{ marginBottom: 12 }}>
             <Text style={{ color: '#007AFF' }}>← Back to list</Text>
           </TouchableOpacity>
-          <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 8 }}>{open.title}</Text>
-          {contentLoading ? <ActivityIndicator /> : <Text style={{ color: colors.text, fontSize: 14, lineHeight: 22 }}>{content}</Text>}
-        </ScrollView>
+          {open.type === 'recap' ? (
+            contentLoading ? (
+              <ActivityIndicator />
+            ) : (
+              <MeetingAssetTabs
+                initialTab={summaryContent ? 'recap' : 'transcript'}
+                summaryContent={summaryContent}
+                transcriptContent={transcriptContent}
+                hero={{
+                  title: meeting?.room_name || 'Meeting recap',
+                  durationLabel: formatMeetingDurationLabel(
+                    meeting?.started_at,
+                    meeting?.ended_at,
+                    meeting?.duration_minutes ? meeting.duration_minutes * 60 : null
+                  ),
+                }}
+                recording={recordingUrl ? { streamUrl: recordingUrl, trackType: recordingTrack } : null}
+                clientLink={
+                  videoCallId != null
+                    ? { itemType: 'video_call', itemId: videoCallId }
+                    : Number.isFinite(eventId)
+                      ? { itemType: 'calendar_event', itemId: eventId }
+                      : null
+                }
+              />
+            )
+          ) : (
+            <>
+              <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 8 }}>{open.title}</Text>
+              {contentLoading ? <ActivityIndicator /> : <Text style={{ color: colors.text, fontSize: 14, lineHeight: 22 }}>{content}</Text>}
+            </>
+          )}
+        </View>
       ) : null}
     </SafeAreaView>
   );
