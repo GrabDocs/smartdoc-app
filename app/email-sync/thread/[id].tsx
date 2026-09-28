@@ -11,7 +11,6 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
-    Pressable,
     ScrollView,
     StyleSheet,
     Text,
@@ -164,7 +163,6 @@ export default function EmailThreadScreen() {
   const [attachMenu, setAttachMenu] = useState(false);
   const [toneMenu, setToneMenu] = useState(false);
   const [gdOpen, setGdOpen] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [fullscreenMessage, setFullscreenMessage] = useState<EmailMessage | null>(null);
   const [composeFullscreen, setComposeFullscreen] = useState(false);
   const [threadCollapsedForCompose, setThreadCollapsedForCompose] = useState(false);
@@ -190,7 +188,6 @@ export default function EmailThreadScreen() {
     mime: string;
   } | null>(null);
   const [attOpening, setAttOpening] = useState(false);
-  const lastTapRef = useRef(0);
   const composeScrollRef = useRef<ScrollView>(null);
   const autoComposeRef = useRef(false);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -537,13 +534,6 @@ export default function EmailThreadScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, dismissed, threadId, isNewCompose]);
 
-  // View-only (Dismissed / View email): expand the latest message so the body uses more of the screen.
-  useEffect(() => {
-    if (!dismissed || !messages.length) return;
-    const last = messages[messages.length - 1];
-    if (last?.id) setExpandedId(last.id);
-  }, [dismissed, messages]);
-
   useEffect(() => {
     if (!wantCompose || loading || dismissed) return;
     if (!autoComposeRef.current) {
@@ -671,10 +661,9 @@ export default function EmailThreadScreen() {
           backgroundColor: colors.isDark ? '#1e3a5f' : '#EFF6FF',
           borderColor: colors.isDark ? '#2563eb66' : '#BFDBFE',
         },
-        bubbleHead: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
-        bubbleHeadText: { flex: 1, minWidth: 0 },
-        expandBtn: { padding: 4, marginLeft: 8, marginTop: -2 },
-        bubbleHeadActions: { flexDirection: 'row', alignItems: 'center' },
+        bubbleHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+        bubbleHeadText: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
+        expandBtn: { padding: 4, marginLeft: 8 },
         composeSizeBar: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -683,18 +672,8 @@ export default function EmailThreadScreen() {
           paddingTop: 8,
           paddingBottom: 0,
         },
-        focusDim: {
-          ...StyleSheet.absoluteFillObject,
-          backgroundColor: colors.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(17,24,39,0.45)',
-          zIndex: 4,
-        },
-        bubbleDimmed: { opacity: 0.28 },
-        bubbleFocused: {
-          zIndex: 5,
-          borderColor: colors.isDark ? '#52525B' : '#9CA3AF',
-        },
-        from: { fontWeight: '700', color: colors.text, fontSize: 15 },
-        meta: { fontSize: 13, color: colors.textSecondary },
+        from: { fontWeight: '700', color: colors.text, fontSize: 15, flexShrink: 1 },
+        meta: { fontSize: 13, color: colors.textSecondary, flexShrink: 0 },
         banner: {
           marginHorizontal: 16,
           marginBottom: 8,
@@ -980,11 +959,7 @@ export default function EmailThreadScreen() {
     },
   ];
 
-  const toggleExpanded = (messageId: number) => {
-    setExpandedId((cur) => (cur === messageId ? null : messageId));
-  };
-
-  const threadReading = !!expandedId || !!fullscreenMessage;
+  const threadReading = !!fullscreenMessage;
 
   useEffect(() => {
     if (!threadReading) return;
@@ -1001,16 +976,6 @@ export default function EmailThreadScreen() {
     }
     setThreadCollapsedForCompose(false);
   }, [composeFullscreen, composing, keyboardOpen, threadReading]);
-
-  const onMessagePress = (messageId: number) => {
-    const now = Date.now();
-    if (now - lastTapRef.current < 320) {
-      toggleExpanded(messageId);
-      lastTapRef.current = 0;
-      return;
-    }
-    lastTapRef.current = now;
-  };
 
   const openAttachment = async (att: AttachPreview) => {
     const name = (att.filename || '').trim() || 'Attachment';
@@ -1040,8 +1005,6 @@ export default function EmailThreadScreen() {
     Alert.alert('Attachment', 'Still importing…');
   };
 
-  const maximizeFocus = !!expandedId && !fullscreenMessage && !composeFullscreen;
-
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -1060,12 +1023,17 @@ export default function EmailThreadScreen() {
         {fullscreenMessage ? (
           <View style={styles.header}>
             <View style={styles.headerBody}>
-              <Text style={styles.from} numberOfLines={2}>
-                {fullscreenMessage.direction === 'outbound'
-                  ? 'You'
-                  : fullscreenMessage.from_address || 'Them'}
-              </Text>
-              <Text style={styles.meta}>{formatEmailWhen(fullscreenMessage.provider_received_at)}</Text>
+              <View style={styles.bubbleHeadText}>
+                <Text style={styles.from} numberOfLines={1}>
+                  {fullscreenMessage.direction === 'outbound'
+                    ? 'You'
+                    : fullscreenMessage.from_address || 'Them'}
+                </Text>
+                <Text style={styles.meta} numberOfLines={1}>
+                  {' · '}
+                  {formatEmailWhen(fullscreenMessage.provider_received_at)}
+                </Text>
+              </View>
             </View>
             <FeedbackTouchable
               style={styles.iconBtn}
@@ -1156,13 +1124,6 @@ export default function EmailThreadScreen() {
         {!fullscreenMessage && !composeFullscreen && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
-            {maximizeFocus ? (
-              <Pressable
-                style={styles.focusDim}
-                onPress={() => setExpandedId(null)}
-                accessibilityLabel="Collapse message"
-              />
-            ) : null}
           </View>
         ) : null}
 
@@ -1193,7 +1154,7 @@ export default function EmailThreadScreen() {
               />
             </View>
           </View>
-        ) : threadCollapsedForCompose && !expandedId ? (
+        ) : threadCollapsedForCompose ? (
           <TouchableOpacity
             style={styles.sectionPeek}
             onPress={() => {
@@ -1213,18 +1174,12 @@ export default function EmailThreadScreen() {
         <ScrollView
           style={{
             flex: 1,
-            backgroundColor: maximizeFocus
-              ? colors.isDark
-                ? '#09090B'
-                : '#9CA3AF'
-              : colors.isDark
-                ? colors.background
-                : '#F3F4F6',
+            backgroundColor: colors.isDark ? colors.background : '#F3F4F6',
           }}
           contentContainerStyle={{
             flexGrow: 1,
             paddingTop: 8,
-            paddingBottom: expandedId ? 28 : 16,
+            paddingBottom: 16,
           }}
           keyboardShouldPersistTaps="handled"
           pinchGestureEnabled={false}
@@ -1268,54 +1223,38 @@ export default function EmailThreadScreen() {
 
           {messages.map((m) => {
             const out = m.direction === 'outbound';
-            const expanded = expandedId === m.id;
+            const fromName = out ? 'You' : m.from_address || 'Them';
+            const when = formatEmailWhen(m.provider_received_at);
             return (
-              <Pressable
+              <View
                 key={m.id}
-                onPress={() => onMessagePress(m.id)}
-                style={[
-                  styles.bubble,
-                  out && styles.outbound,
-                  expanded && { paddingBottom: 16 },
-                  maximizeFocus && expanded && styles.bubbleFocused,
-                  maximizeFocus && !expanded && styles.bubbleDimmed,
-                ]}
+                style={[styles.bubble, out && styles.outbound]}
               >
                 <View style={styles.bubbleHead}>
                   <View style={styles.bubbleHeadText}>
-                    <Text style={styles.from}>{out ? 'You' : m.from_address || 'Them'}</Text>
-                    <Text style={styles.meta}>{formatEmailWhen(m.provider_received_at)}</Text>
+                    <Text style={styles.from} numberOfLines={1}>
+                      {fromName}
+                    </Text>
+                    <Text style={styles.meta} numberOfLines={1}>
+                      {' · '}
+                      {when}
+                    </Text>
                   </View>
-                  <View style={styles.bubbleHeadActions}>
-                    <TouchableOpacity
-                      onPress={() => toggleExpanded(m.id)}
-                      style={styles.expandBtn}
-                      hitSlop={8}
-                      accessibilityLabel={expanded ? 'Collapse message' : 'Expand message'}
-                    >
-                      <Ionicons
-                        name={expanded ? 'contract-outline' : 'expand-outline'}
-                        size={20}
-                        color={colors.textSecondary}
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => {
-                        setComposeFullscreen(false);
-                        setFullscreenMessage(m);
-                      }}
-                      style={styles.expandBtn}
-                      hitSlop={8}
-                      accessibilityLabel="Full screen"
-                    >
-                      <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setComposeFullscreen(false);
+                      setFullscreenMessage(m);
+                    }}
+                    style={styles.expandBtn}
+                    hitSlop={8}
+                    accessibilityLabel="Full screen"
+                  >
+                    <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
+                  </TouchableOpacity>
                 </View>
                 <EmailHtmlBody
                   html={m.body_html}
                   text={m.body_text}
-                  expanded={expanded}
                   tall={dismissed}
                   reserveBottom={(m.attachments || []).length ? 56 : 0}
                 />
@@ -1326,7 +1265,7 @@ export default function EmailThreadScreen() {
                     style={{ marginTop: 8 }}
                   />
                 </View>
-              </Pressable>
+              </View>
             );
           })}
         </ScrollView>
@@ -1338,8 +1277,6 @@ export default function EmailThreadScreen() {
             style={[
               composeFullscreen
                 ? { flex: 1, minHeight: 0, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
-                : expandedId
-                  ? { flexGrow: 0, flexShrink: 0 }
                 : {
                     flexGrow: 0,
                     flexShrink: 0,
@@ -1354,7 +1291,6 @@ export default function EmailThreadScreen() {
                   },
             ]}
           >
-          {!expandedId ? (
           <ScrollView
             ref={composeScrollRef}
             style={[styles.composePanel, composeFullscreen ? { flex: 1 } : { flexGrow: 0 }]}
@@ -1689,17 +1625,7 @@ export default function EmailThreadScreen() {
               </View>
             ) : null}
           </ScrollView>
-          ) : null}
-          {expandedId ? (
-            <TouchableOpacity
-              style={[styles.composeFooter, { paddingVertical: 10, alignItems: 'center' }]}
-              onPress={() => setExpandedId(null)}
-              accessibilityRole="button"
-              accessibilityLabel="Restore compose"
-            >
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary }}>Compose</Text>
-            </TouchableOpacity>
-          ) : composing && draft ? (
+          {composing && draft ? (
             <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 0 : 4 }]}>
               <View style={styles.tools}>
                 <TouchableOpacity
@@ -1783,13 +1709,6 @@ export default function EmailThreadScreen() {
                 </View>
               </View>
             </View>
-          ) : null}
-          {maximizeFocus ? (
-            <Pressable
-              style={styles.focusDim}
-              onPress={() => setExpandedId(null)}
-              accessibilityLabel="Collapse message"
-            />
           ) : null}
           </View>
         ) : null}
