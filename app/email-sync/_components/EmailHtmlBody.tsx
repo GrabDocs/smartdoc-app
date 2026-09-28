@@ -23,6 +23,7 @@ export function EmailHtmlBody({
   isDark: _isDark,
   expanded,
   tall,
+  fill,
 }: {
   html?: string | null;
   text?: string | null;
@@ -35,6 +36,8 @@ export function EmailHtmlBody({
   expanded?: boolean;
   /** View-only / dismissed: use more of the screen for the email body. */
   tall?: boolean;
+  /** Fill the parent (fullscreen reader). Ignores expanded/tall height caps. */
+  fill?: boolean;
 }) {
   const sourceHtml = useMemo(() => {
     const inner = (html || '').trim()
@@ -65,7 +68,7 @@ ${themeCss}
   }
 
   return (
-    <View style={[styles.wrap, { minHeight: minH, maxHeight: maxH }]}>
+    <View style={[styles.wrap, fill ? styles.fill : { minHeight: minH, maxHeight: maxH }]}>
       <WebView
         originWhitelist={['*']}
         source={{ html: sourceHtml }}
@@ -85,6 +88,12 @@ const styles = StyleSheet.create({
     backgroundColor: PAPER_BG,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#E5E7EB',
+  },
+  fill: {
+    flex: 1,
+    minHeight: 0,
+    borderRadius: 0,
+    borderWidth: 0,
   },
   web: { flex: 1 },
 });

@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    BackHandler,
     Keyboard,
     KeyboardAvoidingView,
     Modal,
@@ -62,7 +63,7 @@ import {
     type ThreadAnalysis,
     type ThreadAttention,
 } from '../../../services/emailSyncApi';
-import { AttachmentNamesRow } from '../_components/AttachmentNamesRow';
+import { AttachmentNamesRow, type AttachPreview } from '../_components/AttachmentNamesRow';
 import { formatEmailWhen } from '../_components/emailFormat';
 import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import {
@@ -164,6 +165,8 @@ export default function EmailThreadScreen() {
   const [toneMenu, setToneMenu] = useState(false);
   const [gdOpen, setGdOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [fullscreenMessage, setFullscreenMessage] = useState<EmailMessage | null>(null);
+  const [composeFullscreen, setComposeFullscreen] = useState(false);
   const [grabdocsResearchOn, setGrabdocsResearchOn] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone>(DEFAULT_REPLY_TONE);
   const [replyAll, setReplyAll] = useState(false);
@@ -211,6 +214,27 @@ export default function EmailThreadScreen() {
       if (researchStageTimerRef.current) clearTimeout(researchStageTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    setFullscreenMessage(null);
+    setComposeFullscreen(false);
+  }, [threadId]);
+
+  useEffect(() => {
+    if (!composeFullscreen && !fullscreenMessage) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (fullscreenMessage) {
+        setFullscreenMessage(null);
+        return true;
+      }
+      if (composeFullscreen) {
+        setComposeFullscreen(false);
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [composeFullscreen, fullscreenMessage]);
 
   useEffect(() => {
     if (!Number.isFinite(threadId) || threadId <= 0) return;
@@ -592,6 +616,7 @@ export default function EmailThreadScreen() {
         });
       }
       setComposing(false);
+      setComposeFullscreen(false);
       setDraft(null);
       if (advanceTimerRef.current) {
         clearTimeout(advanceTimerRef.current);
@@ -640,6 +665,15 @@ export default function EmailThreadScreen() {
         bubbleHead: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 6 },
         bubbleHeadText: { flex: 1, minWidth: 0 },
         expandBtn: { padding: 4, marginLeft: 8, marginTop: -2 },
+        bubbleHeadActions: { flexDirection: 'row', alignItems: 'center' },
+        composeSizeBar: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          paddingHorizontal: 12,
+          paddingTop: 8,
+          paddingBottom: 0,
+        },
         meta: { fontSize: 12, color: colors.textSecondary },
         from: { fontWeight: '700', color: colors.text, fontSize: 14 },
         banner: {
@@ -696,7 +730,6 @@ export default function EmailThreadScreen() {
         fieldInput: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 4 },
         input: {
           minHeight: 140,
-          maxHeight: 200,
           borderRadius: 18,
           backgroundColor: colors.surface,
           paddingHorizontal: 14,
@@ -706,6 +739,7 @@ export default function EmailThreadScreen() {
           marginTop: 8,
           textAlignVertical: 'top',
         },
+        inputCollapsed: { maxHeight: 200 },
         tools: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 2, flexWrap: 'wrap' },
         chip: {
           paddingHorizontal: 10,
@@ -963,75 +997,95 @@ export default function EmailThreadScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
-        <View style={styles.header}>
-          <AppBackButton />
-          <View style={styles.headerBody}>
-            <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
-              {isNewCompose
-                ? 'New message'
-                : truncateAppHeaderTitle(thread?.subject || 'Conversation')}
-            </AppHeaderTitle>
-            {Number.isFinite(threadId) && threadId > 0 ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, minWidth: 0 }}>
-                <ClientsButton itemType="email_thread" itemId={threadId} compact allowCreate />
-              </View>
-            ) : null}
+        {composeFullscreen ? (
+          <View style={styles.header}>
+            <View style={styles.headerBody}>
+              <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
+                {isNewCompose ? 'New message' : 'Compose'}
+              </AppHeaderTitle>
+            </View>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => setComposeFullscreen(false)}
+              accessibilityLabel="Exit full screen"
+            >
+              <Ionicons name="contract-outline" size={22} color={colors.text} />
+            </FeedbackTouchable>
           </View>
-          {!dismissed && !isNewCompose && thread ? (
-            <FeedbackTouchable
-              style={styles.iconBtn}
-              accessibilityLabel={
-                thread.attention_status === 'awaiting_reply' ? 'Stop awaiting' : 'Mark awaiting reply'
-              }
-              onPress={async () => {
-                try {
-                  if (thread.attention_status === 'awaiting_reply') await stopMailboxThreadAwaiting(threadId);
-                  else await markMailboxThreadAwaiting(threadId);
-                  await load();
-                } catch (e) {
-                  Alert.alert('Awaiting', emailApiError(e, 'Could not update awaiting'));
+        ) : (
+          <View style={styles.header}>
+            <AppBackButton />
+            <View style={styles.headerBody}>
+              <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
+                {isNewCompose
+                  ? 'New message'
+                  : truncateAppHeaderTitle(thread?.subject || 'Conversation')}
+              </AppHeaderTitle>
+              {Number.isFinite(threadId) && threadId > 0 ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, minWidth: 0 }}>
+                  <ClientsButton itemType="email_thread" itemId={threadId} compact allowCreate />
+                </View>
+              ) : null}
+            </View>
+            {!dismissed && !isNewCompose && thread ? (
+              <FeedbackTouchable
+                style={styles.iconBtn}
+                accessibilityLabel={
+                  thread.attention_status === 'awaiting_reply' ? 'Stop awaiting' : 'Mark awaiting reply'
                 }
-              }}
-            >
-              <Ionicons
-                name={thread.attention_status === 'awaiting_reply' ? 'pause-circle-outline' : 'time-outline'}
-                size={22}
-                color={colors.text}
-              />
-            </FeedbackTouchable>
-          ) : null}
-          <FeedbackTouchable
-            style={styles.iconBtn}
-            onPress={async () => {
-              if (dismissed) await undismissMailboxThread(threadId);
-              else await dismissMailboxThread(threadId);
-              router.back();
-            }}
-            accessibilityLabel={dismissed ? 'Restore' : 'Dismiss'}
-          >
-            <Ionicons name={dismissed ? 'arrow-undo' : 'close-circle-outline'} size={22} color={colors.text} />
-          </FeedbackTouchable>
-          {!dismissed && !isNewCompose && (
+                onPress={async () => {
+                  try {
+                    if (thread.attention_status === 'awaiting_reply') await stopMailboxThreadAwaiting(threadId);
+                    else await markMailboxThreadAwaiting(threadId);
+                    await load();
+                  } catch (e) {
+                    Alert.alert('Awaiting', emailApiError(e, 'Could not update awaiting'));
+                  }
+                }}
+              >
+                <Ionicons
+                  name={thread.attention_status === 'awaiting_reply' ? 'pause-circle-outline' : 'time-outline'}
+                  size={22}
+                  color={colors.text}
+                />
+              </FeedbackTouchable>
+            ) : null}
             <FeedbackTouchable
               style={styles.iconBtn}
-              onPress={() => {
-                void goNextPending();
+              onPress={async () => {
+                if (dismissed) await undismissMailboxThread(threadId);
+                else await dismissMailboxThread(threadId);
+                router.back();
               }}
-              accessibilityLabel="Skip to next thread"
+              accessibilityLabel={dismissed ? 'Restore' : 'Dismiss'}
             >
-              <Ionicons name="play-skip-forward-outline" size={22} color={colors.text} />
+              <Ionicons name={dismissed ? 'arrow-undo' : 'close-circle-outline'} size={22} color={colors.text} />
             </FeedbackTouchable>
-          )}
-        </View>
+            {!dismissed && !isNewCompose && (
+              <FeedbackTouchable
+                style={styles.iconBtn}
+                onPress={() => {
+                  void goNextPending();
+                }}
+                accessibilityLabel="Skip to next thread"
+              >
+                <Ionicons name="play-skip-forward-outline" size={22} color={colors.text} />
+              </FeedbackTouchable>
+            )}
+          </View>
+        )}
 
-        {Number.isFinite(threadId) && threadId > 0 ? (
+        {!composeFullscreen && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
           </View>
         ) : null}
 
         <ScrollView
-          style={{ flex: 1, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' }}
+          style={[
+            { flex: 1, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' },
+            composeFullscreen ? { display: 'none' } : null,
+          ]}
           contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
         >
@@ -1086,18 +1140,28 @@ export default function EmailThreadScreen() {
                     <Text style={styles.from}>{out ? 'You' : m.from_address || 'Them'}</Text>
                     <Text style={styles.meta}>{formatEmailWhen(m.provider_received_at)}</Text>
                   </View>
-                  <TouchableOpacity
-                    onPress={() => toggleExpanded(m.id)}
-                    style={styles.expandBtn}
-                    hitSlop={8}
-                    accessibilityLabel={expanded ? 'Collapse message' : 'Expand message'}
-                  >
-                    <Ionicons
-                      name={expanded ? 'contract-outline' : 'expand-outline'}
-                      size={20}
-                      color={colors.textSecondary}
-                    />
-                  </TouchableOpacity>
+                  <View style={styles.bubbleHeadActions}>
+                    <TouchableOpacity
+                      onPress={() => toggleExpanded(m.id)}
+                      style={styles.expandBtn}
+                      hitSlop={8}
+                      accessibilityLabel={expanded ? 'Collapse message' : 'Expand message'}
+                    >
+                      <Ionicons
+                        name={expanded ? 'contract-outline' : 'expand-outline'}
+                        size={20}
+                        color={colors.textSecondary}
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => setFullscreenMessage(m)}
+                      style={styles.expandBtn}
+                      hitSlop={8}
+                      accessibilityLabel="Full screen"
+                    >
+                      <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
                 <EmailHtmlBody
                   html={m.body_html}
@@ -1119,16 +1183,19 @@ export default function EmailThreadScreen() {
           <ScrollView
             style={[
               styles.composePanel,
-              {
-                maxHeight: Math.round(
-                  androidKeyboardLift > 0
-                    ? Math.min(windowHeight * 0.58, Math.max(180, windowHeight - androidKeyboardLift - 96))
-                    : windowHeight * 0.58
-                ),
-                ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null),
-              },
+              composeFullscreen
+                ? { flex: 1, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
+                : {
+                    maxHeight: Math.round(
+                      androidKeyboardLift > 0
+                        ? Math.min(windowHeight * 0.58, Math.max(180, windowHeight - androidKeyboardLift - 96))
+                        : windowHeight * 0.58
+                    ),
+                    ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null),
+                  },
             ]}
             contentContainerStyle={{
+              flexGrow: composeFullscreen ? 1 : undefined,
               paddingBottom:
                 androidKeyboardLift > 0 ? 12 : Math.max(insets.bottom, keyboardOpen ? 12 : 8),
               gap: 0,
@@ -1137,6 +1204,18 @@ export default function EmailThreadScreen() {
             nestedScrollEnabled
             showsVerticalScrollIndicator
           >
+            {!composeFullscreen ? (
+              <View style={styles.composeSizeBar}>
+                <TouchableOpacity
+                  onPress={() => setComposeFullscreen(true)}
+                  hitSlop={8}
+                  accessibilityLabel="Full screen"
+                  accessibilityRole="button"
+                >
+                  <Ionicons name="scan-outline" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+            ) : null}
             <View style={styles.actions}>
               {!isNewCompose ? (
               <>
@@ -1382,7 +1461,13 @@ export default function EmailThreadScreen() {
                     </View>
                   ) : null}
                   <TextInput
-                    style={[styles.input, drafting ? { opacity: 0.45 } : null]}
+                    style={[
+                      styles.input,
+                      composeFullscreen
+                        ? { minHeight: Math.max(280, Math.round(windowHeight * 0.42)) }
+                        : styles.inputCollapsed,
+                      drafting ? { opacity: 0.45 } : null,
+                    ]}
                     value={body}
                     onChangeText={(v) => {
                       setSuggestedReply(false);
@@ -1439,6 +1524,18 @@ export default function EmailThreadScreen() {
                   </View>
                 )}
                 <View style={styles.tools}>
+                  <TouchableOpacity
+                    onPress={() => setComposeFullscreen((v) => !v)}
+                    style={{ padding: 8 }}
+                    accessibilityLabel={composeFullscreen ? 'Exit full screen' : 'Full screen'}
+                    accessibilityRole="button"
+                  >
+                    <Ionicons
+                      name={composeFullscreen ? 'contract-outline' : 'scan-outline'}
+                      size={22}
+                      color={colors.text}
+                    />
+                  </TouchableOpacity>
                   <TouchableOpacity onPress={() => setAttachMenu(true)} style={{ padding: 8 }} disabled={drafting || busy}>
                     <Ionicons name="attach" size={22} color={colors.text} />
                   </TouchableOpacity>
@@ -1448,6 +1545,7 @@ export default function EmailThreadScreen() {
                         await deleteMailboxDraft(draft.id);
                         setDraft(null);
                         setComposing(false);
+                        setComposeFullscreen(false);
                         setSuggestedReply(false);
                         if (isNewCompose) router.back();
                       } catch (e: any) {
@@ -1573,6 +1671,62 @@ export default function EmailThreadScreen() {
           }
         }}
       />
+
+      <Modal
+        visible={!!fullscreenMessage}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setFullscreenMessage(null)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <View style={styles.header}>
+            <View style={styles.headerBody}>
+              <Text style={styles.from} numberOfLines={2}>
+                {fullscreenMessage?.direction === 'outbound'
+                  ? 'You'
+                  : fullscreenMessage?.from_address || 'Them'}
+              </Text>
+              {fullscreenMessage ? (
+                <Text style={styles.meta}>{formatEmailWhen(fullscreenMessage.provider_received_at)}</Text>
+              ) : null}
+            </View>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => setFullscreenMessage(null)}
+              accessibilityLabel="Exit full screen"
+            >
+              <Ionicons name="contract-outline" size={22} color={colors.text} />
+            </FeedbackTouchable>
+          </View>
+          {fullscreenMessage ? (
+            <View style={{ flex: 1, paddingHorizontal: 12, paddingBottom: 12, minHeight: 0 }}>
+              <EmailHtmlBody
+                html={fullscreenMessage.body_html}
+                text={fullscreenMessage.body_text}
+                fill
+              />
+              <AttachmentNamesRow
+                attachments={fullscreenMessage.attachments}
+                onOpen={openAttachment}
+                style={{ marginTop: 8 }}
+              />
+            </View>
+          ) : null}
+          {attOpening ? (
+            <View
+              pointerEvents="none"
+              style={{
+                ...StyleSheet.absoluteFillObject,
+                backgroundColor: 'rgba(0,0,0,0.25)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <ActivityIndicator size="large" color="#007AFF" />
+            </View>
+          ) : null}
+        </SafeAreaView>
+      </Modal>
 
       {viewerFileId != null ? (
         <DocumentViewer

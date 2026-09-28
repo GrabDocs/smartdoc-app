@@ -28,6 +28,9 @@ function mimeTypeFromExtension(extension: string): string {
     ppt: 'application/vnd.ms-powerpoint',
     pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     txt: 'text/plain',
+    json: 'application/json',
+    md: 'text/markdown',
+    csv: 'text/csv',
     jpg: 'image/jpeg',
     jpeg: 'image/jpeg',
     png: 'image/png',
@@ -94,10 +97,17 @@ function inferMimeFromMagic(bytes: Uint8Array | null): string | null {
   return null;
 }
 
-function looksLikeErrorPayload(bytes: Uint8Array | null): boolean {
+function looksLikeErrorPayload(bytes: Uint8Array | null, extension?: string): boolean {
   if (!bytes || bytes.length < 1) return true;
   const first = bytes[0];
-  return first === 0x3c || first === 0x7b; // HTML or JSON error body
+  if (first === 0x3c) return true; // HTML error/login page
+  if (first !== 0x7b) return false;
+  const head = String.fromCharCode(...Array.from(bytes));
+  if (/"error"\s*:/i.test(head) || /"success"\s*:\s*false/i.test(head)) return true;
+  const ext = (extension || '').toLowerCase();
+  // Meeting recaps and other text assets are valid JSON — do not treat `{` as failure.
+  if (ext === 'json' || ext === 'txt' || ext === 'md' || ext === 'csv') return false;
+  return true;
 }
 
 function cacheDirOrThrow(): string {
@@ -171,7 +181,7 @@ async function readValidCachedShare(
     const info = await FileSystem.getInfoAsync(localUri);
     if (!info.exists || !('size' in info) || !info.size || info.size < 1) return null;
     const magicBytes = await readLocalFileHeadBytes(localUri, 16);
-    if (looksLikeErrorPayload(magicBytes)) {
+    if (looksLikeErrorPayload(magicBytes, extension)) {
       await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
       return null;
     }
@@ -266,4 +276,22 @@ export async function shareDocumentFile(
 ): Promise<void> {
   const prepared = await prepareShareFile(fileId, displayName, opts);
   await presentShareSheet(prepared.localUri, prepared.mimeType, prepared.displayName);
+}
+
+/** Share already-loaded text (meeting recap JSON, transcript) without a download. */
+export async function shareTextContent(
+  displayName: string,
+  content: string,
+  opts?: { extension?: string },
+): Promise<void> {
+  const text = (content || '').trim();
+  if (!text) {
+    throw new Error('Nothing to share');
+  }
+  const inferred = text.startsWith('{') || text.startsWith('[') ? 'json' : 'txt';
+  const { filename, extension } = resolveShareFilename(displayName, opts?.extension || inferred);
+  const fileUri = `${cacheDirOrThrow()}${SHARE_CACHE_PREFIX}inline_${filename}`;
+  await FileSystem.writeAsStringAsync(fileUri, content);
+  scheduleShareFileCleanup(fileUri);
+  await presentShareSheet(fileUri, mimeTypeFromExtension(extension), displayName);
 }

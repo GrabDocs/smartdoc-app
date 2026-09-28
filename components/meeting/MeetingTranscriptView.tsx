@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Video, type AVPlaybackStatus } from 'expo-av';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -18,6 +19,7 @@ import {
   type MeetingTranscriptTurn,
 } from '../../utils/parseMeetingTranscript';
 import {
+  collapseRecapRecordings,
   isAudioTrackType,
   pickPreferredRecording,
   recordingLabel,
@@ -82,6 +84,7 @@ export default function MeetingTranscriptView({
   recordings,
   meetingDurationSeconds,
   seekToSeconds,
+  onPlayRecording,
 }: {
   transcriptContent?: string | null;
   loading?: boolean;
@@ -89,6 +92,7 @@ export default function MeetingTranscriptView({
   recordings?: MeetingRecapRecording[] | null;
   meetingDurationSeconds?: number | null;
   seekToSeconds?: number | null;
+  onPlayRecording?: (recording: MeetingRecapRecording) => void;
 }) {
   const colors = useThemeColors();
   const parsed = useMemo(() => parseMeetingTranscript(transcriptContent), [transcriptContent]);
@@ -102,9 +106,9 @@ export default function MeetingTranscriptView({
   const [activeTurn, setActiveTurn] = useState<number | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const recordingOptions = useMemo(() => {
-    const list = (recordings || []).filter((row) => row?.streamUrl);
+    const list = collapseRecapRecordings((recordings || []).filter((row) => row?.streamUrl));
     if (list.length) return list;
-    return recording?.streamUrl ? [recording] : [];
+    return recording?.streamUrl ? collapseRecapRecordings([recording]) : [];
   }, [recordings, recording]);
   const [selectedStreamUrl, setSelectedStreamUrl] = useState<string | null>(null);
   const activeRecording = useMemo(
@@ -162,7 +166,13 @@ export default function MeetingTranscriptView({
   };
 
   const seekTo = async (turn: MeetingTranscriptTurn, index: number) => {
-    if (!hasTimestamps || turn.startSeconds == null || !recording?.streamUrl) return;
+    if (!hasTimestamps || turn.startSeconds == null) return;
+    if (onPlayRecording && activeRecording) {
+      onPlayRecording(activeRecording);
+      setActiveTurn(index);
+      return;
+    }
+    if (!activeRecording?.streamUrl) return;
     const millis = Math.round(turn.startSeconds * 1000);
     try {
       await videoRef.current?.setPositionAsync(millis);
@@ -232,17 +242,29 @@ export default function MeetingTranscriptView({
               })}
             </View>
           ) : null}
-          <Video
-            ref={(el) => {
-              videoRef.current = el;
-            }}
-            source={{ uri: activeRecording!.streamUrl }}
-            useNativeControls
-            style={{ width: '100%', height: audio ? 48 : 160, borderRadius: 8 }}
-            onPlaybackStatusUpdate={onPlaybackStatus}
-            onError={() => setPlayerError('Unable to play this recording.')}
-          />
-          {playerError ? <Text style={styles.error}>{playerError}</Text> : null}
+          {onPlayRecording ? (
+            <TouchableOpacity
+              onPress={() => onPlayRecording(activeRecording!)}
+              style={styles.playExisting}
+            >
+              <Ionicons name="play-circle" size={28} color="#007AFF" />
+              <Text style={styles.playExistingText}>
+                Play {activeRecording!.label || recordingLabel(activeRecording!.trackType)}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Video
+              ref={(el) => {
+                videoRef.current = el;
+              }}
+              source={{ uri: activeRecording!.streamUrl }}
+              useNativeControls
+              style={{ width: '100%', height: audio ? 48 : 160, borderRadius: 8 }}
+              onPlaybackStatusUpdate={onPlaybackStatus}
+              onError={() => setPlayerError('Unable to play this recording.')}
+            />
+          )}
+          {playerError && !onPlayRecording ? <Text style={styles.error}>{playerError}</Text> : null}
           {!hasTimestamps ? (
             <Text style={[styles.muted, { color: colors.textSecondary, textAlign: 'left' }]}>
               Play/pause is available. This transcript has no timestamps to seek.
@@ -346,6 +368,14 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
   muted: { fontSize: 12, textAlign: 'center', marginTop: 8 },
   player: { borderRadius: 10, borderWidth: 1, padding: 8 },
+  playExisting: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+  },
+  playExistingText: { fontSize: 16, fontWeight: '600', color: '#007AFF' },
   error: { color: '#dc2626', fontSize: 12, marginTop: 6 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },

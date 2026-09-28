@@ -11,6 +11,7 @@ export type MeetingRecapRecording = {
   streamUrl: string;
   trackType?: string | null;
   label?: string;
+  assetId?: string;
 };
 
 export type MeetingRecapClientLink = {
@@ -96,6 +97,50 @@ export function pickPreferredRecording<T extends { trackType?: string | null; tr
   return (
     recordings.find((row) => isAudioTrackType(row.trackType || row.track_type)) || recordings[0]
   );
+}
+
+function recordingIdentity(row: {
+  streamUrl?: string | null;
+  id?: unknown;
+  recording_db_id?: unknown;
+  file_id?: unknown;
+  url?: string | null;
+}): string {
+  const recId =
+    parseNumericId(row.recording_db_id) ??
+    parseNumericId(String(row.id || '').match(/call_recording[_-](\d+)/i)?.[1]) ??
+    parseNumericId((row.streamUrl || row.url || '').match(/\/recording\/(\d+)\//)?.[1]);
+  if (recId != null) return `rec:${recId}`;
+  const fileId = parseNumericId(row.file_id);
+  if (fileId != null) return `file:${fileId}`;
+  const url = (row.streamUrl || row.url || '').split('?')[0];
+  return url || `id:${String(row.id || '')}`;
+}
+
+/** One video + one audio max; drop duplicate listings of the same recording. */
+export function collapseRecapRecordings<
+  T extends {
+    streamUrl?: string | null;
+    trackType?: string | null;
+    track_type?: string | null;
+    id?: unknown;
+    recording_db_id?: unknown;
+    file_id?: unknown;
+    url?: string | null;
+  },
+>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const unique: T[] = [];
+  for (const row of rows) {
+    const key = recordingIdentity(row);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(row);
+  }
+  const audio = unique.filter((row) => isAudioTrackType(row.trackType || row.track_type));
+  const video = unique.filter((row) => !isAudioTrackType(row.trackType || row.track_type));
+  if (video.length <= 1) return [...video, ...audio];
+  return [video[0], ...audio];
 }
 
 export function collapseMeetingRecapAssets<T extends { id?: unknown; type?: string }>(assets: T[]): T[] {

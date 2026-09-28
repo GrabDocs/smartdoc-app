@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Dimensions,
   Keyboard,
+  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -65,6 +66,14 @@ export default function ChatGDBottomSheetHost() {
   if (!visible) return null;
 
   return (
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      onRequestClose={closeChatGD}
+    >
     <View style={styles.host} pointerEvents="box-none">
       <MinimizableBottomSheet
         visible={visible}
@@ -111,6 +120,7 @@ export default function ChatGDBottomSheetHost() {
         </ChatGDSheetHostParamsContext.Provider>
       </MinimizableBottomSheet>
     </View>
+    </Modal>
   );
 }
 

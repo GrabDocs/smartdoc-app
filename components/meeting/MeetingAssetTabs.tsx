@@ -7,7 +7,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { summarizeMeetingChat } from '../../utils/parseMeetingChat';
 import { parseMeetingTranscript } from '../../utils/parseMeetingTranscript';
 import MeetingChatView from './MeetingChatView';
-import { shareDocumentFile } from '../../utils/shareDocumentFile';
+import { shareDocumentFile, shareTextContent } from '../../utils/shareDocumentFile';
 import MeetingRecapView from './MeetingRecapView';
 import MeetingTranscriptView from './MeetingTranscriptView';
 import type {
@@ -19,7 +19,7 @@ import type {
   MeetingRecapShareFiles,
   MeetingRecapTab,
 } from './meetingRecapTypes';
-import { pickPreferredRecording } from './meetingRecapTypes';
+import { collapseRecapRecordings, pickPreferredRecording } from './meetingRecapTypes';
 
 export type MeetingAssetTabsProps = {
   initialTab?: MeetingRecapTab;
@@ -39,6 +39,7 @@ export type MeetingAssetTabsProps = {
   onDownloadSummary?: () => void;
   onDownloadTranscript?: () => void;
   enrichment?: MeetingRecapEnrichment | null;
+  onPlayRecording?: (recording: MeetingRecapRecording) => void;
 };
 
 export default function MeetingAssetTabs({
@@ -59,6 +60,7 @@ export default function MeetingAssetTabs({
   onDownloadSummary,
   onDownloadTranscript,
   enrichment,
+  onPlayRecording,
 }: MeetingAssetTabsProps) {
   const colors = useThemeColors();
   const openChatGD = useOpenChatGD();
@@ -75,9 +77,9 @@ export default function MeetingAssetTabs({
     [transcriptContent]
   );
   const recordingOptions = useMemo(() => {
-    const list = (recordings || []).filter((row) => row?.streamUrl);
+    const list = collapseRecapRecordings((recordings || []).filter((row) => row?.streamUrl));
     if (list.length) return list;
-    return recording?.streamUrl ? [recording] : [];
+    return recording?.streamUrl ? collapseRecapRecordings([recording]) : [];
   }, [recordings, recording]);
   const resolvedHero = useMemo<MeetingRecapHero | undefined>(() => {
     if (!hero && !extraSpeakers.length) return hero;
@@ -89,7 +91,7 @@ export default function MeetingAssetTabs({
   const shareIds = [shareFiles?.summaryFileId, shareFiles?.transcriptFileId].filter(
     (n): n is number => n != null && Number.isFinite(n)
   );
-  const canShare = shareIds.length > 0;
+  const canShare = shareIds.length > 0 || !!summaryContent?.trim() || !!transcriptContent?.trim();
 
   const handleAsk = () => {
     if (!canAsk || !askContext) return;
@@ -97,31 +99,64 @@ export default function MeetingAssetTabs({
     const transcriptIds = (askContext.transcriptIds || []).filter((n) => Number.isFinite(n));
     openChatGD({
       fileId: fileIds[0] != null ? String(fileIds[0]) : undefined,
-      fileIds: fileIds.length ? fileIds.map(String) : undefined,
+      fileIds: fileIds.length ? fileIds.join(',') : undefined,
       fileName: fileIds.length > 1 ? 'Meeting recap' : askContext.labels?.[0]?.name || 'Meeting recap',
-      transcriptIds: transcriptIds.length ? transcriptIds.map(String) : undefined,
+      transcriptIds: transcriptIds.length ? transcriptIds.join(',') : undefined,
       chatPlaceholder: 'Ask about this meeting',
     });
+  };
+
+  const shareOrFallback = async (
+    fileId: number | null | undefined,
+    displayName: string,
+    content?: string | null,
+    fallbackExtension = 'txt',
+  ) => {
+    if (fileId != null) {
+      try {
+        await shareDocumentFile(fileId, displayName, { fallbackExtension });
+        return;
+      } catch {
+        if (!content?.trim()) throw new Error('Could not download this file for sharing. Try again.');
+      }
+    }
+    if (content?.trim()) {
+      await shareTextContent(displayName, content, { extension: fallbackExtension });
+      return;
+    }
+    throw new Error('Could not download this file for sharing. Try again.');
   };
 
   const handleShare = async () => {
     if (!canShare) return;
     try {
-      const primaryId = shareFiles?.summaryFileId || shareFiles?.transcriptFileId;
-      if (primaryId == null) return;
-      const name =
-        shareFiles?.summaryFileId && shareFiles?.transcriptFileId
-          ? 'Meeting recap'
-          : shareFiles?.summaryFileName || shareFiles?.transcriptFileName || 'Meeting recap';
-      await shareDocumentFile(primaryId, name, { fallbackExtension: 'txt' });
-      const otherId =
-        shareFiles?.summaryFileId && shareFiles?.transcriptFileId && shareFiles.transcriptFileId !== primaryId
-          ? shareFiles.transcriptFileId
-          : null;
-      if (otherId) {
-        await shareDocumentFile(otherId, shareFiles?.transcriptFileName || 'Meeting transcript', {
-          fallbackExtension: 'txt',
-        });
+      const summaryId = shareFiles?.summaryFileId;
+      const transcriptId = shareFiles?.transcriptFileId;
+      if (summaryId != null || summaryContent?.trim()) {
+        await shareOrFallback(
+          summaryId,
+          shareFiles?.summaryFileName || 'Meeting recap',
+          summaryContent,
+          'json',
+        );
+      } else {
+        await shareOrFallback(
+          transcriptId,
+          shareFiles?.transcriptFileName || 'Meeting recap',
+          transcriptContent,
+          'txt',
+        );
+        return;
+      }
+      if (transcriptId != null && transcriptId !== summaryId) {
+        await shareOrFallback(
+          transcriptId,
+          shareFiles?.transcriptFileName || 'Meeting transcript',
+          transcriptContent,
+          'txt',
+        );
+      } else if (transcriptContent?.trim() && summaryId != null && transcriptId == null) {
+        await shareOrFallback(null, shareFiles?.transcriptFileName || 'Meeting transcript', transcriptContent, 'txt');
       }
     } catch (error) {
       Alert.alert('Share', error instanceof Error ? error.message : 'Failed to share recap');
@@ -173,7 +208,7 @@ export default function MeetingAssetTabs({
           ) : null}
           {canAsk ? (
             <TouchableOpacity onPress={handleAsk} style={styles.actionBtn}>
-              <Ionicons name="sparkles-outline" size={16} color={colors.textSecondary} />
+              <Ionicons name="chatbubbles" size={16} color="#007AFF" />
               <Text style={[styles.actionText, { color: colors.textSecondary }]}>Ask ChatGD</Text>
             </TouchableOpacity>
           ) : null}
@@ -217,6 +252,7 @@ export default function MeetingAssetTabs({
             recordings={recordingOptions}
             meetingDurationSeconds={meetingDurationSeconds}
             seekToSeconds={seekToSeconds}
+            onPlayRecording={onPlayRecording}
           />
         )}
       </ScrollView>

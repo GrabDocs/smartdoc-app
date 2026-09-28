@@ -26,13 +26,20 @@ export default function SpeakerTalkBreakdown({
 
   if (!rows.length) return null;
 
+  const listHeight = Math.min(224, rows.length * 52);
+
   return (
     <View style={[styles.card, { backgroundColor: colors.surface || colors.card, borderColor: colors.border }]}>
       <Text style={[styles.title, { color: colors.text }]}>
         Speaking time
         {rows.some((row) => row.estimated) ? '  · estimated' : ''}
       </Text>
-      <ScrollView style={styles.list} nestedScrollEnabled>
+      <ScrollView
+        style={{ height: listHeight }}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+        persistentScrollbar
+      >
       {rows.map((row) => (
         <View key={row.speaker} style={styles.row}>
           <View style={styles.header}>
@@ -73,7 +80,6 @@ export default function SpeakerTalkBreakdown({
 
 const styles = StyleSheet.create({
   card: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 12 },
-  list: { maxHeight: 224 },
   title: { fontSize: 14, fontWeight: '600' },
   row: { gap: 6 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },

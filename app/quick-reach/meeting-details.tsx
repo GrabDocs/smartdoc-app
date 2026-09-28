@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS, ResizeMode, Video } from 'expo-av';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS, ResizeMode, Video, VideoFullscreenUpdate } from 'expo-av';
 import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -29,6 +29,7 @@ import TextAssetViewer from '../../components/TextAssetViewer';
 import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
 import {
   collapseMeetingRecapAssets,
+  collapseRecapRecordings,
   isChatAssetType,
   formatMeetingDurationLabel,
   isAudioTrackType,
@@ -157,6 +158,7 @@ export default function MeetingDetailsScreen() {
   const [videoKey, setVideoKey] = useState(0); // Key counter to force remounts
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [videoBuffering, setVideoBuffering] = useState(true); // Track if video is buffering
+  const [videoUiFullscreen, setVideoUiFullscreen] = useState(false);
   const hasShownVideoErrorRef = useRef(false); // Track if we've shown an error to prevent duplicates
   const assetsLoadInFlightRef = useRef(false); // Prevent duplicate getMeetingAssets (e.g. Strict Mode)
   const videoLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for video loading
@@ -185,6 +187,7 @@ export default function MeetingDetailsScreen() {
   const [recapShareFiles, setRecapShareFiles] = useState<MeetingRecapShareFiles | null>(null);
   const [recapAskContext, setRecapAskContext] = useState<MeetingRecapAskContext | null>(null);
   const [recapEnrichment, setRecapEnrichment] = useState<MeetingRecapEnrichment | null>(null);
+  const recapRecordingAssetsRef = useRef<MeetingAsset[]>([]);
   const recapOpenedRef = useRef(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [audioSound, setAudioSound] = useState<Audio.Sound | null>(null);
@@ -925,6 +928,7 @@ export default function MeetingDetailsScreen() {
       
       setVideoTitle(title);
       setSelectedVideoUrl(uriToPlay);
+      setVideoUiFullscreen(false);
       setShowVideoPlayer(true);
       setVideoLoading(true);
       setVideoBuffering(uriToPlay !== (videoCachePath.startsWith('file://') ? videoCachePath : `file://${videoCachePath}`)); // Cached file typically doesn't need buffering
@@ -970,6 +974,24 @@ export default function MeetingDetailsScreen() {
         `Unable to load video file. ${errorMessage.includes('authentication') ? 'The file requires authentication.' : 'Please try again later.'}`
       );
       setShowVideoPlayer(false);
+    }
+  };
+
+  const toggleVideoFullscreen = async () => {
+    if (videoUiFullscreen) {
+      try {
+        await videoRef?.dismissFullscreenPlayer();
+      } catch {
+        /* native fullscreen may already be dismissed */
+      }
+      setVideoUiFullscreen(false);
+      return;
+    }
+    try {
+      await videoRef?.presentFullscreenPlayer();
+      setVideoUiFullscreen(true);
+    } catch {
+      setVideoUiFullscreen(true);
     }
   };
 
@@ -1314,7 +1336,10 @@ export default function MeetingDetailsScreen() {
         (asset.meeting_title && a.meeting_title === asset.meeting_title);
       return sameMeeting;
     });
-    const recordingAssets = sessionAssets.filter((a) => a.type === 'recording' || a.type === 'video');
+    const recordingAssets = collapseRecapRecordings(
+      sessionAssets.filter((a) => a.type === 'recording' || a.type === 'video')
+    );
+    recapRecordingAssetsRef.current = recordingAssets;
     const recording =
       recordingAssets.find((a) => isAudioTrackType(a.track_type)) ||
       recordingAssets[0] ||
@@ -1382,6 +1407,7 @@ export default function MeetingDetailsScreen() {
                 streamUrl,
                 trackType: row.track_type,
                 label: isAudioTrackType(row.track_type) ? 'Audio' : 'Video',
+                assetId: String(row.id || ''),
               }
             : null;
         })
@@ -3112,6 +3138,68 @@ export default function MeetingDetailsScreen() {
         />
       )}
 
+      <Modal
+        visible={showRecapViewer}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setShowRecapViewer(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }} edges={['bottom', 'left', 'right']}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              paddingTop: Math.max(insets.top, 8),
+              paddingBottom: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: themeColors.border,
+              backgroundColor: themeColors.headerBackground || themeColors.card,
+            }}
+          >
+            <TouchableOpacity onPress={() => setShowRecapViewer(false)}>
+              <Text style={{ fontSize: 16, color: themeColors.tint || '#007AFF' }}>Close</Text>
+            </TouchableOpacity>
+            <Text
+              style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600', color: themeColors.text, marginHorizontal: 12 }}
+              numberOfLines={1}
+            >
+              Meeting recap
+            </Text>
+            <View style={{ width: 48 }} />
+          </View>
+          <View style={{ flex: 1, padding: 16 }}>
+            <MeetingAssetTabs
+              key={recapInitialTab || 'default'}
+              initialTab={recapInitialTab}
+              summaryContent={recapSummary}
+              transcriptContent={recapTranscript}
+              loadingSummary={recapLoadingSummary}
+              loadingTranscript={recapLoadingTranscript}
+              hero={recapHero}
+              recording={recapRecording}
+              recordings={recapRecordings}
+              chatContent={recapChat}
+              meetingDurationSeconds={recapDurationSeconds}
+              clientLink={recapClientLink}
+              shareFiles={recapShareFiles}
+              askContext={recapAskContext}
+              enrichment={recapEnrichment}
+              onPlayRecording={(rec) => {
+                const match =
+                  recapRecordingAssetsRef.current.find((a) => String(a.id) === rec.assetId) ||
+                  recapRecordingAssetsRef.current.find((a) =>
+                    isAudioTrackType(rec.trackType)
+                      ? isAudioTrackType(a.track_type)
+                      : !isAudioTrackType(a.track_type)
+                  );
+                if (match) void playRecording(match);
+              }}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
+
       {/* Video Player Modal */}
       <Modal
         visible={showVideoPlayer}
@@ -3119,6 +3207,7 @@ export default function MeetingDetailsScreen() {
         presentationStyle="fullScreen"
         onRequestClose={async () => {
           setShowVideoPlayer(false);
+          setVideoUiFullscreen(false);
           if (videoRef) {
             try {
               const status = await videoRef.getStatusAsync();
@@ -3146,13 +3235,34 @@ export default function MeetingDetailsScreen() {
                   }
                 }}
               >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }}>
-          {/* Close button in its own row above the video — avoids native-control touch interception */}
-          <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={videoUiFullscreen ? [] : ['top', 'bottom']}>
+          {/* Close / fullscreen — above the video so native controls do not steal taps */}
+          <View
+            style={
+              videoUiFullscreen
+                ? {
+                    position: 'absolute',
+                    top: Math.max(insets.top, 8),
+                    left: 12,
+                    right: 12,
+                    zIndex: 20,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }
+                : { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }
+            }
+          >
             <TouchableOpacity
               onPress={async () => {
                 setShowVideoPlayer(false);
+                setVideoUiFullscreen(false);
                 if (videoRef) {
+                  try {
+                    await videoRef.dismissFullscreenPlayer();
+                  } catch {
+                    /* ignore */
+                  }
                   try {
                     const status = await videoRef.getStatusAsync();
                     if (status.isLoaded) {
@@ -3183,8 +3293,22 @@ export default function MeetingDetailsScreen() {
                 paddingHorizontal: 12,
               }}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel="Close video"
             >
               <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => void toggleVideoFullscreen()}
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.15)',
+                borderRadius: 22,
+                padding: 10,
+                paddingHorizontal: 12,
+              }}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              accessibilityLabel={videoUiFullscreen ? 'Exit full screen' : 'Full screen'}
+            >
+              <Ionicons name={videoUiFullscreen ? 'contract' : 'expand'} size={22} color="#fff" />
             </TouchableOpacity>
           </View>
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -3227,6 +3351,13 @@ export default function MeetingDetailsScreen() {
                     style={{ flex: 1, width: '100%', minHeight: 200 }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
+                    onFullscreenUpdate={(event) => {
+                      if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_PRESENT) {
+                        setVideoUiFullscreen(true);
+                      } else if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS) {
+                        setVideoUiFullscreen(false);
+                      }
+                    }}
                     shouldPlay={false} // Don't auto-play - we'll start when buffered
                     progressUpdateIntervalMillis={500} // Update progress every 500ms for buffering check
                   onLoadStart={() => {
@@ -3704,57 +3835,6 @@ export default function MeetingDetailsScreen() {
           setTextViewerLoading(false);
         }}
       />
-      <Modal
-        visible={showRecapViewer}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setShowRecapViewer(false)}
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }} edges={['bottom', 'left', 'right']}>
-          <View
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 16,
-              paddingTop: Math.max(insets.top, 8),
-              paddingBottom: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: themeColors.border,
-              backgroundColor: themeColors.headerBackground || themeColors.card,
-            }}
-          >
-            <TouchableOpacity onPress={() => setShowRecapViewer(false)}>
-              <Text style={{ fontSize: 16, color: themeColors.tint || '#007AFF' }}>Close</Text>
-            </TouchableOpacity>
-            <Text
-              style={{ flex: 1, textAlign: 'center', fontSize: 18, fontWeight: '600', color: themeColors.text, marginHorizontal: 12 }}
-              numberOfLines={1}
-            >
-              Meeting recap
-            </Text>
-            <View style={{ width: 48 }} />
-          </View>
-          <View style={{ flex: 1, padding: 16 }}>
-            <MeetingAssetTabs
-              key={recapInitialTab || 'default'}
-              initialTab={recapInitialTab}
-              summaryContent={recapSummary}
-              transcriptContent={recapTranscript}
-              loadingSummary={recapLoadingSummary}
-              loadingTranscript={recapLoadingTranscript}
-              hero={recapHero}
-              recording={recapRecording}
-              recordings={recapRecordings}
-              chatContent={recapChat}
-              meetingDurationSeconds={recapDurationSeconds}
-              clientLink={recapClientLink}
-              shareFiles={recapShareFiles}
-              askContext={recapAskContext}
-              enrichment={recapEnrichment}
-            />
-          </View>
-        </SafeAreaView>
-      </Modal>
       <ActionMenuModal
         visible={menuAsset != null}
         title={menuAsset?.title ?? 'Asset'}

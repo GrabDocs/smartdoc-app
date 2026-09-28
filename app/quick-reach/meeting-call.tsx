@@ -1335,7 +1335,7 @@ export default function MeetingCallScreen() {
     meetingCard: {
       backgroundColor: colors.card,
       borderRadius: 12,
-      padding: 16,
+      padding: 10,
       marginBottom: 12,
       marginRight: 12,
       borderWidth: 1,
@@ -1351,7 +1351,7 @@ export default function MeetingCallScreen() {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     meetingTitle: {
       fontSize: 16,
@@ -1383,12 +1383,12 @@ export default function MeetingCallScreen() {
       color: '#fff',
     },
     meetingDetails: {
-      marginBottom: 12,
+      marginBottom: 8,
     },
     meetingHost: {
       fontSize: 14,
       color: colors.textSecondary,
-      marginBottom: 4,
+      marginBottom: 2,
     },
     meetingTime: {
       fontSize: 14,
@@ -1421,12 +1421,16 @@ export default function MeetingCallScreen() {
     meetingActions: {
       flexDirection: 'row',
       justifyContent: 'flex-end',
-      gap: 12,
+      gap: 6,
     },
     actionIcon: {
-      padding: 8,
-      borderRadius: 6,
+      width: 36,
+      height: 36,
+      padding: 0,
+      borderRadius: 8,
       backgroundColor: colors.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     emptyState: {
       alignItems: 'center',
@@ -1746,7 +1750,7 @@ export default function MeetingCallScreen() {
             return joinMeeting(item);
           }}
         >
-          <Ionicons name="videocam" size={16} color="#007AFF" />
+          <Ionicons name="videocam" size={20} color="#007AFF" />
         </FeedbackTouchable>
         
         <FeedbackTouchable
@@ -1757,7 +1761,7 @@ export default function MeetingCallScreen() {
             return copyMeetingDetails(item);
           }}
         >
-          <Ionicons name="copy" size={16} color="#5856D6" />
+          <Ionicons name="copy" size={20} color="#5856D6" />
         </FeedbackTouchable>
 
         {meetingHasKnownAssets(item, assetPresenceMap) ? (
@@ -1769,7 +1773,7 @@ export default function MeetingCallScreen() {
               viewMeetingAssets(item, { fromAssetsIcon: true });
             }}
           >
-            <Ionicons name="folder-open-outline" size={16} color={colors.tint || '#007AFF'} />
+            <Ionicons name="folder-open-outline" size={20} color={colors.tint || '#007AFF'} />
           </TouchableOpacity>
         ) : null}
         
@@ -1780,7 +1784,7 @@ export default function MeetingCallScreen() {
             showMeetingInfo(item);
           }}
         >
-          <Ionicons name="information-circle" size={16} color="#FF9500" />
+          <Ionicons name="information-circle" size={20} color="#FF9500" />
         </TouchableOpacity>
         
         {(item.status === 'active') && (
@@ -1794,7 +1798,7 @@ export default function MeetingCallScreen() {
               endMeeting(item);
             }}
           >
-            <Ionicons name="stop-circle" size={16} color="#FF3B30" />
+            <Ionicons name="stop-circle" size={20} color="#FF3B30" />
           </FeedbackTouchable>
         )}
         
@@ -1805,7 +1809,7 @@ export default function MeetingCallScreen() {
             void openInviteModal(item);
           }}
         >
-          <Ionicons name="person-add" size={16} color="#34C759" />
+          <Ionicons name="person-add" size={20} color="#34C759" />
         </TouchableOpacity>
         
         {canDeleteReachMeetingFromList(item, user?.id) ? (
@@ -1820,7 +1824,7 @@ export default function MeetingCallScreen() {
               deleteMeeting(item);
             }}
           >
-            <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
           </FeedbackTouchable>
         ) : !isReachMeetingOwner(item, user?.id) &&
           !isReachMeetingHost(item, user?.id) &&
@@ -1836,7 +1840,7 @@ export default function MeetingCallScreen() {
               removeMeetingFromList(item);
             }}
           >
-            <Ionicons name="close-circle-outline" size={18} color={colors.textSecondary || '#8E8E93'} />
+            <Ionicons name="close-circle-outline" size={20} color={colors.textSecondary || '#8E8E93'} />
           </FeedbackTouchable>
         ) : null}
       </View>
