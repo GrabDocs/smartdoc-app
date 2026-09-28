@@ -3145,7 +3145,7 @@ export default function MeetingDetailsScreen() {
             />
           </View>
         </SafeAreaView>
-        <ChatGDBottomSheetHost nested />
+        <ChatGDBottomSheetHost nested onBeforeOpenFull={() => setShowRecapViewer(false)} />
       </Modal>
 
       {/* Video Player Modal */}

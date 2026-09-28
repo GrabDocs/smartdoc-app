@@ -967,6 +967,14 @@ export default function EmailThreadScreen() {
     setExpandedId((cur) => (cur === messageId ? null : messageId));
   };
 
+  const threadReading = !!expandedId || !!fullscreenMessage;
+
+  useEffect(() => {
+    if (!threadReading) return;
+    Keyboard.dismiss();
+    setComposeFullscreen(false);
+  }, [threadReading]);
+
   const onMessagePress = (messageId: number) => {
     const now = Date.now();
     if (now - lastTapRef.current < 320) {
@@ -1267,6 +1275,8 @@ export default function EmailThreadScreen() {
             style={[
               composeFullscreen
                 ? { flex: 1, minHeight: 0, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
+                : expandedId
+                  ? { flexGrow: 0, flexShrink: 0 }
                 : {
                     flexGrow: 0,
                     flexShrink: 0,
@@ -1281,6 +1291,7 @@ export default function EmailThreadScreen() {
                   },
             ]}
           >
+          {!expandedId ? (
           <ScrollView
             ref={composeScrollRef}
             style={[styles.composePanel, composeFullscreen ? { flex: 1 } : { flexGrow: 0 }]}
@@ -1615,7 +1626,17 @@ export default function EmailThreadScreen() {
               </View>
             ) : null}
           </ScrollView>
-          {composing && draft ? (
+          ) : null}
+          {expandedId ? (
+            <TouchableOpacity
+              style={[styles.composeFooter, { paddingVertical: 10, paddingBottom: Math.max(insets.bottom, 10), alignItems: 'center' }]}
+              onPress={() => setExpandedId(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Restore compose"
+            >
+              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary }}>Compose</Text>
+            </TouchableOpacity>
+          ) : composing && draft ? (
             <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 6 : Math.max(insets.bottom, 8) }]}>
               <View style={styles.tools}>
                 <TouchableOpacity

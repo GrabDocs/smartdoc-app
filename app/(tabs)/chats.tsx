@@ -4,7 +4,7 @@ import 'react-native-url-polyfill/auto';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useChatGDSheetHostParams } from '../../contexts/ChatGDSheetContext';
+import { useChatGDSheetHostParams, useChatGDSheetOptional } from '../../contexts/ChatGDSheetContext';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     AccessibilityInfo,
@@ -551,6 +551,7 @@ export default function ChatsScreen() {
   const router = useRouter();
   const routeParams = useLocalSearchParams();
   const sheetHostParams = useChatGDSheetHostParams();
+  const chatGDSheet = useChatGDSheetOptional();
   const params = sheetHostParams ?? routeParams;
   const isSheet =
     sheetHostParams != null ||
@@ -781,6 +782,7 @@ export default function ChatsScreen() {
   const pendingBookmarkFromParamsRef = useRef<Bookmark | null>(null); // Bookmark from nav params so loadChats can re-inject if it overwrites list
   const placeholderChatToPreserveRef = useRef<Chat | null>(null); // Placeholder -2 when going back, so loadChats can merge it (avoids stale closure)
   const fmAutosubmitHandledRef = useRef(false);
+  const appliedSheetHandoffNonceRef = useRef(0);
   const sendMessageRef = useRef<(overrideText?: string) => Promise<void>>(async () => {});
   // Keep selectedChatRef in sync with selectedChat state
   useEffect(() => {
@@ -795,6 +797,15 @@ export default function ChatsScreen() {
     if (Number.isFinite(fromRef) && fromRef > 0) return fromRef;
     return 0;
   };
+
+  useEffect(() => {
+    if (!isSheet) return;
+    const hid = getPersistedChatHistoryId();
+    chatGDSheet?.updateHandoff({
+      chatHistoryId: hid > 0 ? hid : undefined,
+      draft: newMessage,
+    });
+  }, [chatGDSheet, isSheet, newMessage, selectedChat?.id, messages.length]);
   
   // Keyboard top (screenY) tracking for input positioning
   /** Keyboard top (screenY) when visible - used to position input just above keyboard */
@@ -1052,6 +1063,16 @@ export default function ChatsScreen() {
 
   // Run before native paint so we rarely flash the ChatGD history list before opening the composer.
   useLayoutEffect(() => {
+    const handoffNonce = !isSheet ? chatGDSheet?.handoffNonce ?? 0 : 0;
+    const takePending =
+      !isSheet &&
+      handoffNonce > 0 &&
+      handoffNonce !== appliedSheetHandoffNonceRef.current;
+    if (takePending) appliedSheetHandoffNonceRef.current = handoffNonce;
+    const pending = takePending ? chatGDSheet?.getPendingOpenFull?.() ?? null : null;
+    const pendingHid = pending?.chatHistoryId != null ? Number(pending.chatHistoryId) : NaN;
+    const hasPendingHandoff = Number.isFinite(pendingHid) && pendingHid > 0;
+
     const phRaw = params.chatPlaceholder ?? params.inputPlaceholder;
     const ph = Array.isArray(phRaw) ? phRaw[0] : phRaw;
     if (typeof ph === 'string' && ph.trim()) {
@@ -1097,29 +1118,74 @@ export default function ChatsScreen() {
       setAskMeeting({ fileIds: meetingFileIds, transcriptIds: meetingTranscriptIds });
     }
 
+    const applyDraft = () => {
+      const draftRaw = params.draft;
+      const draftFromParams = Array.isArray(draftRaw) ? draftRaw[0] : draftRaw;
+      const draft = (typeof draftFromParams === 'string' && draftFromParams.trim()
+        ? draftFromParams
+        : pending?.draft) ?? '';
+      if (!draft.trim()) return;
+      try {
+        setNewMessage(decodeURIComponent(draft));
+      } catch {
+        setNewMessage(draft);
+      }
+    };
+
+    const hidRaw = params.chatHistoryId;
+    const hidStr = Array.isArray(hidRaw) ? hidRaw[0] : hidRaw;
+    const hidFromParams = hidStr != null ? Number(hidStr) : NaN;
+    const hid =
+      Number.isFinite(hidFromParams) && hidFromParams > 0
+        ? hidFromParams
+        : hasPendingHandoff
+          ? pendingHid
+          : NaN;
+    if (Number.isFinite(hid) && hid > 0) {
+      setIsGoingBack(false);
+      const existing = chats.find((c) => Number(c.id) === hid);
+      const handedOff: Chat = existing || {
+        ...DEFAULT_CHAT_ASSISTANT,
+        id: hid,
+        title: typeof params.fileName === 'string' && params.fileName.trim() ? params.fileName : 'ChatGD',
+        type: 'ai_assistant',
+      };
+      setSelectedChat(handedOff);
+      selectedChatRef.current = handedOff;
+      currentChatIdRef.current = hid;
+      applyDraft();
+      loadMessages(hid, true);
+      return;
+    }
+
     const v = params.openStartNew;
     const openStartNew =
       v === '1' ||
       v === 'true' ||
-      (Array.isArray(v) && (v[0] === '1' || v[0] === 'true'));
+      (Array.isArray(v) && (v[0] === '1' || v[0] === 'true')) ||
+      (!isSheet && !!pending && !hasPendingHandoff);
     if (!openStartNew) return;
     const defaultChat = chats.find(c => c.id === -1) ?? DEFAULT_CHAT_ASSISTANT;
     setSelectedChat(defaultChat);
     selectedChatRef.current = defaultChat;
     setIsGoingBack(false);
+    applyDraft();
     loadMessages(-1, true);
     // Do not call router.setParams here — useLayoutEffect runs before the root navigator is ready
     // after auth transitions; deferred clear in useEffect below.
-  }, [params.openStartNew, params.chatSource, params.chatPlaceholder, params.inputPlaceholder, params.client_id, params.client_name, params.fileIds, params.fileId, params.transcriptIds]);
+  }, [params.openStartNew, params.chatHistoryId, params.draft, params.chatSource, params.chatPlaceholder, params.inputPlaceholder, params.client_id, params.client_name, params.fileIds, params.fileId, params.fileName, params.transcriptIds, isSheet, chatGDSheet?.handoffNonce]);
 
-  // Clear openStartNew (and related) query params after mount — safe for Expo Router; avoids "navigate before Root Layout" crash.
+  // Clear openStartNew / chatHistoryId query params after mount — safe for Expo Router.
   useEffect(() => {
     const v = params.openStartNew;
     const openStartNew =
       v === '1' ||
       v === 'true' ||
       (Array.isArray(v) && (v[0] === '1' || v[0] === 'true'));
-    if (!openStartNew) return;
+    const hidRaw = params.chatHistoryId;
+    const hidStr = Array.isArray(hidRaw) ? hidRaw[0] : hidRaw;
+    const hasHandoff = hidStr != null && Number(hidStr) > 0;
+    if (!openStartNew && !hasHandoff) return;
     const t = setTimeout(() => {
       try {
         clearRouteParams();
@@ -1128,7 +1194,7 @@ export default function ChatsScreen() {
       }
     }, 0);
     return () => clearTimeout(t);
-  }, [params.openStartNew, router]);
+  }, [params.openStartNew, params.chatHistoryId, router]);
 
   useEffect(() => {
     const hid =
@@ -4812,6 +4878,12 @@ export default function ChatsScreen() {
             currentChatIdRef.current = earlyId;
             console.log('🔗 [MOBILE] Early chat_history_id bound from stream:', earlyId);
             linkAskClientToHistoryRef.current(earlyId);
+            if (isSheet) {
+              chatGDSheet?.updateHandoff({
+                chatHistoryId: earlyId,
+                draft: newMessage,
+              });
+            }
           }
           break;
         }
@@ -5120,6 +5192,12 @@ export default function ChatsScreen() {
           if (returnedChatId && returnedChatId !== -1) {
             currentChatIdRef.current = returnedChatId;
             linkAskClientToHistoryRef.current(returnedChatId);
+            if (isSheet) {
+              chatGDSheet?.updateHandoff({
+                chatHistoryId: returnedChatId,
+                draft: newMessage,
+              });
+            }
             if (returnedChatId !== currentChatId) {
               console.log('🔄 Backend returned new chat_history_id:', returnedChatId, 'updating selectedChat from', currentChatId);
               loadedChatIdRef.current = returnedChatId;
@@ -9767,8 +9845,16 @@ export default function ChatsScreen() {
     openStartRaw === '1' ||
     openStartRaw === 'true' ||
     (Array.isArray(openStartRaw) && (openStartRaw[0] === '1' || openStartRaw[0] === 'true'));
+  const hasChatHistoryHandoff = (() => {
+    const hidRaw = params.chatHistoryId;
+    const hidStr = Array.isArray(hidRaw) ? hidRaw[0] : hidRaw;
+    if (hidStr != null && Number(hidStr) > 0) return true;
+    if (isSheet) return false;
+    const pendingHid = chatGDSheet?.getPendingOpenFull?.()?.chatHistoryId;
+    return pendingHid != null && pendingHid > 0;
+  })();
   const shouldShowChatMessages =
-    !isGoingBack && (selectedChat || hasFileIdParam || hasOpenStartNewParam);
+    !isGoingBack && (selectedChat || hasFileIdParam || hasOpenStartNewParam || hasChatHistoryHandoff);
   
   return (
     <>

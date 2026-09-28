@@ -132,28 +132,42 @@ export default function MeetingRecapView({
     );
   }
 
-  const hasSpeakersCard = parsed.sections.some((s) => s.kind === 'speakers');
+  const topVisible = 5;
+  const topNames = speakerNames.slice(0, topVisible);
+  const moreCount = Math.max(0, speakerNames.length - topVisible);
 
   return (
     <View style={{ gap: 12 }}>
-      {(hero?.title || hero?.dateLabel || hero?.durationLabel || (hero?.attendees && hero.attendees.length > 0)) && (
+      {(hero?.title || hero?.dateLabel || hero?.durationLabel || speakerNames.length > 0) && (
         <View style={[styles.card, { backgroundColor: colors.surface || colors.card }]}>
-          {hero.title ? <Text style={[styles.heroTitle, { color: colors.text }]}>{hero.title}</Text> : null}
-          <View style={styles.metaRow}>
-            {hero.dateLabel ? (
-              <Text style={[styles.muted, { color: colors.textSecondary }]}>{hero.dateLabel}</Text>
-            ) : null}
-            {hero.durationLabel ? (
-              <Text style={[styles.muted, { color: colors.textSecondary }]}>{hero.durationLabel}</Text>
-            ) : null}
-          </View>
-          {hero.attendees && hero.attendees.length > 0 ? (
+          {hero?.title ? <Text style={[styles.heroTitle, { color: colors.text }]}>{hero.title}</Text> : null}
+          {hero?.dateLabel || hero?.durationLabel || speakerNames.length > 0 ? (
+            <View style={styles.metaRow}>
+              {hero?.dateLabel ? (
+                <Text style={[styles.metaText, { color: colors.textSecondary }]}>{hero.dateLabel}</Text>
+              ) : null}
+              {hero?.durationLabel ? (
+                <Text style={[styles.metaText, { color: colors.textSecondary }]}>{hero.durationLabel}</Text>
+              ) : null}
+              {speakerNames.length > 0 ? (
+                <Text style={[styles.metaText, { color: colors.textSecondary }]}>
+                  {speakerNames.length} {speakerNames.length === 1 ? 'participant' : 'participants'}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+          {topNames.length > 0 ? (
             <View style={styles.chipWrap}>
-              {hero.attendees.map((name) => (
+              {topNames.map((name) => (
                 <View key={name} style={[styles.chip, { backgroundColor: colors.inputBackground || colors.border }]}>
                   <Text style={[styles.chipText, { color: colors.text }]}>{name}</Text>
                 </View>
               ))}
+              {moreCount > 0 ? (
+                <View style={[styles.chip, { backgroundColor: colors.inputBackground || colors.border }]}>
+                  <Text style={[styles.chipText, { color: colors.textSecondary }]}>+{moreCount} more</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -162,6 +176,7 @@ export default function MeetingRecapView({
       <SpeakerTalkBreakdown
         transcriptContent={transcriptContent}
         meetingDurationSeconds={meetingDurationSeconds}
+        extraSpeakerNames={speakerNames}
         onPlaySpeaker={onSeekTo}
       />
 
@@ -210,7 +225,11 @@ export default function MeetingRecapView({
       ) : null}
 
       {parsed.sections
-        .filter((section) => !(timedActions.length > 0 && section.kind === 'action_items'))
+        .filter(
+          (section) =>
+            section.kind !== 'speakers' &&
+            !(timedActions.length > 0 && section.kind === 'action_items')
+        )
         .map((section, index) => (
         <SectionCard
           key={`${section.title}-${index}`}
@@ -219,20 +238,6 @@ export default function MeetingRecapView({
           isDark={!!colors.isDark}
         />
       ))}
-
-      {!hasSpeakersCard && speakerNames.length > 0 ? (
-        <SectionCard
-          section={{
-            title: 'Speakers',
-            kind: 'speakers',
-            format: 'bullets',
-            bullets: speakerNames,
-            paragraph: '',
-          }}
-          textColor={colors.text}
-          isDark={!!colors.isDark}
-        />
-      ) : null}
     </View>
   );
 }
@@ -255,6 +260,7 @@ const styles = StyleSheet.create({
   },
   heroTitle: { fontSize: 18, fontWeight: '700' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  metaText: { fontSize: 13 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   chip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   chipText: { fontSize: 12 },

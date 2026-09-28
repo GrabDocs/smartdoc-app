@@ -26,10 +26,17 @@ const KEYBOARD_EXTRA_INSET = 0;
  * Global ChatGD overlay — mounted once at app root (same pattern as AI FM).
  * When minimized, touches pass through to the screen underneath.
  */
-export default function ChatGDBottomSheetHost({ nested = false }: { nested?: boolean }) {
+export default function ChatGDBottomSheetHost({
+  nested = false,
+  onBeforeOpenFull,
+}: {
+  nested?: boolean;
+  onBeforeOpenFull?: () => void;
+}) {
   const colors = useThemeColors();
   const router = useRouter();
-  const { visible, expandNonce, params, closeChatGD, nestedHostCount, registerNestedHost } = useChatGDSheet();
+  const { visible, expandNonce, params, closeChatGD, nestedHostCount, registerNestedHost, beginOpenFull } =
+    useChatGDSheet();
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
 
   useEffect(() => {
@@ -38,15 +45,28 @@ export default function ChatGDBottomSheetHost({ nested = false }: { nested?: boo
   }, [nested, registerNestedHost]);
 
   const openFullChatGD = useCallback(() => {
-    const { isSheet: _isSheet, ...rest } = params;
-    closeChatGD();
-    const navParams: Record<string, string> = { openStartNew: '1' };
+    const { isSheet: _isSheet, openStartNew: _openStartNew, ...rest } = params;
+    const handoff = beginOpenFull();
+    const navParams: Record<string, string> = {};
     for (const [key, value] of Object.entries(rest)) {
       if (value == null || value === '') continue;
       navParams[key] = Array.isArray(value) ? value[0] : String(value);
     }
-    router.navigate({ pathname: '/(tabs)/chats', params: navParams });
-  }, [closeChatGD, params, router]);
+    if (handoff.chatHistoryId && handoff.chatHistoryId > 0) {
+      navParams.chatHistoryId = String(handoff.chatHistoryId);
+    } else {
+      navParams.openStartNew = '1';
+    }
+    if (handoff.draft?.trim()) {
+      navParams.draft = encodeURIComponent(handoff.draft);
+    }
+    closeChatGD();
+    onBeforeOpenFull?.();
+    // Sheet (and any covering recap Modal) must dismiss before the tab can present.
+    setTimeout(() => {
+      router.navigate({ pathname: '/(tabs)/chats', params: navParams });
+    }, 350);
+  }, [beginOpenFull, closeChatGD, onBeforeOpenFull, params, router]);
 
   useEffect(() => {
     if (!visible) {

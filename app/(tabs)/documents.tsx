@@ -3686,7 +3686,7 @@ export default function QuickFilesScreen() {
             />
           </View>
         </SafeAreaView>
-        <ChatGDBottomSheetHost nested />
+        <ChatGDBottomSheetHost nested onBeforeOpenFull={() => setShowMeetingRecap(false)} />
       </Modal>
 
       {/* Document Viewer */}
