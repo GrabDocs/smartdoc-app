@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import { apiClient } from '../services/api';
+import { WifiCogIcon } from './WifiCogIcon';
 
 interface NetworkStatus {
   isConnected: boolean;
@@ -87,12 +87,6 @@ export default function NetworkIndicator({ compact = false, persistent = false }
     return 'Disconnected';
   };
 
-  const getIcon = () => {
-    if (status.isChecking) return 'wifi'; // Wifi icon for checking
-    if (status.isConnected) return 'wifi'; // Wifi icon for connected
-    return 'wifi-outline'; // Wifi outline icon for disconnected
-  };
-
   // Compact version for persistent display
   if (compact) {
     return (
@@ -108,11 +102,7 @@ export default function NetworkIndicator({ compact = false, persistent = false }
             }
           ]}
         >
-          <Ionicons 
-            name={getIcon() as any} 
-            size={12} 
-            color={getStatusColor()} 
-          />
+          <WifiCogIcon size={16} color={getStatusColor()} />
         </Animated.View>
       </View>
     );
@@ -131,11 +121,7 @@ export default function NetworkIndicator({ compact = false, persistent = false }
           }
         ]}
       >
-        <Ionicons 
-          name={getIcon() as any} 
-          size={12} 
-          color="white" 
-        />
+        <WifiCogIcon size={12} color="white" />
       </Animated.View>
       {status.error && !status.isChecking && (
         <Text style={styles.errorText} numberOfLines={1}>

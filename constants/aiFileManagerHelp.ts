@@ -58,5 +58,5 @@ export const AI_FM_RUN_BUTTON_COLOR = '#059669';
 /** Tailwind orange-600 — web "Run now anyway" override */
 export const AI_FM_RUN_NOW_ANYWAY_COLOR = '#ea580c';
 
-/** AI File Manager header / Files tab cpu icon */
+/** AI File Manager header / Files tab folder-cog icon */
 export const AI_FM_ICON_COLOR = '#7C3AED';

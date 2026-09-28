@@ -204,15 +204,6 @@ export const API_ENDPOINTS = {
   FORM_RESPONSES: (id: number) => `/api/forms/${id}/responses`,
   DUPLICATE_FORM: (id: number) => `/api/forms/${id}/duplicate`,
   
-  // Document Templates
-  DOCUMENT_TEMPLATES: '/api/document-templates',
-  UPLOAD_TEMPLATE: '/api/document-templates/upload',
-  DELETE_TEMPLATE: (id: number) => `/api/document-templates/${id}`,
-  DEACTIVATE_TEMPLATE: (id: number) => `/api/document-templates/${id}/deactivate`,
-  CREATE_DOCUMENT: '/api/create-document',
-  COMPLETED_DOCUMENTS: '/api/completed-documents',
-  DOWNLOAD_COMPLETED_DOC: (id: number) => `/api/completed-documents/${id}/download`,
-  
   // Analytics
   DASHBOARD_ANALYTICS: '/api/dashboard/analytics',
   ANALYTICS: '/api/analysis',

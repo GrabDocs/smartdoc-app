@@ -1,4 +1,4 @@
-﻿import { Feather, Ionicons } from '@expo/vector-icons';
+﻿import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,6 +33,7 @@ import { parseNumericId, buildRecapAskAndShare } from '../../components/meeting/
 import ExternalFilePicker from '../../components/ExternalFilePicker';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
+import { FolderCogIcon } from '../../components/FolderCogIcon';
 import CreateFolderSheet from '../../components/folders/CreateFolderSheet';
 import FolderKebabMenu, { type FolderKebabAction } from '../../components/folders/FolderKebabMenu';
 import FolderMovePicker from '../../components/folders/FolderMovePicker';
@@ -3391,7 +3392,7 @@ export default function QuickFilesScreen() {
                     accessibilityLabel="AI File Manager"
                     accessibilityRole="button"
                   >
-                    <Feather name="cpu" size={26} color={AI_FM_ICON_COLOR} />
+                    <FolderCogIcon size={26} color={AI_FM_ICON_COLOR} />
                   </TouchableOpacity>
                 ) : null}
                 <TouchableOpacity
@@ -3481,7 +3482,7 @@ export default function QuickFilesScreen() {
                 accessibilityLabel="AI File Manager"
                 accessibilityRole="button"
               >
-                <Feather name="cpu" size={26} color={AI_FM_ICON_COLOR} />
+                <FolderCogIcon size={26} color={AI_FM_ICON_COLOR} />
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity

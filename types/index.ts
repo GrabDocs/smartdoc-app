@@ -173,28 +173,6 @@ export interface FormResponse {
   ip_address?: string;
 }
 
-// Document Template Types
-export interface DocumentTemplate {
-  id: number;
-  name: string;
-  description?: string;
-  file_path: string;
-  placeholders: string[];
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CompletedDocument {
-  id: number;
-  template_id: number;
-  template_name: string;
-  filename: string;
-  file_path: string;
-  placeholder_values: Record<string, string>;
-  created_at: string;
-}
-
 // Notification Types
 export interface Notification {
   id: number;
