@@ -1,5 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
-import { Video, type AVPlaybackStatus } from 'expo-av';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import MeetingInlineRecordingPlayer, { type MeetingInlinePlayerHandle } from './MeetingInlineRecordingPlayer';
 import {
   computeTalkTime,
   formatTalkDuration,
@@ -20,7 +19,6 @@ import {
 } from '../../utils/parseMeetingTranscript';
 import {
   collapseRecapRecordings,
-  isAudioTrackType,
   pickPreferredRecording,
   recordingLabel,
   type MeetingRecapRecording,
@@ -84,7 +82,6 @@ export default function MeetingTranscriptView({
   recordings,
   meetingDurationSeconds,
   seekToSeconds,
-  onPlayRecording,
 }: {
   transcriptContent?: string | null;
   loading?: boolean;
@@ -92,7 +89,6 @@ export default function MeetingTranscriptView({
   recordings?: MeetingRecapRecording[] | null;
   meetingDurationSeconds?: number | null;
   seekToSeconds?: number | null;
-  onPlayRecording?: (recording: MeetingRecapRecording) => void;
 }) {
   const colors = useThemeColors();
   const parsed = useMemo(() => parseMeetingTranscript(transcriptContent), [transcriptContent]);
@@ -104,7 +100,6 @@ export default function MeetingTranscriptView({
   const [speakerFilter, setSpeakerFilter] = useState<string | null>(null);
   const [hitIndex, setHitIndex] = useState(0);
   const [activeTurn, setActiveTurn] = useState<number | null>(null);
-  const [playerError, setPlayerError] = useState<string | null>(null);
   const recordingOptions = useMemo(() => {
     const list = collapseRecapRecordings((recordings || []).filter((row) => row?.streamUrl));
     if (list.length) return list;
@@ -117,7 +112,7 @@ export default function MeetingTranscriptView({
       pickPreferredRecording(recordingOptions),
     [recordingOptions, selectedStreamUrl]
   );
-  const videoRef = useRef<Video | null>(null);
+  const playerRef = useRef<MeetingInlinePlayerHandle | null>(null);
   const listRef = useRef<ScrollView | null>(null);
   const turnY = useRef<Record<number, number>>({});
 
@@ -150,36 +145,26 @@ export default function MeetingTranscriptView({
 
   const hasTimestamps = parsed.turns.some((t) => t.startSeconds != null);
   const showPlayer = !!activeRecording?.streamUrl;
-  const audio = isAudioTrackType(activeRecording?.trackType);
 
-  const onPlaybackStatus = (status: AVPlaybackStatus) => {
-    if (!status.isLoaded || status.positionMillis == null) return;
-    const t = status.positionMillis / 1000;
+  const onPlaybackSeconds = (seconds: number) => {
     let current: number | null = null;
     for (let i = 0; i < parsed.turns.length; i += 1) {
       const start = parsed.turns[i].startSeconds;
       if (start == null) continue;
       const next = parsed.turns[i + 1]?.startSeconds;
-      if (t >= start && (next == null || t < next)) current = i;
+      if (seconds >= start && (next == null || seconds < next)) current = i;
     }
     setActiveTurn(current);
   };
 
   const seekTo = async (turn: MeetingTranscriptTurn, index: number) => {
-    if (!hasTimestamps || turn.startSeconds == null) return;
-    if (onPlayRecording && activeRecording) {
-      onPlayRecording(activeRecording);
-      setActiveTurn(index);
-      return;
-    }
-    if (!activeRecording?.streamUrl) return;
+    if (!hasTimestamps || turn.startSeconds == null || !activeRecording?.streamUrl) return;
     const millis = Math.round(turn.startSeconds * 1000);
     try {
-      await videoRef.current?.setPositionAsync(millis);
-      await videoRef.current?.playAsync();
+      await playerRef.current?.seekToMillis(millis);
       setActiveTurn(index);
     } catch {
-      setPlayerError('Unable to play this recording.');
+      /* player reports its own error */
     }
   };
 
@@ -242,29 +227,14 @@ export default function MeetingTranscriptView({
               })}
             </View>
           ) : null}
-          {onPlayRecording ? (
-            <TouchableOpacity
-              onPress={() => onPlayRecording(activeRecording!)}
-              style={styles.playExisting}
-            >
-              <Ionicons name="play-circle" size={28} color="#007AFF" />
-              <Text style={styles.playExistingText}>
-                Play {activeRecording!.label || recordingLabel(activeRecording!.trackType)}
-              </Text>
-            </TouchableOpacity>
-          ) : (
-            <Video
-              ref={(el) => {
-                videoRef.current = el;
-              }}
-              source={{ uri: activeRecording!.streamUrl }}
-              useNativeControls
-              style={{ width: '100%', height: audio ? 48 : 160, borderRadius: 8 }}
-              onPlaybackStatusUpdate={onPlaybackStatus}
-              onError={() => setPlayerError('Unable to play this recording.')}
-            />
-          )}
-          {playerError && !onPlayRecording ? <Text style={styles.error}>{playerError}</Text> : null}
+          <MeetingInlineRecordingPlayer
+            ref={playerRef}
+            key={activeRecording!.streamUrl}
+            streamUrl={activeRecording!.streamUrl}
+            trackType={activeRecording!.trackType}
+            assetId={activeRecording!.assetId}
+            onPlaybackStatus={onPlaybackSeconds}
+          />
           {!hasTimestamps ? (
             <Text style={[styles.muted, { color: colors.textSecondary, textAlign: 'left' }]}>
               Play/pause is available. This transcript has no timestamps to seek.
@@ -299,6 +269,15 @@ export default function MeetingTranscriptView({
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+        <TouchableOpacity
+          onPress={() => setSpeakerFilter(null)}
+          style={[
+            styles.speakerChip,
+            { backgroundColor: !speakerFilter ? '#4f46e5' : colors.inputBackground || colors.border },
+          ]}
+        >
+          <Text style={{ color: !speakerFilter ? '#fff' : colors.text, fontSize: 12 }}>All</Text>
+        </TouchableOpacity>
         {parsed.speakers.map((name) => {
           const selected = speakerFilter === name;
           const row = talk.find((t) => t.speaker === name);
@@ -368,15 +347,6 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
   muted: { fontSize: 12, textAlign: 'center', marginTop: 8 },
   player: { borderRadius: 10, borderWidth: 1, padding: 8 },
-  playExisting: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-  },
-  playExistingText: { fontSize: 16, fontWeight: '600', color: '#007AFF' },
-  error: { color: '#dc2626', fontSize: 12, marginTop: 6 },
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
   nextBtn: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8 },

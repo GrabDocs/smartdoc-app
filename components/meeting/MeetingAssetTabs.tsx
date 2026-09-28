@@ -39,7 +39,6 @@ export type MeetingAssetTabsProps = {
   onDownloadSummary?: () => void;
   onDownloadTranscript?: () => void;
   enrichment?: MeetingRecapEnrichment | null;
-  onPlayRecording?: (recording: MeetingRecapRecording) => void;
 };
 
 export default function MeetingAssetTabs({
@@ -60,7 +59,6 @@ export default function MeetingAssetTabs({
   onDownloadSummary,
   onDownloadTranscript,
   enrichment,
-  onPlayRecording,
 }: MeetingAssetTabsProps) {
   const colors = useThemeColors();
   const openChatGD = useOpenChatGD();
@@ -252,7 +250,6 @@ export default function MeetingAssetTabs({
             recordings={recordingOptions}
             meetingDurationSeconds={meetingDurationSeconds}
             seekToSeconds={seekToSeconds}
-            onPlayRecording={onPlayRecording}
           />
         )}
       </ScrollView>

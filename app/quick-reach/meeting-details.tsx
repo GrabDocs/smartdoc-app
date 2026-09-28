@@ -187,7 +187,6 @@ export default function MeetingDetailsScreen() {
   const [recapShareFiles, setRecapShareFiles] = useState<MeetingRecapShareFiles | null>(null);
   const [recapAskContext, setRecapAskContext] = useState<MeetingRecapAskContext | null>(null);
   const [recapEnrichment, setRecapEnrichment] = useState<MeetingRecapEnrichment | null>(null);
-  const recapRecordingAssetsRef = useRef<MeetingAsset[]>([]);
   const recapOpenedRef = useRef(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [audioSound, setAudioSound] = useState<Audio.Sound | null>(null);
@@ -1339,7 +1338,6 @@ export default function MeetingDetailsScreen() {
     const recordingAssets = collapseRecapRecordings(
       sessionAssets.filter((a) => a.type === 'recording' || a.type === 'video')
     );
-    recapRecordingAssetsRef.current = recordingAssets;
     const recording =
       recordingAssets.find((a) => isAudioTrackType(a.track_type)) ||
       recordingAssets[0] ||
@@ -3185,16 +3183,6 @@ export default function MeetingDetailsScreen() {
               shareFiles={recapShareFiles}
               askContext={recapAskContext}
               enrichment={recapEnrichment}
-              onPlayRecording={(rec) => {
-                const match =
-                  recapRecordingAssetsRef.current.find((a) => String(a.id) === rec.assetId) ||
-                  recapRecordingAssetsRef.current.find((a) =>
-                    isAudioTrackType(rec.trackType)
-                      ? isAudioTrackType(a.track_type)
-                      : !isAudioTrackType(a.track_type)
-                  );
-                if (match) void playRecording(match);
-              }}
             />
           </View>
         </SafeAreaView>

@@ -997,16 +997,19 @@ export default function EmailThreadScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
-        {composeFullscreen ? (
+        {fullscreenMessage ? (
           <View style={styles.header}>
             <View style={styles.headerBody}>
-              <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
-                {isNewCompose ? 'New message' : 'Compose'}
-              </AppHeaderTitle>
+              <Text style={styles.from} numberOfLines={2}>
+                {fullscreenMessage.direction === 'outbound'
+                  ? 'You'
+                  : fullscreenMessage.from_address || 'Them'}
+              </Text>
+              <Text style={styles.meta}>{formatEmailWhen(fullscreenMessage.provider_received_at)}</Text>
             </View>
             <FeedbackTouchable
               style={styles.iconBtn}
-              onPress={() => setComposeFullscreen(false)}
+              onPress={() => setFullscreenMessage(null)}
               accessibilityLabel="Exit full screen"
             >
               <Ionicons name="contract-outline" size={22} color={colors.text} />
@@ -1072,19 +1075,44 @@ export default function EmailThreadScreen() {
                 <Ionicons name="play-skip-forward-outline" size={22} color={colors.text} />
               </FeedbackTouchable>
             )}
+            {composeFullscreen ? (
+              <FeedbackTouchable
+                style={styles.iconBtn}
+                onPress={() => setComposeFullscreen(false)}
+                accessibilityLabel="Exit full screen"
+              >
+                <Ionicons name="contract-outline" size={22} color={colors.text} />
+              </FeedbackTouchable>
+            ) : null}
           </View>
         )}
 
-        {!composeFullscreen && Number.isFinite(threadId) && threadId > 0 ? (
+        {!fullscreenMessage && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
           </View>
         ) : null}
 
+        {fullscreenMessage ? (
+          <View style={{ flex: 1, paddingHorizontal: 12, paddingBottom: 12, minHeight: 0, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' }}>
+            <EmailHtmlBody
+              html={fullscreenMessage.body_html}
+              text={fullscreenMessage.body_text}
+              fill
+            />
+            <AttachmentNamesRow
+              attachments={fullscreenMessage.attachments}
+              onOpen={openAttachment}
+              style={{ marginTop: 8 }}
+            />
+          </View>
+        ) : (
         <ScrollView
           style={[
-            { flex: 1, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' },
-            composeFullscreen ? { display: 'none' } : null,
+            { backgroundColor: colors.isDark ? colors.background : '#F3F4F6' },
+            composeFullscreen
+              ? { maxHeight: Math.round(windowHeight * (keyboardOpen ? 0.22 : 0.34)) }
+              : { flex: 1 },
           ]}
           contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
@@ -1154,7 +1182,10 @@ export default function EmailThreadScreen() {
                       />
                     </TouchableOpacity>
                     <TouchableOpacity
-                      onPress={() => setFullscreenMessage(m)}
+                      onPress={() => {
+                        setComposeFullscreen(false);
+                        setFullscreenMessage(m);
+                      }}
                       style={styles.expandBtn}
                       hitSlop={8}
                       accessibilityLabel="Full screen"
@@ -1178,8 +1209,9 @@ export default function EmailThreadScreen() {
             );
           })}
         </ScrollView>
+        )}
 
-        {!dismissed ? (
+        {!dismissed && !fullscreenMessage ? (
           <ScrollView
             style={[
               styles.composePanel,
@@ -1207,7 +1239,10 @@ export default function EmailThreadScreen() {
             {!composeFullscreen ? (
               <View style={styles.composeSizeBar}>
                 <TouchableOpacity
-                  onPress={() => setComposeFullscreen(true)}
+                  onPress={() => {
+                    setFullscreenMessage(null);
+                    setComposeFullscreen(true);
+                  }}
                   hitSlop={8}
                   accessibilityLabel="Full screen"
                   accessibilityRole="button"
@@ -1525,7 +1560,10 @@ export default function EmailThreadScreen() {
                 )}
                 <View style={styles.tools}>
                   <TouchableOpacity
-                    onPress={() => setComposeFullscreen((v) => !v)}
+                    onPress={() => {
+                      setFullscreenMessage(null);
+                      setComposeFullscreen((v) => !v);
+                    }}
                     style={{ padding: 8 }}
                     accessibilityLabel={composeFullscreen ? 'Exit full screen' : 'Full screen'}
                     accessibilityRole="button"
@@ -1671,62 +1709,6 @@ export default function EmailThreadScreen() {
           }
         }}
       />
-
-      <Modal
-        visible={!!fullscreenMessage}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setFullscreenMessage(null)}
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
-          <View style={styles.header}>
-            <View style={styles.headerBody}>
-              <Text style={styles.from} numberOfLines={2}>
-                {fullscreenMessage?.direction === 'outbound'
-                  ? 'You'
-                  : fullscreenMessage?.from_address || 'Them'}
-              </Text>
-              {fullscreenMessage ? (
-                <Text style={styles.meta}>{formatEmailWhen(fullscreenMessage.provider_received_at)}</Text>
-              ) : null}
-            </View>
-            <FeedbackTouchable
-              style={styles.iconBtn}
-              onPress={() => setFullscreenMessage(null)}
-              accessibilityLabel="Exit full screen"
-            >
-              <Ionicons name="contract-outline" size={22} color={colors.text} />
-            </FeedbackTouchable>
-          </View>
-          {fullscreenMessage ? (
-            <View style={{ flex: 1, paddingHorizontal: 12, paddingBottom: 12, minHeight: 0 }}>
-              <EmailHtmlBody
-                html={fullscreenMessage.body_html}
-                text={fullscreenMessage.body_text}
-                fill
-              />
-              <AttachmentNamesRow
-                attachments={fullscreenMessage.attachments}
-                onOpen={openAttachment}
-                style={{ marginTop: 8 }}
-              />
-            </View>
-          ) : null}
-          {attOpening ? (
-            <View
-              pointerEvents="none"
-              style={{
-                ...StyleSheet.absoluteFillObject,
-                backgroundColor: 'rgba(0,0,0,0.25)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-            >
-              <ActivityIndicator size="large" color="#007AFF" />
-            </View>
-          ) : null}
-        </SafeAreaView>
-      </Modal>
 
       {viewerFileId != null ? (
         <DocumentViewer
