@@ -48,6 +48,12 @@ import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMen
 import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import {
+  getAudioCachePath,
+  prepareAudioPlayback,
+  prepareVideoPlayback,
+  startRecordingCacheDownload,
+} from '../../utils/meetingRecordingPlayback';
 import { secureStorage } from '../../utils/storage';
 
 import AppBackButton from '../../components/AppBackButton';
@@ -188,6 +194,7 @@ export default function MeetingDetailsScreen() {
   const [recapAskContext, setRecapAskContext] = useState<MeetingRecapAskContext | null>(null);
   const [recapEnrichment, setRecapEnrichment] = useState<MeetingRecapEnrichment | null>(null);
   const recapOpenedRef = useRef(false);
+  const pendingMediaSeekMsRef = useRef<number | null>(null);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [audioSound, setAudioSound] = useState<Audio.Sound | null>(null);
   const [audioLoading, setAudioLoading] = useState(false);
@@ -871,51 +878,34 @@ export default function MeetingDetailsScreen() {
     return Math.abs(hash).toString(36);
   };
 
-  const playVideoWithCache = async (videoUrl: string, title: string, assetId?: string, directUrl?: string) => {
-    // Get auth token to append to URL if needed (outside try block so it's available in catch)
-    let token: string | null = null;
+  const applyPendingMediaSeek = async (sound?: Audio.Sound | null) => {
+    const ms = pendingMediaSeekMsRef.current;
+    if (ms == null || !Number.isFinite(ms) || ms < 0) return;
+    pendingMediaSeekMsRef.current = null;
     try {
-      token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-    } catch (tokenError) {
-      console.warn('Failed to retrieve auth token:', tokenError);
+      if (sound) {
+        const status = await sound.getStatusAsync();
+        if (status.isLoaded) await sound.setPositionAsync(ms);
+        return;
+      }
+      if (videoRef) {
+        const status = await videoRef.getStatusAsync();
+        if (status.isLoaded) await videoRef.setPositionAsync(ms);
+      }
+    } catch {
+      /* player may still be loading */
     }
-    
+  };
+
+  const playVideoWithCache = async (videoUrl: string, title: string, assetId?: string, directUrl?: string) => {
     try {
-      let finalUrl = videoUrl;
-      
-      // If URL doesn't already have auth, append token as query parameter
-      // This allows expo-av to authenticate while using progressive streaming
-      if (token && !videoUrl.includes('token=')) {
-        const separator = videoUrl.includes('?') ? '&' : '?';
-        finalUrl = `${videoUrl}${separator}token=${encodeURIComponent(token)}`;
-      }
-      // Request MP4 so backend transcodes WebM→MP4 for iOS/Android (backend checks format=mp4)
-      if (finalUrl.includes('/recording/') && finalUrl.includes('/stream') && !finalUrl.includes('format=mp4')) {
-        finalUrl += finalUrl.includes('?') ? '&format=mp4' : '?format=mp4';
-      }
-      
-      // Check if URL has unsupported format extension (WebM not supported on iOS native player)
+      const { token, finalUrl, cachePath, uriToPlay, isPlayingFromCache } = await prepareVideoPlayback(videoUrl, assetId);
       const urlLower = finalUrl.toLowerCase();
       if (urlLower.includes('.webm') || (urlLower.includes('/download') && !urlLower.includes('format=mp4') && !urlLower.includes('/stream'))) {
         console.warn('🎬 Detected WebM or unsupported format - will likely fail, showing browser option');
-        // Don't prevent trying, but we'll timeout faster if it fails
       }
 
-      // Use cached file when available to avoid loading from network each time
-      const videoCachePath = getVideoCachePath(assetId, finalUrl);
-      let uriToPlay = finalUrl;
-      try {
-        const cached = await FileSystem.getInfoAsync(videoCachePath);
-        if (cached.exists && (cached.size ?? 0) > 0) {
-          // expo-av expects file:// for local paths on some platforms
-          uriToPlay = videoCachePath.startsWith('file://') ? videoCachePath : `file://${videoCachePath}`;
-          console.log('🎬 Playing video from cache (no network load)');
-        }
-      } catch (_) {
-        // Ignore cache check errors; fall back to stream
-      }
-      
-      console.log(uriToPlay === videoCachePath ? '🎬 Starting cached video playback' : '🎬 Starting progressive video playback:', uriToPlay === videoCachePath ? '(cached)' : finalUrl);
+      console.log(isPlayingFromCache ? '🎬 Starting cached video playback' : '🎬 Starting progressive video playback:', isPlayingFromCache ? '(cached)' : finalUrl);
       
       // Store original URL and assetId for fallback
       setOriginalVideoUrl(videoUrl);
@@ -930,37 +920,31 @@ export default function MeetingDetailsScreen() {
       setVideoUiFullscreen(false);
       setShowVideoPlayer(true);
       setVideoLoading(true);
-      setVideoBuffering(uriToPlay !== (videoCachePath.startsWith('file://') ? videoCachePath : `file://${videoCachePath}`)); // Cached file typically doesn't need buffering
+      setVideoBuffering(!isPlayingFromCache);
 
-      const isPlayingFromCache = (uriToPlay.startsWith('file://') || uriToPlay === videoCachePath);
       if (isPlayingFromCache) {
         currentVideoStreamUrlRef.current = null;
       } else {
         currentVideoStreamUrlRef.current = finalUrl; // So we can switch to cache when download completes
       }
 
-      // When streaming (not from cache), download to cache in background; when done, switch playback to cache so video starts (stream can take 1–2 min to transcode)
-      if (!isPlayingFromCache && finalUrl.includes('/recording/')) {
-        const recordingIdMatch = finalUrl.match(/\/recording\/(\d+)\//);
-        if (recordingIdMatch && token) {
-          const recordingId = recordingIdMatch[1];
-          const downloadUrl = `${API_BASE_URL}/api/v1/video/recording/${recordingId}/download?token=${encodeURIComponent(token)}&format=mp4`;
-          const streamUrlForSwitch = finalUrl;
-          const pathForSwitch = videoCachePath;
-          FileSystem.downloadAsync(downloadUrl, videoCachePath).then(() => {
-            console.log('🎬 Video cached for next playback');
-            // If we're still showing this stream (user didn't close or change video), switch to cached file so playback can start (backend stream can take 1–2 min to transcode)
-            if (currentVideoStreamUrlRef.current === streamUrlForSwitch) {
-              const fileUri = pathForSwitch.startsWith('file://') ? pathForSwitch : `file://${pathForSwitch}`;
-              setSelectedVideoUrl(fileUri);
-              setVideoKey((k) => k + 1);
-              setVideoLoading(false);
-              setVideoBuffering(false);
-              currentVideoStreamUrlRef.current = null;
-              console.log('🎬 Switched to cached file – playback should start');
-            }
-          }).catch(() => {});
-        }
+      // When streaming (not from cache), download to cache in background; when done, switch playback to cache so video starts (backend stream can take 1–2 min to transcode)
+      if (!isPlayingFromCache && finalUrl.includes('/recording/') && token) {
+        const streamUrlForSwitch = finalUrl;
+        void startRecordingCacheDownload({
+          recordingUrl: finalUrl,
+          token,
+          cachePath,
+          kind: 'video',
+        }).then((cached) => {
+          if (!cached || currentVideoStreamUrlRef.current !== streamUrlForSwitch) return;
+          setSelectedVideoUrl(cached);
+          setVideoKey((k) => k + 1);
+          setVideoLoading(false);
+          setVideoBuffering(false);
+          currentVideoStreamUrlRef.current = null;
+          console.log('🎬 Switched to cached file – playback should start');
+        });
       }
       
     } catch (error) {
@@ -994,28 +978,7 @@ export default function MeetingDetailsScreen() {
     }
   };
 
-  const getAudioCachePath = (assetId?: string, url?: string): string => {
-    const dir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-    const key = assetId || (url ? 'url_' + String(url.split('').reduce((a: number, b: string) => ((a << 5) - a) + b.charCodeAt(0), 0) % 1e9) : 'audio');
-    const safe = key.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80);
-    return `${dir}meeting_audio_${safe}.m4a`;
-  };
-
-  const getVideoCachePath = (assetId?: string, url?: string): string => {
-    const dir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
-    const key = assetId || (url ? 'url_' + String(url.split('').reduce((a: number, b: string) => ((a << 5) - a) + b.charCodeAt(0), 0) % 1e9) : 'video');
-    const safe = key.replace(/[^a-zA-Z0-9-_]/g, '_').slice(0, 80);
-    return `${dir}meeting_video_${safe}.mp4`;
-  };
-
   const playAudioWithCache = async (audioUrl: string, title: string, assetId?: string) => {
-    let token: string | null = null;
-    try {
-      token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-    } catch (tokenError) {
-      console.warn('Failed to retrieve auth token:', tokenError);
-    }
-
     // Show modal and loading UI immediately so user never sees a blank screen
     setAudioTitle(title);
     setShowAudioPlayer(true);
@@ -1023,15 +986,12 @@ export default function MeetingDetailsScreen() {
     setAudioLoadingMessage('Preparing...');
 
     const doPlay = async () => {
+      let token: string | null = null;
       try {
-        let finalUrl = audioUrl;
-        if (token && !audioUrl.includes('token=')) {
-          const separator = audioUrl.includes('?') ? '&' : '?';
-          finalUrl = `${audioUrl}${separator}token=${encodeURIComponent(token)}`;
-        }
-
-        const cachePath = getAudioCachePath(assetId, audioUrl);
-        const cached = await FileSystem.getInfoAsync(cachePath);
+        const prepared = await prepareAudioPlayback(audioUrl, assetId);
+        token = prepared.token;
+        const { finalUrl, cachePath, cachedUri } = prepared;
+        const cached = { exists: !!cachedUri, size: cachedUri ? 1 : 0 };
 
         if (cached.exists && (cached.size ?? 0) > 0) {
           setAudioLoadingMessage('Loading...');
@@ -1045,6 +1005,7 @@ export default function MeetingDetailsScreen() {
           if (status.isLoaded && status.durationMillis) setAudioDuration(status.durationMillis);
           setAudioSound(sound);
           await sound.playAsync();
+          await applyPendingMediaSeek(sound);
           setAudioPlaying(true);
           setAudioLoading(false);
           console.log('🎵 Audio playing from cache');
@@ -1065,19 +1026,19 @@ export default function MeetingDetailsScreen() {
         await sound.setVolumeAsync(1);
         await sound.setIsMutedAsync(false);
         await sound.playAsync();
+        await applyPendingMediaSeek(sound);
         setAudioPlaying(true);
         setAudioLoading(false);
         console.log('🎵 Audio playback started (progressive stream)');
 
         // Cache in background for next time (does not block playback)
         if (audioUrl.includes('/recording/') && (audioUrl.includes('/stream') || audioUrl.includes('/download'))) {
-          const recordingIdMatch = audioUrl.match(/\/recording\/(\d+)\//);
-          if (recordingIdMatch) {
-            const recordingId = recordingIdMatch[1];
-            const downloadUrl = `${API_BASE_URL}/api/v1/video/recording/${recordingId}/download`;
-            const downloadFinal = token ? `${downloadUrl}?token=${encodeURIComponent(token)}` : downloadUrl;
-            FileSystem.downloadAsync(downloadFinal, cachePath).catch(() => {});
-          }
+          void startRecordingCacheDownload({
+            recordingUrl: audioUrl,
+            token,
+            cachePath,
+            kind: 'audio',
+          });
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1103,6 +1064,7 @@ export default function MeetingDetailsScreen() {
                 if (st.isLoaded && st.durationMillis) setAudioDuration(st.durationMillis);
                 setAudioSound(fallbackSound);
                 await fallbackSound.playAsync();
+                await applyPendingMediaSeek(fallbackSound);
                 setAudioPlaying(true);
                 setAudioLoading(false);
                 console.log('🎵 Audio playing from download URL (progressive)');
@@ -1128,6 +1090,7 @@ export default function MeetingDetailsScreen() {
                 if (st.isLoaded && st.durationMillis) setAudioDuration(st.durationMillis);
                 setAudioSound(fallbackSound);
                 await fallbackSound.playAsync();
+                await applyPendingMediaSeek(fallbackSound);
                 setAudioPlaying(true);
                 setAudioLoading(false);
                 console.log('🎵 Audio playing from cache (full download fallback)');
@@ -3358,6 +3321,7 @@ export default function MeetingDetailsScreen() {
                     if (videoRef) {
                       try {
                         await videoRef.playAsync();
+                        await applyPendingMediaSeek();
                         console.log('🎬 ✅ Started playback (progressive)');
                         setVideoLoading(false); // Hide loading indicator
                         setVideoBuffering(false);
@@ -3383,6 +3347,7 @@ export default function MeetingDetailsScreen() {
                           const minBufferMs = Math.min(2000, duration * 0.1);
                           if (playableDuration >= minBufferMs && !status.isPlaying) {
                             await videoRef.playAsync();
+                            await applyPendingMediaSeek();
                             console.log('🎬 ✅ Started playback (enough buffered)');
                             setVideoLoading(false);
                             setVideoBuffering(false);

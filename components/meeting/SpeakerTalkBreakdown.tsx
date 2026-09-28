@@ -26,7 +26,7 @@ export default function SpeakerTalkBreakdown({
 
   if (!rows.length) return null;
 
-  const listHeight = Math.min(224, rows.length * 52);
+  const listHeight = Math.min(120, rows.length * 40);
 
   return (
     <View style={[styles.card, { backgroundColor: colors.surface || colors.card, borderColor: colors.border }]}>
@@ -79,21 +79,21 @@ export default function SpeakerTalkBreakdown({
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 12, borderWidth: 1, padding: 14, gap: 12 },
-  title: { fontSize: 14, fontWeight: '600' },
-  row: { gap: 6 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  card: { borderRadius: 12, borderWidth: 1, padding: 10, gap: 8 },
+  title: { fontSize: 13, fontWeight: '600' },
+  row: { gap: 4, paddingBottom: 6 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   play: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  playIcon: { fontSize: 8 },
-  name: { flex: 1, fontSize: 14 },
-  percent: { fontSize: 14, fontVariant: ['tabular-nums'] },
-  track: { height: 8, borderRadius: 999, overflow: 'hidden', position: 'relative' },
+  playIcon: { fontSize: 7 },
+  name: { flex: 1, fontSize: 13 },
+  percent: { fontSize: 12, fontVariant: ['tabular-nums'] },
+  track: { height: 5, borderRadius: 999, overflow: 'hidden', position: 'relative' },
   tick: { position: 'absolute', top: 0, bottom: 0 },
 });

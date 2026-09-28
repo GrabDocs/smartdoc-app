@@ -674,6 +674,16 @@ export default function EmailThreadScreen() {
           paddingTop: 8,
           paddingBottom: 0,
         },
+        focusDim: {
+          ...StyleSheet.absoluteFillObject,
+          backgroundColor: colors.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(17,24,39,0.45)',
+          zIndex: 4,
+        },
+        bubbleDimmed: { opacity: 0.28 },
+        bubbleFocused: {
+          zIndex: 5,
+          borderColor: colors.isDark ? '#52525B' : '#9CA3AF',
+        },
         meta: { fontSize: 12, color: colors.textSecondary },
         from: { fontWeight: '700', color: colors.text, fontSize: 14 },
         banner: {
@@ -986,6 +996,8 @@ export default function EmailThreadScreen() {
     Alert.alert('Attachment', 'Still importing…');
   };
 
+  const maximizeFocus = !!expandedId && !fullscreenMessage && !composeFullscreen;
+
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -1090,6 +1102,13 @@ export default function EmailThreadScreen() {
         {!fullscreenMessage && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
+            {maximizeFocus ? (
+              <Pressable
+                style={styles.focusDim}
+                onPress={() => setExpandedId(null)}
+                accessibilityLabel="Collapse message"
+              />
+            ) : null}
           </View>
         ) : null}
 
@@ -1109,7 +1128,15 @@ export default function EmailThreadScreen() {
         ) : (
         <ScrollView
           style={[
-            { backgroundColor: colors.isDark ? colors.background : '#F3F4F6' },
+            {
+              backgroundColor: maximizeFocus
+                ? colors.isDark
+                  ? '#09090B'
+                  : '#9CA3AF'
+                : colors.isDark
+                  ? colors.background
+                  : '#F3F4F6',
+            },
             composeFullscreen
               ? { maxHeight: Math.round(windowHeight * (keyboardOpen ? 0.22 : 0.34)) }
               : { flex: 1 },
@@ -1161,7 +1188,13 @@ export default function EmailThreadScreen() {
               <Pressable
                 key={m.id}
                 onPress={() => onMessagePress(m.id)}
-                style={[styles.bubble, out && styles.outbound, expanded && { paddingBottom: 16 }]}
+                style={[
+                  styles.bubble,
+                  out && styles.outbound,
+                  expanded && { paddingBottom: 16 },
+                  maximizeFocus && expanded && styles.bubbleFocused,
+                  maximizeFocus && !expanded && styles.bubbleDimmed,
+                ]}
               >
                 <View style={styles.bubbleHead}>
                   <View style={styles.bubbleHeadText}>
@@ -1212,9 +1245,8 @@ export default function EmailThreadScreen() {
         )}
 
         {!dismissed && !fullscreenMessage ? (
-          <ScrollView
+          <View
             style={[
-              styles.composePanel,
               composeFullscreen
                 ? { flex: 1, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
                 : {
@@ -1226,6 +1258,9 @@ export default function EmailThreadScreen() {
                     ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null),
                   },
             ]}
+          >
+          <ScrollView
+            style={[styles.composePanel, { flexGrow: 1 }]}
             contentContainerStyle={{
               flexGrow: composeFullscreen ? 1 : undefined,
               paddingBottom:
@@ -1633,6 +1668,14 @@ export default function EmailThreadScreen() {
               </View>
             ) : null}
           </ScrollView>
+          {maximizeFocus ? (
+            <Pressable
+              style={styles.focusDim}
+              onPress={() => setExpandedId(null)}
+              accessibilityLabel="Collapse message"
+            />
+          ) : null}
+          </View>
         ) : null}
 
         {undo && undoLeft > 0 ? (

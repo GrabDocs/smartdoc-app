@@ -95,7 +95,7 @@ export function pickPreferredRecording<T extends { trackType?: string | null; tr
 ): T | null {
   if (!recordings.length) return null;
   return (
-    recordings.find((row) => isAudioTrackType(row.trackType || row.track_type)) || recordings[0]
+    recordings.find((row) => !isAudioTrackType(row.trackType || row.track_type)) || recordings[0]
   );
 }
 

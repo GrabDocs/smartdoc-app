@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import MeetingInlineRecordingPlayer, { type MeetingInlinePlayerHandle } from './MeetingInlineRecordingPlayer';
+import MeetingCachedRecordingPlayer, { type MeetingCachedPlayerHandle } from './MeetingCachedRecordingPlayer';
 import {
   computeTalkTime,
   formatTalkDuration,
@@ -112,7 +112,7 @@ export default function MeetingTranscriptView({
       pickPreferredRecording(recordingOptions),
     [recordingOptions, selectedStreamUrl]
   );
-  const playerRef = useRef<MeetingInlinePlayerHandle | null>(null);
+  const playerRef = useRef<MeetingCachedPlayerHandle | null>(null);
   const listRef = useRef<ScrollView | null>(null);
   const turnY = useRef<Record<number, number>>({});
 
@@ -159,9 +159,8 @@ export default function MeetingTranscriptView({
 
   const seekTo = async (turn: MeetingTranscriptTurn, index: number) => {
     if (!hasTimestamps || turn.startSeconds == null || !activeRecording?.streamUrl) return;
-    const millis = Math.round(turn.startSeconds * 1000);
     try {
-      await playerRef.current?.seekToMillis(millis);
+      await playerRef.current?.seekToMillis(Math.round(turn.startSeconds * 1000));
       setActiveTurn(index);
     } catch {
       /* player reports its own error */
@@ -169,7 +168,7 @@ export default function MeetingTranscriptView({
   };
 
   useEffect(() => {
-    if (seekToSeconds == null || !hasTimestamps) return;
+    if (seekToSeconds == null || !hasTimestamps || !activeRecording?.streamUrl) return;
     let bestIndex = -1;
     let bestDelta = Number.POSITIVE_INFINITY;
     parsed.turns.forEach((turn, index) => {
@@ -227,7 +226,7 @@ export default function MeetingTranscriptView({
               })}
             </View>
           ) : null}
-          <MeetingInlineRecordingPlayer
+          <MeetingCachedRecordingPlayer
             ref={playerRef}
             key={activeRecording!.streamUrl}
             streamUrl={activeRecording!.streamUrl}
