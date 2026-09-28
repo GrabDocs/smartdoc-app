@@ -104,6 +104,10 @@ export default function MeetingRecapView({
     (extraSpeakerNames || []).forEach((n) => names.add(n));
     return Array.from(names).filter(Boolean);
   }, [parsed.sections, hero?.attendees, extraSpeakerNames]);
+  const talkRows = useMemo(
+    () => computeTalkTime(parseMeetingTranscript(transcriptContent).turns, meetingDurationSeconds),
+    [transcriptContent, meetingDurationSeconds]
+  );
 
   if (loading) {
     return (
@@ -116,10 +120,6 @@ export default function MeetingRecapView({
 
   const chapters = enrichment?.chapters || [];
   const timedActions = enrichment?.action_items || [];
-  const talkRows = useMemo(
-    () => computeTalkTime(parseMeetingTranscript(transcriptContent).turns, meetingDurationSeconds),
-    [transcriptContent, meetingDurationSeconds]
-  );
 
   if (!summaryContent?.trim() && !parsed.sections.length && !chapters.length && !timedActions.length && !talkRows.length) {
     return (
