@@ -6,6 +6,7 @@ export type MeetingSummaryKind =
   | 'speakers'
   | 'decisions'
   | 'questions'
+  | 'follow_up'
   | 'generic';
 
 export type MeetingSummarySection = {
@@ -28,6 +29,7 @@ const TITLE_KIND: Array<{ kind: MeetingSummaryKind; aliases: string[] }> = [
   { kind: 'speakers', aliases: ['speakers', 'speaker', 'participants', 'attendees'] },
   { kind: 'decisions', aliases: ['decisions', 'decision', 'key decisions'] },
   { kind: 'questions', aliases: ['questions', 'open questions', 'unresolved'] },
+  { kind: 'follow_up', aliases: ['follow up', 'follow-up', 'followup', 'follow ups', 'follow-ups'] },
 ];
 
 function normalizeTitle(title: string): string {
@@ -152,6 +154,8 @@ function parseObjectSummary(parsed: Record<string, unknown>): MeetingSummarySect
     { key: 'attendees', title: 'Speakers' },
     { key: 'decisions', title: 'Decisions' },
     { key: 'questions', title: 'Questions' },
+    { key: 'follow_up', title: 'Follow-up' },
+    { key: 'followup', title: 'Follow-up' },
   ];
   if (!sections.length) {
     for (const alias of topLevelAliases) {

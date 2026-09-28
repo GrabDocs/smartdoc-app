@@ -167,6 +167,7 @@ export default function EmailThreadScreen() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [fullscreenMessage, setFullscreenMessage] = useState<EmailMessage | null>(null);
   const [composeFullscreen, setComposeFullscreen] = useState(false);
+  const [threadCollapsedForCompose, setThreadCollapsedForCompose] = useState(false);
   const [grabdocsResearchOn, setGrabdocsResearchOn] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone>(DEFAULT_REPLY_TONE);
   const [replyAll, setReplyAll] = useState(false);
@@ -760,6 +761,31 @@ export default function EmailThreadScreen() {
           paddingHorizontal: 4,
           paddingTop: 2,
         },
+        sectionPeek: {
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          backgroundColor: colors.headerBackground,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        sectionPeekText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+        attachmentPanel: {
+          flexShrink: 0,
+          minHeight: 88,
+          marginTop: 12,
+          paddingHorizontal: 12,
+          paddingVertical: 12,
+          borderRadius: 12,
+          backgroundColor: colors.isDark ? '#18181B' : '#FFFFFF',
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+        attachmentPanelTitle: {
+          fontSize: 13,
+          fontWeight: '700',
+          color: colors.text,
+          marginBottom: 8,
+        },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -973,7 +999,17 @@ export default function EmailThreadScreen() {
     if (!threadReading) return;
     Keyboard.dismiss();
     setComposeFullscreen(false);
+    setThreadCollapsedForCompose(false);
   }, [threadReading]);
+
+  useEffect(() => {
+    if (threadReading) return;
+    if (composeFullscreen || (composing && keyboardOpen)) {
+      setThreadCollapsedForCompose(true);
+      return;
+    }
+    setThreadCollapsedForCompose(false);
+  }, [composeFullscreen, composing, keyboardOpen, threadReading]);
 
   const onMessagePress = (messageId: number) => {
     const now = Date.now();
@@ -1142,16 +1178,34 @@ export default function EmailThreadScreen() {
               text={fullscreenMessage.body_text}
               fill
             />
-            <View style={{ flexShrink: 0 }}>
-              <AttachmentNamesRow
-                attachments={fullscreenMessage.attachments}
-                onOpen={openAttachment}
-                style={{ marginTop: 8 }}
-              />
-            </View>
+            {(fullscreenMessage.attachments || []).length > 0 ? (
+              <View style={styles.attachmentPanel}>
+                <Text style={styles.attachmentPanelTitle}>Attachments</Text>
+                <AttachmentNamesRow
+                  variant="panel"
+                  attachments={fullscreenMessage.attachments}
+                  onOpen={openAttachment}
+                />
+              </View>
+            ) : null}
           </View>
+        ) : threadCollapsedForCompose && !expandedId ? (
+          <TouchableOpacity
+            style={styles.sectionPeek}
+            onPress={() => {
+              setComposeFullscreen(false);
+              setThreadCollapsedForCompose(false);
+              Keyboard.dismiss();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Show conversation"
+          >
+            <Text style={styles.sectionPeekText} numberOfLines={1}>
+              {truncateAppHeaderTitle(thread?.subject || 'Conversation')}
+            </Text>
+          </TouchableOpacity>
         ) : (
-        <View style={composeFullscreen ? { height: 0, overflow: 'hidden' } : { flex: 1, minHeight: 0 }}>
+        <View style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
           style={{
             flex: 1,

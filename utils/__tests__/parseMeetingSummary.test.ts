@@ -25,4 +25,9 @@ describe('parseMeetingSummary', () => {
   test('aliases short summary', () => {
     expect(classifySummaryTitle('Short Summary')).toBe('overview');
   });
+
+  test('aliases follow-up', () => {
+    expect(classifySummaryTitle('Follow-up')).toBe('follow_up');
+    expect(classifySummaryTitle('Followup')).toBe('follow_up');
+  });
 });

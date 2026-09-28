@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   parseMeetingSummary,
@@ -13,22 +13,24 @@ import SpeakerTalkBreakdown from './SpeakerTalkBreakdown';
 const KIND_BG: Record<MeetingSummaryKind, string> = {
   overview: '#eef2ff',
   action_items: '#fffbeb',
-  key_points: '#f0f9ff',
-  agenda: '#f5f3ff',
+  key_points: '#dbeafe',
+  agenda: '#fff7ed',
   speakers: '#f0fdfa',
   decisions: '#ecfdf5',
   questions: '#fff1f2',
+  follow_up: '#fae8ff',
   generic: '#f8fafc',
 };
 
 const KIND_BG_DARK: Record<MeetingSummaryKind, string> = {
   overview: '#1e1b4b',
   action_items: '#451a03',
-  key_points: '#0c4a6e',
-  agenda: '#2e1065',
+  key_points: '#1e3a8a',
+  agenda: '#7c2d12',
   speakers: '#134e4a',
   decisions: '#064e3b',
   questions: '#4c0519',
+  follow_up: '#701a75',
   generic: '#1f2937',
 };
 
@@ -95,6 +97,7 @@ export default function MeetingRecapView({
   onSeekTo?: (startSeconds: number) => void;
 }) {
   const colors = useThemeColors();
+  const [showAllParticipants, setShowAllParticipants] = useState(false);
   const parsed = useMemo(() => parseMeetingSummary(summaryContent), [summaryContent]);
   const speakerNames = useMemo(() => {
     const fromSummary = parsed.sections.find((s) => s.kind === 'speakers');
@@ -157,18 +160,20 @@ export default function MeetingRecapView({
             </View>
           ) : null}
           {topNames.length > 0 ? (
-            <View style={styles.chipWrap}>
-              {topNames.map((name) => (
-                <View key={name} style={[styles.chip, { backgroundColor: colors.inputBackground || colors.border }]}>
-                  <Text style={[styles.chipText, { color: colors.text }]}>{name}</Text>
-                </View>
-              ))}
+            <Text style={[styles.namesLine, { color: colors.text }]}>
+              {topNames.join(' · ')}
               {moreCount > 0 ? (
-                <View style={[styles.chip, { backgroundColor: colors.inputBackground || colors.border }]}>
-                  <Text style={[styles.chipText, { color: colors.textSecondary }]}>+{moreCount} more</Text>
-                </View>
+                <>
+                  {' · '}
+                  <Text
+                    onPress={() => setShowAllParticipants(true)}
+                    style={{ color: colors.tint || '#4f46e5', fontWeight: '700' }}
+                  >
+                    +{moreCount}
+                  </Text>
+                </>
               ) : null}
-            </View>
+            </Text>
           ) : null}
         </View>
       )}
@@ -238,6 +243,34 @@ export default function MeetingRecapView({
           isDark={!!colors.isDark}
         />
       ))}
+
+      <Modal
+        visible={showAllParticipants}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAllParticipants(false)}
+      >
+        <Pressable style={styles.popupOverlay} onPress={() => setShowAllParticipants(false)}>
+          <Pressable
+            style={[styles.popupCard, { backgroundColor: colors.surface || colors.card }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <Text style={[styles.popupTitle, { color: colors.text }]}>
+              Participants ({speakerNames.length})
+            </Text>
+            <ScrollView style={styles.popupList} nestedScrollEnabled>
+              {speakerNames.map((name) => (
+                <Text key={name} style={[styles.popupName, { color: colors.text }]}>
+                  {name}
+                </Text>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setShowAllParticipants(false)} style={styles.popupClose}>
+              <Text style={{ color: colors.tint || '#4f46e5', fontWeight: '600' }}>Close</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -261,6 +294,18 @@ const styles = StyleSheet.create({
   heroTitle: { fontSize: 18, fontWeight: '700' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
   metaText: { fontSize: 13 },
+  namesLine: { fontSize: 13, marginTop: 8, lineHeight: 20 },
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  popupCard: { borderRadius: 14, padding: 16, maxHeight: '70%' },
+  popupTitle: { fontSize: 16, fontWeight: '700', marginBottom: 10 },
+  popupList: { maxHeight: 320 },
+  popupName: { fontSize: 15, paddingVertical: 7 },
+  popupClose: { alignSelf: 'flex-end', marginTop: 12, paddingVertical: 4 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   chip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   chipText: { fontSize: 12 },
