@@ -262,7 +262,12 @@ export default function MeetingTranscriptView({
         ) : null}
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipScroll}
+        contentContainerStyle={styles.chipRow}
+      >
         <TouchableOpacity
           onPress={() => setSpeakerFilter(null)}
           style={[
@@ -344,8 +349,9 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   search: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14 },
   nextBtn: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 8 },
-  chipRow: { gap: 6, paddingVertical: 2 },
-  speakerChip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  chipScroll: { flexGrow: 0, flexShrink: 0, maxHeight: 40 },
+  chipRow: { alignItems: 'center', gap: 6, paddingVertical: 2 },
+  speakerChip: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   turn: { flexDirection: 'row', gap: 10, paddingVertical: 8, paddingHorizontal: 6, borderRadius: 10 },
   avatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#fff', fontSize: 11, fontWeight: '700' },

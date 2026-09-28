@@ -50,6 +50,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import {
   getAudioCachePath,
+  logRecordingPlaybackError,
   prepareAudioPlayback,
   prepareVideoPlayback,
   startRecordingCacheDownload,
@@ -1105,6 +1106,13 @@ export default function MeetingDetailsScreen() {
         console.error('🎵 Audio playback failed:', { errorMessage: errorMessage, audioUrl });
         Alert.alert('Error', `Failed to play audio: ${errorMessage}`);
         setShowAudioPlayer(false);
+        logRecordingPlaybackError(errorMessage, {
+          kind: 'audio',
+          screenName: 'MeetingDetails',
+          userAction: 'tile_audio_play_failed',
+          url: audioUrl,
+          assetId,
+        });
       }
     };
 
@@ -3479,6 +3487,14 @@ export default function MeetingDetailsScreen() {
                     setIsVideoFallbackInProgress(false);
                     setVideoLoading(false);
                     hasShownVideoErrorRef.current = true; // Mark that we've shown the error
+                    logRecordingPlaybackError(errorMessage, {
+                      kind: 'video',
+                      screenName: 'MeetingDetails',
+                      userAction: 'tile_video_play_failed',
+                      url: originalVideoUrl || selectedVideoUrl,
+                      assetId: videoAssetId,
+                      extra: { formatError: isFormatError },
+                    });
                     
                     // Provide more specific error message; offer "Open in Browser" (same stream URL as web)
                     const errorTitle = isFormatError ? 'Video Format Not Supported' : 'Failed to Play Video';

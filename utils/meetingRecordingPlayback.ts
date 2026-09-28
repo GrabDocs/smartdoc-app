@@ -1,5 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/Config';
+import { errorLogger } from '../services/errorLogger';
 import { secureStorage } from './storage';
 
 const inflightDownloads = new Map<string, Promise<string | null>>();
@@ -30,14 +31,19 @@ export function fileUri(path: string): string {
   return path.startsWith('file://') ? path : `file://${path}`;
 }
 
-export async function cachedFileUri(path: string): Promise<string | null> {
+export async function cachedFileUri(path: string, minBytes = 1): Promise<string | null> {
   try {
     const cached = await FileSystem.getInfoAsync(path);
-    if (cached.exists && (cached.size ?? 0) > 0) return fileUri(path);
+    if (cached.exists && (cached.size ?? 0) >= minBytes) return fileUri(path);
   } catch {
     /* fall through */
   }
   return null;
+}
+
+/** Skip tiny error bodies saved as .mp4 during earlier failed downloads. */
+export async function cachedVideoUri(path: string): Promise<string | null> {
+  return cachedFileUri(path, 200_000);
 }
 
 /** Same URL rules as meeting-details playVideoWithCache / playAudioWithCache. */
@@ -56,7 +62,7 @@ export async function prepareVideoPlayback(videoUrl: string, assetId?: string) {
   const token = await getAuthToken();
   const finalUrl = withPlaybackAuthUrl(videoUrl, token, true);
   const cachePath = getVideoCachePath(assetId, finalUrl);
-  const cachedUri = await cachedFileUri(cachePath);
+  const cachedUri = await cachedVideoUri(cachePath);
   return {
     token,
     finalUrl,
@@ -95,7 +101,7 @@ export function startStreamFileDownload(streamUrl: string, cachePath: string): P
   const existing = inflightDownloads.get(key);
   if (existing) return existing;
   const pending = FileSystem.downloadAsync(streamUrl, cachePath)
-    .then(() => cachedFileUri(cachePath))
+    .then(() => cachedVideoUri(cachePath))
     .catch(() => null)
     .finally(() => {
       if (inflightDownloads.get(key) === pending) inflightDownloads.delete(key);
@@ -124,4 +130,51 @@ export function startRecordingCacheDownload(args: {
     });
   inflightDownloads.set(key, pending);
   return pending;
+}
+
+export function redactPlaybackUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  return url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]');
+}
+
+export function playbackErrorMessage(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const obj = error as { error?: { message?: string; code?: string; domain?: string }; message?: string };
+    const nested = obj.error?.message || obj.message;
+    if (nested) {
+      const code = obj.error?.code || obj.error?.domain;
+      return code ? `${nested} (${code})` : nested;
+    }
+  }
+  if (error instanceof Error) return error.message;
+  return String(error || 'Unable to play this recording.');
+}
+
+export function logRecordingPlaybackError(
+  error: unknown,
+  options: {
+    kind: 'video' | 'audio';
+    screenName: string;
+    userAction: string;
+    url?: string | null;
+    assetId?: string;
+    extra?: Record<string, unknown>;
+  }
+): void {
+  const message = playbackErrorMessage(error);
+  const recordingId = options.url?.match(/\/recording\/(\d+)\//)?.[1];
+  void errorLogger.logError(message, {
+    severity: 'error',
+    screenName: options.screenName,
+    userAction: options.userAction,
+    errorType: 'MeetingRecordingPlayback',
+    url: redactPlaybackUrl(options.url),
+    metadata: {
+      kind: options.kind,
+      assetId: options.assetId,
+      recordingId: recordingId || null,
+      ...(options.extra || {}),
+    },
+  });
 }

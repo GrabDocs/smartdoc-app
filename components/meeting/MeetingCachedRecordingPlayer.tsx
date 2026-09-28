@@ -5,6 +5,8 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   getAuthToken,
+  logRecordingPlaybackError,
+  playbackErrorMessage,
   prepareAudioPlayback,
   prepareVideoPlayback,
   recordingDownloadUrl,
@@ -33,6 +35,7 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
   const videoRef = useRef<Video | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const currentStreamUrlRef = useRef<string | null>(null);
+  const streamFailedRef = useRef(false);
   const pendingSeekRef = useRef<number | null>(null);
   const onPlaybackStatusRef = useRef(onPlaybackStatus);
   onPlaybackStatusRef.current = onPlaybackStatus;
@@ -148,21 +151,36 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
           setBuffering(false);
           return;
         }
-        setLoadingMessage('Loading video...');
-        currentStreamUrlRef.current = prepared.finalUrl;
-        const cached = await startStreamFileDownload(prepared.finalUrl, prepared.cachePath);
-        if (cancelled) return;
-        if (cached) {
-          setUri(cached);
-          setVideoKey((k) => k + 1);
-          setBuffering(true);
-          currentStreamUrlRef.current = null;
-          return;
-        }
+        setLoadingMessage('Buffering...');
+        streamFailedRef.current = false;
         currentStreamUrlRef.current = prepared.finalUrl;
         setUri(prepared.uriToPlay);
         setVideoKey((k) => k + 1);
         setBuffering(true);
+        const streamUrlForSwitch = prepared.finalUrl;
+        void startStreamFileDownload(prepared.finalUrl, prepared.cachePath).then((cached) => {
+          if (cancelled) return;
+          if (currentStreamUrlRef.current !== streamUrlForSwitch) return;
+          if (!cached) {
+            if (streamFailedRef.current) {
+              setError('Unable to play this recording.');
+              logRecordingPlaybackError('Unable to play this recording.', {
+                kind: 'video',
+                screenName: 'MeetingRecapTranscript',
+                userAction: 'recap_video_stream_and_cache_failed',
+                url: streamUrl,
+                assetId,
+                extra: { phase: 'cache_miss_after_stream_error' },
+              });
+            }
+            return;
+          }
+          currentStreamUrlRef.current = null;
+          setUri(cached);
+          setVideoKey((k) => k + 1);
+          setBuffering(false);
+          setError(null);
+        });
       } catch (e) {
         if (cancelled) return;
         const message = e instanceof Error ? e.message : String(e);
@@ -192,6 +210,13 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
         if (!cancelled) {
           setError(message || 'Unable to play this recording.');
           setBuffering(false);
+          logRecordingPlaybackError(e, {
+            kind: audio ? 'audio' : 'video',
+            screenName: 'MeetingRecapTranscript',
+            userAction: audio ? 'recap_audio_prepare_failed' : 'recap_video_prepare_failed',
+            url: streamUrl,
+            assetId,
+          });
         }
       }
     })();
@@ -370,7 +395,30 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
           if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_PRESENT) setFullscreen(true);
           else if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS) setFullscreen(false);
         }}
-        onError={() => setError('Unable to play this recording.')}
+        onError={(nativeError) => {
+          const detail = playbackErrorMessage(nativeError);
+          if (currentStreamUrlRef.current) {
+            streamFailedRef.current = true;
+            logRecordingPlaybackError(nativeError, {
+              kind: 'video',
+              screenName: 'MeetingRecapTranscript',
+              userAction: 'recap_video_stream_error_waiting_cache',
+              url: streamUrl,
+              assetId,
+              extra: { phase: 'stream', native: detail },
+            });
+            return;
+          }
+          setError('Unable to play this recording.');
+          logRecordingPlaybackError(nativeError, {
+            kind: 'video',
+            screenName: 'MeetingRecapTranscript',
+            userAction: 'recap_video_play_failed',
+            url: streamUrl,
+            assetId,
+            extra: { phase: 'player', native: detail },
+          });
+        }}
       />
       <TouchableOpacity
         style={styles.expand}
