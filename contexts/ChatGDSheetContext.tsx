@@ -6,8 +6,10 @@ type ChatGDSheetContextValue = {
   visible: boolean;
   expandNonce: number;
   params: ChatGDSheetParams;
+  nestedHostCount: number;
   openChatGD: (params?: ChatGDSheetParams) => void;
   closeChatGD: () => void;
+  registerNestedHost: () => () => void;
 };
 
 const ChatGDSheetContext = createContext<ChatGDSheetContextValue | null>(null);
@@ -19,6 +21,7 @@ export function ChatGDSheetProvider({ children }: { children: React.ReactNode })
   const [visible, setVisible] = useState(false);
   const [expandNonce, setExpandNonce] = useState(0);
   const [params, setParams] = useState<ChatGDSheetParams>({});
+  const [nestedHostCount, setNestedHostCount] = useState(0);
 
   const openChatGD = useCallback((nextParams?: ChatGDSheetParams) => {
     setParams({ isSheet: '1', openStartNew: '1', ...nextParams });
@@ -31,9 +34,14 @@ export function ChatGDSheetProvider({ children }: { children: React.ReactNode })
     setParams({});
   }, []);
 
+  const registerNestedHost = useCallback(() => {
+    setNestedHostCount((n) => n + 1);
+    return () => setNestedHostCount((n) => Math.max(0, n - 1));
+  }, []);
+
   const value = useMemo(
-    () => ({ visible, expandNonce, params, openChatGD, closeChatGD }),
-    [visible, expandNonce, params, openChatGD, closeChatGD]
+    () => ({ visible, expandNonce, params, nestedHostCount, openChatGD, closeChatGD, registerNestedHost }),
+    [visible, expandNonce, params, nestedHostCount, openChatGD, closeChatGD, registerNestedHost]
   );
 
   return <ChatGDSheetContext.Provider value={value}>{children}</ChatGDSheetContext.Provider>;

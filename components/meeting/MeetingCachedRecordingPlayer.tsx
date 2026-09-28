@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Audio, InterruptionModeAndroid, InterruptionModeIOS, ResizeMode, Video, VideoFullscreenUpdate } from 'expo-av';
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS, ResizeMode, Video } from 'expo-av';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -44,7 +44,6 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
   const [uri, setUri] = useState<string | null>(null);
   const [videoKey, setVideoKey] = useState(0);
   const [buffering, setBuffering] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioPlaying, setAudioPlaying] = useState(false);
   const [audioPosition, setAudioPosition] = useState(0);
@@ -241,24 +240,6 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
     }
   };
 
-  const toggleFullscreen = async () => {
-    if (fullscreen) {
-      try {
-        await videoRef.current?.dismissFullscreenPlayer();
-      } catch {
-        /* already dismissed */
-      }
-      setFullscreen(false);
-      return;
-    }
-    try {
-      await videoRef.current?.presentFullscreenPlayer();
-      setFullscreen(true);
-    } catch {
-      setFullscreen(true);
-    }
-  };
-
   const toggleAudio = async () => {
     if (!started) {
       start();
@@ -391,10 +372,6 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
           else if (status.isPlaying || (status.playableDurationMillis || 0) > 0) setBuffering(false);
           if (status.positionMillis != null) onPlaybackStatusRef.current?.(status.positionMillis / 1000);
         }}
-        onFullscreenUpdate={(event) => {
-          if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_PRESENT) setFullscreen(true);
-          else if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS) setFullscreen(false);
-        }}
         onError={(nativeError) => {
           const detail = playbackErrorMessage(nativeError);
           if (currentStreamUrlRef.current) {
@@ -420,13 +397,6 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
           });
         }}
       />
-      <TouchableOpacity
-        style={styles.expand}
-        onPress={() => void toggleFullscreen()}
-        accessibilityLabel={fullscreen ? 'Exit full screen' : 'Full screen'}
-      >
-        <Ionicons name={fullscreen ? 'contract' : 'expand'} size={18} color="#fff" />
-      </TouchableOpacity>
     </View>
   );
 });
@@ -451,15 +421,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   bufferText: { color: '#fff', fontSize: 12, marginTop: 4 },
-  expand: {
-    position: 'absolute',
-    right: 8,
-    top: 8,
-    zIndex: 3,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderRadius: 16,
-    padding: 6,
-  },
   audio: { borderRadius: 10, padding: 10 },
   audioLoading: { alignItems: 'center', paddingVertical: 12 },
   audioRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },

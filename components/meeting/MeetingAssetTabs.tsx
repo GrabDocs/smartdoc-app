@@ -191,9 +191,25 @@ export default function MeetingAssetTabs({
             </TouchableOpacity>
           ) : null}
         </View>
+        {showHeaderActions && (canShare || canAsk) ? (
+          <View style={styles.headerActions}>
+            {canShare ? (
+              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn} accessibilityLabel="Share">
+                <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canAsk ? (
+              <TouchableOpacity onPress={handleAsk} style={styles.actionBtn} accessibilityLabel="Ask ChatGD">
+                <Ionicons name="chatbubbles" size={16} color="#007AFF" />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Ask ChatGD</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
-      {showHeaderActions ? (
+      {showHeaderActions && (clientLink || (tab === 'recap' && onDownloadSummary) || (tab === 'transcript' && onDownloadTranscript)) ? (
         <View style={styles.actions}>
           <View style={styles.actionsLeft}>
             {clientLink ? (
@@ -209,20 +225,6 @@ export default function MeetingAssetTabs({
               <TouchableOpacity onPress={onDownloadTranscript} style={styles.actionBtn}>
                 <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
                 <Text style={[styles.actionText, { color: colors.textSecondary }]}>Transcript</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-          <View style={styles.actionsRight}>
-            {canShare ? (
-              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn}>
-                <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canAsk ? (
-              <TouchableOpacity onPress={handleAsk} style={styles.actionBtn}>
-                <Ionicons name="chatbubbles" size={16} color="#007AFF" />
-                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Ask ChatGD</Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -266,13 +268,13 @@ export default function MeetingAssetTabs({
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  tabs: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3 },
-  tab: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 },
+  tabs: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3, flexShrink: 1 },
+  tab: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8 },
   tabText: { fontSize: 14, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
   actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
   actionsLeft: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1 },
-  actionsRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   actionText: { fontSize: 12 },
 });

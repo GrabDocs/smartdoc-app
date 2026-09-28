@@ -27,6 +27,7 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import DeletedFolderGroups from '../../components/documents/DeletedFolderGroups';
 import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
+import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
 import { parseNumericId } from '../../components/meeting/meetingRecapTypes';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
@@ -3685,6 +3686,7 @@ export default function QuickFilesScreen() {
             />
           </View>
         </SafeAreaView>
+        <ChatGDBottomSheetHost nested />
       </Modal>
 
       {/* Document Viewer */}

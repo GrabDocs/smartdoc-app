@@ -753,6 +753,13 @@ export default function EmailThreadScreen() {
         },
         inputCollapsed: { maxHeight: 200 },
         tools: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 2, flexWrap: 'wrap' },
+        composeFooter: {
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+          backgroundColor: colors.background,
+          paddingHorizontal: 4,
+          paddingTop: 2,
+        },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -1127,11 +1134,13 @@ export default function EmailThreadScreen() {
               text={fullscreenMessage.body_text}
               fill
             />
-            <AttachmentNamesRow
-              attachments={fullscreenMessage.attachments}
-              onOpen={openAttachment}
-              style={{ marginTop: 8 }}
-            />
+            <View style={{ flexShrink: 0 }}>
+              <AttachmentNamesRow
+                attachments={fullscreenMessage.attachments}
+                onOpen={openAttachment}
+                style={{ marginTop: 8 }}
+              />
+            </View>
           </View>
         ) : (
         <View style={composeFullscreen ? { height: 0, overflow: 'hidden' } : { flex: 1, minHeight: 0 }}>
@@ -1237,12 +1246,15 @@ export default function EmailThreadScreen() {
                   text={m.body_text}
                   expanded={expanded}
                   tall={dismissed}
+                  reserveBottom={(m.attachments || []).length ? 56 : 0}
                 />
-                <AttachmentNamesRow
-                  attachments={m.attachments}
-                  onOpen={openAttachment}
-                  style={{ marginTop: 8 }}
-                />
+                <View style={{ flexShrink: 0 }}>
+                  <AttachmentNamesRow
+                    attachments={m.attachments}
+                    onOpen={openAttachment}
+                    style={{ marginTop: 8 }}
+                  />
+                </View>
               </Pressable>
             );
           })}
@@ -1273,13 +1285,7 @@ export default function EmailThreadScreen() {
             ref={composeScrollRef}
             style={[styles.composePanel, composeFullscreen ? { flex: 1 } : { flexGrow: 0 }]}
             contentContainerStyle={{
-              flexGrow: composeFullscreen ? 1 : undefined,
-              paddingBottom:
-                androidKeyboardLift > 0
-                  ? 28
-                  : keyboardOpen
-                    ? 32
-                    : Math.max(insets.bottom, 8),
+              paddingBottom: 8,
               gap: 0,
             }}
             keyboardShouldPersistTaps="handled"
@@ -1548,9 +1554,7 @@ export default function EmailThreadScreen() {
                   <TextInput
                     style={[
                       styles.input,
-                      composeFullscreen
-                        ? { minHeight: Math.max(280, Math.round(windowHeight * 0.42)) }
-                        : styles.inputCollapsed,
+                      composeFullscreen ? { minHeight: 160 } : styles.inputCollapsed,
                       drafting ? { opacity: 0.45 } : null,
                     ]}
                     value={body}
@@ -1608,81 +1612,85 @@ export default function EmailThreadScreen() {
                     ))}
                   </View>
                 )}
-                <View style={styles.tools}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setFullscreenMessage(null);
-                      setComposeFullscreen((v) => !v);
-                    }}
-                    style={{ padding: 8 }}
-                    accessibilityLabel={composeFullscreen ? 'Exit full screen' : 'Full screen'}
-                    accessibilityRole="button"
-                  >
-                    <Ionicons
-                      name={composeFullscreen ? 'contract-outline' : 'scan-outline'}
-                      size={22}
-                      color={colors.text}
-                    />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setAttachMenu(true)} style={{ padding: 8 }} disabled={drafting || busy}>
-                    <Ionicons name="attach" size={22} color={colors.text} />
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        await deleteMailboxDraft(draft.id);
-                        setDraft(null);
-                        setComposing(false);
-                        setComposeFullscreen(false);
-                        setSuggestedReply(false);
-                        if (isNewCompose) router.back();
-                      } catch (e: any) {
-                        if (e?.response?.status === 409) Alert.alert('Discard', 'Undo the pending send first.');
-                        else Alert.alert('Discard', emailApiError(e, 'Failed'));
-                      }
-                    }}
-                    style={{ padding: 8 }}
-                    disabled={drafting || busy}
-                  >
-                    <Ionicons name="trash-outline" size={20} color={colors.textSecondary} />
-                  </TouchableOpacity>
-                  <View style={styles.sendRow}>
-                    <TouchableOpacity
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}
-                      onPress={() => {
-                        const next = !expectsReply;
-                        setExpectsReply(next);
-                        if (draft) void patchMailboxDraft(draft.id, { expects_reply: next }).catch(() => {});
-                      }}
-                      disabled={drafting || busy}
-                    >
-                      <Ionicons
-                        name={expectsReply ? 'checkbox' : 'square-outline'}
-                        size={18}
-                        color={expectsReply ? '#007AFF' : colors.textSecondary}
-                      />
-                      <Text style={{ fontSize: 13, color: colors.text }}>Await reply</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
-                      onPress={() => send(true)}
-                      disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
-                    >
-                      <Ionicons name="paper-plane" size={14} color="#fff" />
-                      <Text style={styles.sendNextTxt}>{busy ? 'Sending…' : 'Send & Next'}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
-                      onPress={() => send(false)}
-                      disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
-                    >
-                      <Text style={styles.sendOnlyTxt}>Send</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
               </View>
             ) : null}
           </ScrollView>
+          {composing && draft ? (
+            <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 6 : Math.max(insets.bottom, 8) }]}>
+              <View style={styles.tools}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setFullscreenMessage(null);
+                    setComposeFullscreen((v) => !v);
+                  }}
+                  style={{ padding: 8 }}
+                  accessibilityLabel={composeFullscreen ? 'Exit full screen' : 'Full screen'}
+                  accessibilityRole="button"
+                >
+                  <Ionicons
+                    name={composeFullscreen ? 'contract-outline' : 'scan-outline'}
+                    size={22}
+                    color={colors.text}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setAttachMenu(true)} style={{ padding: 8 }} disabled={drafting || busy}>
+                  <Ionicons name="attach" size={22} color={colors.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={async () => {
+                    try {
+                      await deleteMailboxDraft(draft.id);
+                      setDraft(null);
+                      setComposing(false);
+                      setComposeFullscreen(false);
+                      setSuggestedReply(false);
+                      if (isNewCompose) router.back();
+                    } catch (e: any) {
+                      if (e?.response?.status === 409) Alert.alert('Discard', 'Undo the pending send first.');
+                      else Alert.alert('Discard', emailApiError(e, 'Failed'));
+                    }
+                  }}
+                  style={{ padding: 8 }}
+                  disabled={drafting || busy}
+                >
+                  <Ionicons name="trash-outline" size={20} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <View style={styles.sendRow}>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}
+                    onPress={() => {
+                      const next = !expectsReply;
+                      setExpectsReply(next);
+                      if (draft) void patchMailboxDraft(draft.id, { expects_reply: next }).catch(() => {});
+                    }}
+                    disabled={drafting || busy}
+                  >
+                    <Ionicons
+                      name={expectsReply ? 'checkbox' : 'square-outline'}
+                      size={18}
+                      color={expectsReply ? '#007AFF' : colors.textSecondary}
+                    />
+                    <Text style={{ fontSize: 13, color: colors.text }}>Await reply</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
+                    onPress={() => send(true)}
+                    disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
+                  >
+                    <Ionicons name="paper-plane" size={14} color="#fff" />
+                    <Text style={styles.sendNextTxt}>{busy ? 'Sending…' : 'Send & Next'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
+                    onPress={() => send(false)}
+                    disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
+                  >
+                    <Text style={styles.sendOnlyTxt}>Send</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ) : null}
           {maximizeFocus ? (
             <Pressable
               style={styles.focusDim}

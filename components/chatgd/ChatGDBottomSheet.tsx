@@ -26,11 +26,16 @@ const KEYBOARD_EXTRA_INSET = 0;
  * Global ChatGD overlay — mounted once at app root (same pattern as AI FM).
  * When minimized, touches pass through to the screen underneath.
  */
-export default function ChatGDBottomSheetHost() {
+export default function ChatGDBottomSheetHost({ nested = false }: { nested?: boolean }) {
   const colors = useThemeColors();
   const router = useRouter();
-  const { visible, expandNonce, params, closeChatGD } = useChatGDSheet();
+  const { visible, expandNonce, params, closeChatGD, nestedHostCount, registerNestedHost } = useChatGDSheet();
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!nested) return undefined;
+    return registerNestedHost();
+  }, [nested, registerNestedHost]);
 
   const openFullChatGD = useCallback(() => {
     const { isSheet: _isSheet, ...rest } = params;
@@ -63,6 +68,7 @@ export default function ChatGDBottomSheetHost() {
       ? Math.max(0, Dimensions.get('window').height - keyboardTop + KEYBOARD_EXTRA_INSET)
       : undefined;
 
+  if (!nested && nestedHostCount > 0) return null;
   if (!visible) return null;
 
   return (

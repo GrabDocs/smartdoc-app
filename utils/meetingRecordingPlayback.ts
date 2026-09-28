@@ -41,9 +41,29 @@ export async function cachedFileUri(path: string, minBytes = 1): Promise<string 
   return null;
 }
 
-/** Skip tiny error bodies saved as .mp4 during earlier failed downloads. */
+/** Skip tiny error bodies and WebM files saved as .mp4 during failed downloads. */
 export async function cachedVideoUri(path: string): Promise<string | null> {
-  return cachedFileUri(path, 200_000);
+  const uri = await cachedFileUri(path, 200_000);
+  if (!uri) return null;
+  if (await isProbablyPlayableMp4(path)) return uri;
+  await FileSystem.deleteAsync(path, { idempotent: true }).catch(() => {});
+  return null;
+}
+
+export async function isProbablyPlayableMp4(path: string): Promise<boolean> {
+  try {
+    const b64 = await FileSystem.readAsStringAsync(fileUri(path), {
+      encoding: FileSystem.EncodingType.Base64,
+      length: 16,
+      position: 0,
+    });
+    const bin = atob(b64);
+    if (bin.length < 12) return false;
+    if (bin.charCodeAt(0) === 0x1a && bin.charCodeAt(1) === 0x45) return false;
+    return bin.slice(4, 8) === 'ftyp';
+  } catch {
+    return false;
+  }
 }
 
 /** Same URL rules as meeting-details playVideoWithCache / playAudioWithCache. */

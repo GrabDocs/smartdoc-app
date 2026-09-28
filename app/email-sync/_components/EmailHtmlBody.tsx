@@ -62,6 +62,7 @@ export function EmailHtmlBody({
   expanded,
   tall,
   fill,
+  reserveBottom = 0,
 }: {
   html?: string | null;
   text?: string | null;
@@ -76,6 +77,8 @@ export function EmailHtmlBody({
   tall?: boolean;
   /** Fill the parent (fullscreen reader). Ignores expanded/tall height caps. */
   fill?: boolean;
+  /** Leave room below the body (attachment chips) when maximized. */
+  reserveBottom?: number;
 }) {
   const [boxW, setBoxW] = useState(0);
   const fitJs = useMemo(() => fitWidthScript(boxW), [boxW]);
@@ -98,12 +101,13 @@ a{color:${PAPER_LINK}}
   }, [html, text, fitJs]);
 
   const winH = Dimensions.get('window').height;
-  const minH = tall ? (expanded ? 280 : 200) : expanded ? 220 : 88;
-  const maxH = tall
-    ? Math.round(winH * (expanded ? 0.72 : 0.58))
+  const minH = tall ? (expanded ? 220 : 180) : expanded ? 180 : 88;
+  const rawMax = tall
+    ? Math.round(winH * (expanded ? 0.52 : 0.46))
     : expanded
-      ? 480
+      ? Math.round(winH * 0.36)
       : 200;
+  const maxH = Math.max(minH, rawMax - Math.max(0, reserveBottom));
 
   if (!(html || '').trim() && !(text || '').trim()) {
     return <Text style={{ color: PAPER_TEXT, opacity: 0.6, padding: 8 }}>(empty)</Text>;

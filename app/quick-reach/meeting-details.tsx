@@ -26,6 +26,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import DocumentViewer from '../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import TextAssetViewer from '../../components/TextAssetViewer';
+import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
 import {
   collapseMeetingRecapAssets,
@@ -3144,6 +3145,7 @@ export default function MeetingDetailsScreen() {
             />
           </View>
         </SafeAreaView>
+        <ChatGDBottomSheetHost nested />
       </Modal>
 
       {/* Video Player Modal */}
