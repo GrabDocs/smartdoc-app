@@ -38,6 +38,7 @@ import {
   isTranscriptAssetType,
   parseNumericId,
   pickPreferredRecording,
+  buildRecapAskAndShare,
   type MeetingRecapAskContext,
   type MeetingRecapEnrichment,
   type MeetingRecapClientLink,
@@ -1330,32 +1331,22 @@ export default function MeetingDetailsScreen() {
     setRecapClientLink(videoCallId != null ? { itemType: 'video_call', itemId: videoCallId } : null);
     const summaryFileId = parseNumericId(summaryAsset?.file_id);
     const transcriptFileId = parseNumericId(transcriptAsset?.file_id);
-    setRecapShareFiles({
-      summaryFileId,
-      summaryFileName: 'Meeting recap',
-      transcriptFileId,
-      transcriptFileName: 'Meeting transcript',
-    });
-    const fileIds = [summaryFileId, transcriptFileId].filter((n): n is number => n != null);
-    const transcriptIds = String(transcriptAsset?.id || '').includes('call_transcript')
-      ? [parseNumericId(transcriptAsset?.id)].filter((n): n is number => n != null)
-      : [];
-    setRecapAskContext(
-      fileIds.length || transcriptIds.length
-        ? {
-            fileIds,
-            transcriptIds,
-            labels: [
-              summaryFileId ? { id: summaryFileId, name: 'Meeting summary', kind: 'file' as const } : null,
-              transcriptIds[0]
-                ? { id: transcriptIds[0], name: 'Meeting transcript', kind: 'transcript' as const }
-                : transcriptFileId
-                  ? { id: transcriptFileId, name: 'Meeting transcript', kind: 'file' as const }
-                  : null,
-            ].filter((x): x is { id: number; name: string; kind: 'file' | 'transcript' } => !!x),
-          }
-        : null
+    const packFileId = parseNumericId(
+      (asset as any).recap_pack_file_id ||
+        (summaryAsset as any)?.recap_pack_file_id ||
+        (transcriptAsset as any)?.recap_pack_file_id
     );
+    const callTranscriptId = String(transcriptAsset?.id || '').includes('call_transcript')
+      ? parseNumericId(transcriptAsset?.id)
+      : null;
+    const recapLinks = buildRecapAskAndShare({
+      packFileId,
+      summaryFileId,
+      transcriptFileId,
+      callTranscriptId,
+    });
+    setRecapShareFiles(recapLinks.shareFiles);
+    setRecapAskContext(recapLinks.askContext);
     setRecapDurationSeconds(asset.duration != null ? Number(asset.duration) : null);
     const enrich =
       (asset as any).recap_v2 ||

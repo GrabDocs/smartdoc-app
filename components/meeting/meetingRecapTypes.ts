@@ -20,6 +20,8 @@ export type MeetingRecapClientLink = {
 };
 
 export type MeetingRecapShareFiles = {
+  packFileId?: number | null;
+  packFileName?: string;
   summaryFileId?: number | null;
   summaryFileName?: string;
   transcriptFileId?: number | null;
@@ -192,6 +194,9 @@ export function collapseMeetingRecapAssets<T extends { id?: unknown; type?: stri
     _recapSummary: summary,
     _recapChat: chat,
     recap_v2: recapV2,
+    recap_pack_file_id:
+      (summary as { recap_pack_file_id?: unknown } | null)?.recap_pack_file_id ||
+      (transcript as { recap_pack_file_id?: unknown } | null)?.recap_pack_file_id,
   } as T;
   return [recap, ...rest];
 }
@@ -206,3 +211,49 @@ export function parseNumericId(value: unknown): number | null {
   }
   return null;
 }
+
+export function buildRecapAskAndShare(args: {
+  packFileId?: number | null;
+  summaryFileId?: number | null;
+  transcriptFileId?: number | null;
+  callTranscriptId?: number | null;
+}): { shareFiles: MeetingRecapShareFiles; askContext: MeetingRecapAskContext | null } {
+  const packFileId = parseNumericId(args.packFileId);
+  const summaryFileId = parseNumericId(args.summaryFileId);
+  const transcriptFileId = parseNumericId(args.transcriptFileId);
+  const callTranscriptId = parseNumericId(args.callTranscriptId);
+  const shareFiles: MeetingRecapShareFiles = {
+    packFileId,
+    packFileName: 'Meeting recap',
+    summaryFileId,
+    summaryFileName: 'Meeting recap',
+    transcriptFileId,
+    transcriptFileName: 'Meeting transcript',
+  };
+  const fileIds = (packFileId != null ? [packFileId] : [summaryFileId, transcriptFileId]).filter(
+    (n): n is number => n != null
+  );
+  const transcriptIds = callTranscriptId != null ? [callTranscriptId] : [];
+  if (!fileIds.length && !transcriptIds.length) {
+    return { shareFiles, askContext: null };
+  }
+  return {
+    shareFiles,
+    askContext: {
+      fileIds,
+      transcriptIds,
+      labels: [
+        packFileId != null ? { id: packFileId, name: 'Meeting recap', kind: 'file' as const } : null,
+        packFileId == null && summaryFileId != null
+          ? { id: summaryFileId, name: 'Meeting summary', kind: 'file' as const }
+          : null,
+        callTranscriptId != null
+          ? { id: callTranscriptId, name: 'Meeting transcript', kind: 'transcript' as const }
+          : packFileId == null && transcriptFileId != null
+            ? { id: transcriptFileId, name: 'Meeting transcript', kind: 'file' as const }
+            : null,
+      ].filter((x): x is { id: number; name: string; kind: 'file' | 'transcript' } => !!x),
+    },
+  };
+}
+

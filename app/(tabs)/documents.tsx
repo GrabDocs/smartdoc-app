@@ -29,7 +29,7 @@ import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
 import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
-import { parseNumericId } from '../../components/meeting/meetingRecapTypes';
+import { parseNumericId, buildRecapAskAndShare } from '../../components/meeting/meetingRecapTypes';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
@@ -547,6 +547,7 @@ export default function QuickFilesScreen() {
           return 'chatbubbles-outline'; // Chat bubbles icon for meeting chat
         case 'meeting_summary':
         case 'ai_summary':
+        case 'meeting_recap_pack':
           return 'sparkles-outline'; // Sparkles icon for AI summaries
         case 'draft':
         case 'drafts':
@@ -614,6 +615,7 @@ export default function QuickFilesScreen() {
           return '#3b82f6'; // Blue for meeting chat
         case 'meeting_summary':
         case 'ai_summary':
+        case 'meeting_recap_pack':
           return '#10b981'; // Green for AI summaries
         case 'draft':
         case 'drafts':
@@ -673,6 +675,7 @@ export default function QuickFilesScreen() {
         return 'meeting_chat';
       case 'meeting_summary':
       case 'ai_summary':
+      case 'meeting_recap_pack':
         return 'meeting_summary';
       case 'draft':
       case 'drafts':
@@ -1756,13 +1759,15 @@ export default function QuickFilesScreen() {
       kind === 'transcript' ||
       kind === 'transcripts' ||
       kind === 'meeting_summary' ||
-      kind === 'summary'
+      kind === 'summary' ||
+      kind === 'meeting_recap_pack'
     );
   };
 
   const openMeetingRecap = async (document: Document) => {
     const kind = (document.file_kind || document.category || '').toString().toLowerCase();
     const isTranscript = kind === 'transcript' || kind === 'transcripts';
+    const isPack = kind === 'meeting_recap_pack';
     const fileId = parseNumericId(document.id);
     setSelectedDocument(document);
     setShowMeetingRecap(true);
@@ -1770,13 +1775,18 @@ export default function QuickFilesScreen() {
     setRecapSummary('');
     setRecapTranscript('');
     setRecapInitialTab(isTranscript ? 'transcript' : 'recap');
-    setRecapShareFiles(fileId != null ? { [isTranscript ? 'transcriptFileId' : 'summaryFileId']: fileId } : null);
-    setRecapAskContext(fileId != null ? { fileIds: [fileId] } : null);
+    const initialLinks = buildRecapAskAndShare({
+      packFileId: isPack ? fileId : null,
+      summaryFileId: !isPack && !isTranscript ? fileId : null,
+      transcriptFileId: isTranscript ? fileId : null,
+    });
+    setRecapShareFiles(initialLinks.shareFiles);
+    setRecapAskContext(initialLinks.askContext);
     setRecapClientLink(null);
     try {
-      const text = fileId != null ? await apiClient.getWebFileContent(fileId) : '';
+      const text = fileId != null && !isPack ? await apiClient.getWebFileContent(fileId) : '';
       if (isTranscript) setRecapTranscript(text);
-      else setRecapSummary(text);
+      else if (!isPack) setRecapSummary(text);
 
       let videoCallId: number | null = parseNumericId((document as any).video_call_id);
       if (fileId != null) {
@@ -1801,31 +1811,57 @@ export default function QuickFilesScreen() {
               parseNumericId(meeting.video_call_id) === videoCallId ||
               String(meeting.meeting_id || '') === String(videoCallId);
             if (!sameMeeting) continue;
-            const sibling = assets.find(
-              (a: any) =>
-                a.type === siblingType ||
-                (siblingType === 'meeting_summary' && a.type === 'summary') ||
-                (siblingType === 'transcript' && a.type === 'call_transcript')
+            const summaryAsset = assets.find(
+              (a: any) => a.type === 'meeting_summary' || a.type === 'summary'
             );
-            if (!sibling) continue;
-            const siblingFileId = parseNumericId(sibling.file_id || sibling.db_id);
-            let siblingText = '';
-            if (siblingFileId != null) siblingText = await apiClient.getWebFileContent(siblingFileId);
-            else if (sibling.url) {
-              siblingText = await apiClient.getVideoAssetContent(
-                siblingType === 'meeting_summary' ? 'meeting_summary' : 'transcript',
-                sibling.url
+            const transcriptAsset = assets.find(
+              (a: any) => a.type === 'transcript' || a.type === 'call_transcript'
+            );
+            const sibling = isTranscript ? summaryAsset : transcriptAsset;
+            if (!sibling && !isPack) continue;
+            const loadAssetText = async (row: any, type: string) => {
+              const id = parseNumericId(row?.file_id || row?.db_id);
+              if (id != null) return apiClient.getWebFileContent(id);
+              if (row?.url) return apiClient.getVideoAssetContent(type, row.url);
+              return '';
+            };
+            if (isPack) {
+              const [summaryText, transcriptText] = await Promise.all([
+                summaryAsset ? loadAssetText(summaryAsset, 'meeting_summary') : Promise.resolve(''),
+                transcriptAsset ? loadAssetText(transcriptAsset, 'transcript') : Promise.resolve(''),
+              ]);
+              setRecapSummary(summaryText || '');
+              setRecapTranscript(transcriptText || '');
+            } else if (sibling) {
+              const siblingText = await loadAssetText(
+                sibling,
+                siblingType === 'meeting_summary' ? 'meeting_summary' : 'transcript'
               );
+              if (isTranscript) setRecapSummary(siblingText);
+              else setRecapTranscript(siblingText);
             }
-            if (isTranscript) setRecapSummary(siblingText);
-            else setRecapTranscript(siblingText);
-            setRecapShareFiles({
-              summaryFileId: isTranscript ? siblingFileId : fileId,
-              transcriptFileId: isTranscript ? fileId : siblingFileId,
+            const recapLinks = buildRecapAskAndShare({
+              packFileId: parseNumericId(
+                (summaryAsset as any)?.recap_pack_file_id ||
+                  (transcriptAsset as any)?.recap_pack_file_id ||
+                  (isPack ? fileId : null)
+              ),
+              summaryFileId: isTranscript
+                ? parseNumericId(summaryAsset?.file_id || summaryAsset?.db_id)
+                : isPack
+                  ? parseNumericId(summaryAsset?.file_id || summaryAsset?.db_id)
+                  : fileId,
+              transcriptFileId: isTranscript
+                ? fileId
+                : parseNumericId(transcriptAsset?.file_id || transcriptAsset?.db_id),
+              callTranscriptId: String(transcriptAsset?.id || '').includes('call_transcript')
+                ? parseNumericId(transcriptAsset?.id)
+                : isTranscript
+                  ? fileId
+                  : null,
             });
-            setRecapAskContext({
-              fileIds: [fileId, siblingFileId].filter((n): n is number => n != null),
-            });
+            setRecapShareFiles(recapLinks.shareFiles);
+            setRecapAskContext(recapLinks.askContext);
             break;
           }
         } catch {

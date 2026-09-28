@@ -8,6 +8,7 @@ import { summarizeMeetingChat } from '../../utils/parseMeetingChat';
 import { parseMeetingTranscript } from '../../utils/parseMeetingTranscript';
 import MeetingChatView from './MeetingChatView';
 import { shareDocumentFile, shareTextContent } from '../../utils/shareDocumentFile';
+import { buildRecapShareMarkdown } from '../../utils/buildRecapShareMarkdown';
 import MeetingRecapView from './MeetingRecapView';
 import MeetingTranscriptView from './MeetingTranscriptView';
 import type {
@@ -86,9 +87,11 @@ export default function MeetingAssetTabs({
   }, [hero, extraSpeakers]);
 
   const canAsk = !!askContext && ((askContext.fileIds?.length || 0) + (askContext.transcriptIds?.length || 0) > 0);
-  const shareIds = [shareFiles?.summaryFileId, shareFiles?.transcriptFileId].filter(
-    (n): n is number => n != null && Number.isFinite(n)
-  );
+  const shareIds = [
+    shareFiles?.packFileId,
+    shareFiles?.summaryFileId,
+    shareFiles?.transcriptFileId,
+  ].filter((n): n is number => n != null && Number.isFinite(n));
   const canShare = shareIds.length > 0 || !!summaryContent?.trim() || !!transcriptContent?.trim();
 
   const handleAsk = () => {
@@ -128,6 +131,30 @@ export default function MeetingAssetTabs({
   const handleShare = async () => {
     if (!canShare) return;
     try {
+      const packId = shareFiles?.packFileId;
+      if (packId != null) {
+        try {
+          await shareDocumentFile(packId, shareFiles?.packFileName || 'Meeting recap', {
+            fallbackExtension: 'md',
+          });
+          return;
+        } catch {
+          /* compose from loaded recap + transcript if the pack file cannot download */
+        }
+      }
+      const composed = buildRecapShareMarkdown({
+        hero: resolvedHero,
+        summaryContent,
+        transcriptContent,
+        enrichment,
+        meetingDurationSeconds,
+      });
+      if (composed.trim().length > 20) {
+        await shareTextContent(shareFiles?.packFileName || 'Meeting recap', composed, {
+          extension: 'md',
+        });
+        return;
+      }
       const summaryId = shareFiles?.summaryFileId;
       const transcriptId = shareFiles?.transcriptFileId;
       if (summaryId != null || summaryContent?.trim()) {

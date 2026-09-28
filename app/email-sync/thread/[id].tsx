@@ -769,23 +769,6 @@ export default function EmailThreadScreen() {
           borderBottomColor: colors.border,
         },
         sectionPeekText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-        attachmentPanel: {
-          flexShrink: 0,
-          minHeight: 88,
-          marginTop: 12,
-          paddingHorizontal: 12,
-          paddingVertical: 12,
-          borderRadius: 12,
-          backgroundColor: colors.isDark ? '#18181B' : '#FFFFFF',
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.border,
-        },
-        attachmentPanelTitle: {
-          fontSize: 13,
-          fontWeight: '700',
-          color: colors.text,
-          marginBottom: 8,
-        },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -1178,16 +1161,14 @@ export default function EmailThreadScreen() {
               text={fullscreenMessage.body_text}
               fill
             />
-            {(fullscreenMessage.attachments || []).length > 0 ? (
-              <View style={styles.attachmentPanel}>
-                <Text style={styles.attachmentPanelTitle}>Attachments</Text>
-                <AttachmentNamesRow
-                  variant="panel"
-                  attachments={fullscreenMessage.attachments}
-                  onOpen={openAttachment}
-                />
-              </View>
-            ) : null}
+            <View style={{ flexShrink: 0, maxHeight: 44 }}>
+              <AttachmentNamesRow
+                attachments={fullscreenMessage.attachments}
+                onOpen={openAttachment}
+                maxVisible={6}
+                style={{ marginTop: 8 }}
+              />
+            </View>
           </View>
         ) : threadCollapsedForCompose && !expandedId ? (
           <TouchableOpacity
