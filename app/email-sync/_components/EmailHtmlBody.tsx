@@ -23,24 +23,40 @@ function stripUnsafeHtml(html: string) {
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
 }
 
-/** Layout at natural width, then scale the whole email so every column stays on screen. */
-function fitWidthScript(viewWidth: number) {
+/**
+ * Reflow to the view width first so type stays readable.
+ * Only scale fixed-width HTML (e.g. 600px tables) if it still overflows,
+ * and never below minScale so expanded/fullscreen text stays usable.
+ */
+function fitWidthScript(viewWidth: number, minScale: number) {
   return `
 (function(){
   var VIEW = ${viewWidth > 0 ? viewWidth : 0};
+  var MIN = ${minScale};
   function fitWidth(){
     var el = document.getElementById('gd-fit');
     var body = document.body;
     if (!el || !body) return;
     el.style.transform = 'none';
+    el.style.width = '100%';
+    el.style.maxWidth = '100%';
+    el.style.display = 'block';
     body.style.height = '';
     var view = VIEW || window.innerWidth || document.documentElement.clientWidth;
-    var wide = Math.max(el.scrollWidth, el.offsetWidth, el.getBoundingClientRect().width);
+    var wide = Math.max(el.scrollWidth, body.scrollWidth, document.documentElement.scrollWidth);
+    if (wide <= view + 2) {
+      body.style.height = Math.ceil(el.offsetHeight + 16) + 'px';
+      return;
+    }
+    el.style.width = 'max-content';
+    el.style.maxWidth = 'none';
+    el.style.display = 'inline-block';
+    wide = Math.max(el.scrollWidth, el.offsetWidth, el.getBoundingClientRect().width);
     var s = wide > view + 1 ? (view / wide) : 1;
+    if (s < MIN) s = MIN;
     el.style.transformOrigin = 'top left';
     el.style.transform = 'scale(' + s + ')';
-    var h = el.offsetHeight * s;
-    body.style.height = Math.ceil(h + 16) + 'px';
+    body.style.height = Math.ceil(el.offsetHeight * s + 16) + 'px';
   }
   fitWidth();
   window.addEventListener('load', fitWidth);
@@ -81,36 +97,43 @@ export function EmailHtmlBody({
   reserveBottom?: number;
 }) {
   const [boxW, setBoxW] = useState(0);
-  const fitJs = useMemo(() => fitWidthScript(boxW), [boxW]);
+  const readable = !!(expanded || fill || tall);
+  const minScale = fill ? 0.92 : expanded || tall ? 0.88 : 0.8;
+  const fontPx = readable ? 18 : 16;
+  const fitJs = useMemo(() => fitWidthScript(boxW, minScale), [boxW, minScale]);
   const sourceHtml = useMemo(() => {
     const raw = (html || '').trim();
     const inner = raw
       ? stripUnsafeHtml(raw)
-      : `<pre style="white-space:pre-wrap;font-family:system-ui;color:${PAPER_TEXT}">${escapeHtml(text || '')}</pre>`;
-    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+      : `<pre style="white-space:pre-wrap;font-family:system-ui;color:${PAPER_TEXT};font-size:${fontPx}px;line-height:1.5">${escapeHtml(text || '')}</pre>`;
+    return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.6, maximum-scale=5, user-scalable=yes" />
 <meta name="color-scheme" content="light only" />
 <style>
-html,body{margin:0;padding:0;background:${PAPER_BG};color:${PAPER_TEXT};color-scheme:light;overflow-x:hidden}
-body{padding:8px 0 8px 8px;font:15px/1.55 -apple-system,sans-serif;}
+html,body{margin:0;padding:0;background:${PAPER_BG};color:${PAPER_TEXT};color-scheme:light;overflow:auto;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y pinch-zoom}
+body{padding:10px 10px 12px;font:${fontPx}px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
 a{color:${PAPER_LINK}}
-#gd-fit{display:inline-block;width:max-content;max-width:none;vertical-align:top}
+img,video,svg,canvas{max-width:100%!important;height:auto!important}
+table{max-width:100%!important}
+td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
+pre,code{white-space:pre-wrap!important;word-break:break-word!important}
+#gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
 </style></head><body>
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
 </body></html>`;
-  }, [html, text, fitJs]);
+  }, [html, text, fitJs, fontPx]);
 
   const winH = Dimensions.get('window').height;
-  const minH = tall ? (expanded ? 220 : 180) : expanded ? 180 : 88;
+  const minH = tall ? (expanded ? 280 : 200) : expanded ? 260 : 120;
   const rawMax = tall
-    ? Math.round(winH * (expanded ? 0.52 : 0.46))
+    ? Math.round(winH * (expanded ? 0.72 : 0.55))
     : expanded
-      ? Math.round(winH * 0.36)
-      : 200;
+      ? Math.round(winH * 0.62)
+      : 240;
   const maxH = Math.max(minH, rawMax - Math.max(0, reserveBottom));
 
   if (!(html || '').trim() && !(text || '').trim()) {
-    return <Text style={{ color: PAPER_TEXT, opacity: 0.6, padding: 8 }}>(empty)</Text>;
+    return <Text style={{ color: PAPER_TEXT, opacity: 0.6, padding: 8, fontSize: 16 }}>(empty)</Text>;
   }
 
   return (
@@ -123,15 +146,20 @@ a{color:${PAPER_LINK}}
     >
       <WebView
         originWhitelist={['*']}
-        source={{ html: sourceHtml }}
+        source={{ html: sourceHtml, baseUrl: 'https://localhost/' }}
         javaScriptEnabled
         injectedJavaScript={fitJs}
         scalesPageToFit={false}
-        setBuiltInZoomControls={false}
+        setBuiltInZoomControls
         setDisplayZoomControls={false}
         showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator
         scrollEnabled
         nestedScrollEnabled
+        bounces
+        textZoom={readable ? 115 : 105}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
         style={[styles.web, { backgroundColor: PAPER_BG }, boxW > 0 ? { width: boxW } : null]}
       />
     </View>

@@ -134,7 +134,7 @@ export default function EmailThreadScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const ws = workspaceId ? Number(workspaceId) : undefined;
 
   const [thread, setThread] = useState<EmailThread | null>(null);
@@ -379,6 +379,13 @@ export default function EmailThreadScreen() {
     const fromScreenY = Math.max(0, windowHeight - keyboardTop);
     return Math.max(fromHeight, fromScreenY) + 20;
   }, [keyboardTop, keyboardHeight, windowHeight]);
+
+  // Android 3-button nav is ~48dp and edge-to-edge often reports 0.
+  // iPhone home indicator is insets.bottom (~34); floor so attachments stay above it.
+  const systemBottomPad =
+    Platform.OS === 'android' ? Math.max(insets.bottom, 48) : Math.max(insets.bottom, 16);
+  const restAboveNav = keyboardOpen || androidKeyboardLift > 0 ? 0 : systemBottomPad;
+  const compactComposerTools = windowWidth < 400;
 
   const persistDraft = async () => {
     if (!draft) return;
@@ -687,8 +694,8 @@ export default function EmailThreadScreen() {
           zIndex: 5,
           borderColor: colors.isDark ? '#52525B' : '#9CA3AF',
         },
-        meta: { fontSize: 12, color: colors.textSecondary },
-        from: { fontWeight: '700', color: colors.text, fontSize: 14 },
+        from: { fontWeight: '700', color: colors.text, fontSize: 15 },
+        meta: { fontSize: 13, color: colors.textSecondary },
         banner: {
           marginHorizontal: 16,
           marginBottom: 8,
@@ -753,13 +760,14 @@ export default function EmailThreadScreen() {
           textAlignVertical: 'top',
         },
         inputCollapsed: { maxHeight: 200 },
-        tools: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 2, flexWrap: 'wrap' },
+        tools: { flexDirection: 'row', alignItems: 'center', marginTop: 0, gap: 0, flexWrap: 'nowrap' },
+        toolBtn: { padding: 6, flexShrink: 0 },
         composeFooter: {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           backgroundColor: colors.background,
           paddingHorizontal: 4,
-          paddingTop: 2,
+          paddingTop: 0,
         },
         sectionPeek: {
           paddingHorizontal: 16,
@@ -778,10 +786,10 @@ export default function EmailThreadScreen() {
           marginTop: 4,
         },
         sendRow: {
-          marginLeft: 'auto',
           flexDirection: 'row',
           alignItems: 'center',
-          gap: 8,
+          gap: 6,
+          flexShrink: 1,
         },
         sendNext: {
           flexDirection: 'row',
@@ -789,11 +797,12 @@ export default function EmailThreadScreen() {
           gap: 4,
           backgroundColor: '#2563EB',
           borderRadius: 8,
-          paddingHorizontal: 12,
+          paddingHorizontal: 8,
           paddingVertical: 6,
+          flexShrink: 1,
         },
-        sendNextTxt: { color: '#fff', fontWeight: '600', fontSize: 12 },
-        sendOnly: { paddingHorizontal: 8, paddingVertical: 6 },
+        sendNextTxt: { color: '#fff', fontWeight: '600', fontSize: 12, flexShrink: 1 },
+        sendOnly: { paddingHorizontal: 6, paddingVertical: 6, flexShrink: 0 },
         sendOnlyTxt: { color: colors.text, fontSize: 12, fontWeight: '500' },
         replyBar: {
           borderTopWidth: StyleSheet.hairlineWidth,
@@ -838,7 +847,7 @@ export default function EmailThreadScreen() {
           backgroundColor: colors.background,
           gap: 8,
         },
-        actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        actionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'nowrap' },
         toneSelect: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -1044,7 +1053,11 @@ export default function EmailThreadScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? -16 : 0}
+      >
         {fullscreenMessage ? (
           <View style={styles.header}>
             <View style={styles.headerBody}>
@@ -1155,18 +1168,29 @@ export default function EmailThreadScreen() {
         ) : null}
 
         {fullscreenMessage ? (
-          <View style={{ flex: 1, paddingHorizontal: 12, paddingBottom: 12, minHeight: 0, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' }}>
-            <EmailHtmlBody
-              html={fullscreenMessage.body_html}
-              text={fullscreenMessage.body_text}
-              fill
-            />
-            <View style={{ flexShrink: 0, maxHeight: 44 }}>
+          <View style={{ flex: 1, minHeight: 0, backgroundColor: colors.isDark ? colors.background : '#F3F4F6' }}>
+            <View style={{ flex: 1, paddingHorizontal: 12, paddingTop: 8, minHeight: 0 }}>
+              <EmailHtmlBody
+                html={fullscreenMessage.body_html}
+                text={fullscreenMessage.body_text}
+                fill
+              />
+            </View>
+            <View
+              style={{
+                flexShrink: 0,
+                paddingHorizontal: 12,
+                paddingTop: 10,
+                paddingBottom: 12,
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: colors.border,
+                backgroundColor: colors.background,
+              }}
+            >
               <AttachmentNamesRow
                 attachments={fullscreenMessage.attachments}
                 onOpen={openAttachment}
-                maxVisible={6}
-                style={{ marginTop: 8 }}
+                maxVisible={8}
               />
             </View>
           </View>
@@ -1198,8 +1222,13 @@ export default function EmailThreadScreen() {
                 ? colors.background
                 : '#F3F4F6',
           }}
-          contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 16 }}
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingTop: 8,
+            paddingBottom: expandedId ? 28 : 16,
+          }}
           keyboardShouldPersistTaps="handled"
+          pinchGestureEnabled={false}
         >
           {!sendReady && (
             <TouchableOpacity
@@ -1664,7 +1693,7 @@ export default function EmailThreadScreen() {
           ) : null}
           {expandedId ? (
             <TouchableOpacity
-              style={[styles.composeFooter, { paddingVertical: 10, paddingBottom: Math.max(insets.bottom, 10), alignItems: 'center' }]}
+              style={[styles.composeFooter, { paddingVertical: 10, alignItems: 'center' }]}
               onPress={() => setExpandedId(null)}
               accessibilityRole="button"
               accessibilityLabel="Restore compose"
@@ -1672,14 +1701,14 @@ export default function EmailThreadScreen() {
               <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textSecondary }}>Compose</Text>
             </TouchableOpacity>
           ) : composing && draft ? (
-            <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 6 : Math.max(insets.bottom, 8) }]}>
+            <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 0 : 4 }]}>
               <View style={styles.tools}>
                 <TouchableOpacity
                   onPress={() => {
                     setFullscreenMessage(null);
                     setComposeFullscreen((v) => !v);
                   }}
-                  style={{ padding: 8 }}
+                  style={styles.toolBtn}
                   accessibilityLabel={composeFullscreen ? 'Exit full screen' : 'Full screen'}
                   accessibilityRole="button"
                 >
@@ -1689,7 +1718,7 @@ export default function EmailThreadScreen() {
                     color={colors.text}
                   />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => setAttachMenu(true)} style={{ padding: 8 }} disabled={drafting || busy}>
+                <TouchableOpacity onPress={() => setAttachMenu(true)} style={styles.toolBtn} disabled={drafting || busy}>
                   <Ionicons name="attach" size={22} color={colors.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1706,35 +1735,44 @@ export default function EmailThreadScreen() {
                       else Alert.alert('Discard', emailApiError(e, 'Failed'));
                     }
                   }}
-                  style={{ padding: 8 }}
+                  style={styles.toolBtn}
                   disabled={drafting || busy}
                 >
                   <Ionicons name="trash-outline" size={20} color={colors.textSecondary} />
                 </TouchableOpacity>
+                <View style={{ flex: 1, minWidth: 4 }} />
                 <View style={styles.sendRow}>
                   <TouchableOpacity
-                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginRight: 8 }}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0 }}
                     onPress={() => {
                       const next = !expectsReply;
                       setExpectsReply(next);
                       if (draft) void patchMailboxDraft(draft.id, { expects_reply: next }).catch(() => {});
                     }}
                     disabled={drafting || busy}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: expectsReply }}
+                    accessibilityLabel="Await reply"
                   >
                     <Ionicons
                       name={expectsReply ? 'checkbox' : 'square-outline'}
                       size={18}
                       color={expectsReply ? '#007AFF' : colors.textSecondary}
                     />
-                    <Text style={{ fontSize: 13, color: colors.text }}>Await reply</Text>
+                    <Text style={{ fontSize: 12, color: colors.text }} numberOfLines={1}>
+                      {compactComposerTools ? 'Await' : 'Await reply'}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
                     onPress={() => send(true)}
                     disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
+                    accessibilityLabel="Send and next"
                   >
                     <Ionicons name="paper-plane" size={14} color="#fff" />
-                    <Text style={styles.sendNextTxt}>{busy ? 'Sending…' : 'Send & Next'}</Text>
+                    <Text style={styles.sendNextTxt} numberOfLines={1}>
+                      {busy ? 'Sending…' : compactComposerTools ? 'Next' : 'Send & Next'}
+                    </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
@@ -1758,7 +1796,7 @@ export default function EmailThreadScreen() {
         ) : null}
 
         {undo && undoLeft > 0 ? (
-          <View style={[styles.undo, { bottom: Math.max(insets.bottom, 12) + 72 }]}>
+          <View style={[styles.undo, { bottom: Math.max(systemBottomPad, 12) + 72 }]}>
             <Text style={{ color: '#fff', flex: 1 }}>
               Sending in {formatRemainingCountdown(undoLeft, undo.maxSecs)}
             </Text>
@@ -1782,6 +1820,9 @@ export default function EmailThreadScreen() {
               <Text style={{ color: '#7dd3fc', fontWeight: '700' }}>Undo</Text>
             </TouchableOpacity>
           </View>
+        ) : null}
+        {restAboveNav > 0 ? (
+          <View style={{ height: restAboveNav, backgroundColor: colors.background }} />
         ) : null}
       </KeyboardAvoidingView>
 
