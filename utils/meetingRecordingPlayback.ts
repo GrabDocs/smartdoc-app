@@ -58,9 +58,55 @@ export function withPlaybackAuthUrl(url: string, token: string | null, asStreamM
   return finalUrl;
 }
 
+/** iOS AVPlayer cannot play raw WebM from files.grabdocs.com. Use /stream?format=mp4 instead. */
+export function isRawUnplayableRecordingUrl(url?: string | null): boolean {
+  if (!url) return false;
+  const bare = url.split('?')[0].toLowerCase();
+  if (bare.endsWith('.webm')) return true;
+  return url.includes('files.grabdocs.com') && !url.includes('/stream') && !url.includes('/download');
+}
+
+/** CallRecording.id only — never treat VideoCall ids like recording_1021 as a recording row. */
+export function extractCallRecordingId(source: {
+  recordingDbId?: unknown;
+  dbId?: unknown;
+  id?: unknown;
+  url?: string | null;
+}): number | null {
+  const fromDb = Number(source.recordingDbId);
+  if (Number.isFinite(fromDb) && fromDb > 0) return fromDb;
+  const id = String(source.id || '');
+  const callRec = id.match(/call_recording[_-](\d+)/i);
+  if (callRec) {
+    const n = parseInt(callRec[1], 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const dbId = Number(source.dbId);
+  if (id.startsWith('call_recording_') && Number.isFinite(dbId) && dbId > 0) return dbId;
+  if (!source.url) return null;
+  const streamMatch = source.url.match(/\/recording\/(\d+)\/(?:stream|download)/i);
+  if (!streamMatch) return null;
+  const n = parseInt(streamMatch[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function recordingApiStreamUrl(recordingId: number, token: string | null): string {
+  const qs = token ? `?token=${encodeURIComponent(token)}&format=mp4` : '?format=mp4';
+  return `${API_BASE_URL}/api/v1/video/recording/${recordingId}/stream${qs}`;
+}
+
 export async function prepareVideoPlayback(videoUrl: string, assetId?: string) {
   const token = await getAuthToken();
-  const finalUrl = withPlaybackAuthUrl(videoUrl, token, true);
+  const recId = extractCallRecordingId({ id: assetId, url: videoUrl });
+  const finalUrl =
+    recId != null
+      ? recordingApiStreamUrl(recId, token)
+      : isRawUnplayableRecordingUrl(videoUrl)
+        ? ''
+        : withPlaybackAuthUrl(videoUrl, token, true);
+  if (!finalUrl) {
+    throw new Error('This recording needs to be converted before it can play on this device.');
+  }
   const cachePath = getVideoCachePath(assetId, finalUrl);
   const cachedUri = await cachedVideoUri(cachePath);
   return {

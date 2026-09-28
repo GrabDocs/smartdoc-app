@@ -109,12 +109,23 @@ function recordingIdentity(row: {
   const recId =
     parseNumericId(row.recording_db_id) ??
     parseNumericId(String(row.id || '').match(/call_recording[_-](\d+)/i)?.[1]) ??
-    parseNumericId((row.streamUrl || row.url || '').match(/\/recording\/(\d+)\//)?.[1]);
+    parseNumericId((row.streamUrl || row.url || '').match(/\/recording\/(\d+)\/(?:stream|download)/i)?.[1]);
   if (recId != null) return `rec:${recId}`;
   const fileId = parseNumericId(row.file_id);
   if (fileId != null) return `file:${fileId}`;
   const url = (row.streamUrl || row.url || '').split('?')[0];
   return url || `id:${String(row.id || '')}`;
+}
+
+function isPreferredPlaybackSource(row: {
+  streamUrl?: string | null;
+  id?: unknown;
+  recording_db_id?: unknown;
+  url?: string | null;
+}): boolean {
+  if (parseNumericId(row.recording_db_id) != null) return true;
+  if (/call_recording[_-]\d+/i.test(String(row.id || ''))) return true;
+  return /\/recording\/\d+\/(?:stream|download)/i.test(row.streamUrl || row.url || '');
 }
 
 /** One video + one audio max; drop duplicate listings of the same recording. */
@@ -139,8 +150,11 @@ export function collapseRecapRecordings<
   }
   const audio = unique.filter((row) => isAudioTrackType(row.trackType || row.track_type));
   const video = unique.filter((row) => !isAudioTrackType(row.trackType || row.track_type));
-  if (video.length <= 1) return [...video, ...audio];
-  return [video[0], ...audio];
+  const rankedVideo = video
+    .slice()
+    .sort((a, b) => Number(isPreferredPlaybackSource(b)) - Number(isPreferredPlaybackSource(a)));
+  if (rankedVideo.length <= 1) return [...rankedVideo, ...audio];
+  return [rankedVideo[0], ...audio];
 }
 
 export function collapseMeetingRecapAssets<T extends { id?: unknown; type?: string }>(assets: T[]): T[] {

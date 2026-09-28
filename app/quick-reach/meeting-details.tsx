@@ -36,6 +36,7 @@ import {
   isSummaryAssetType,
   isTranscriptAssetType,
   parseNumericId,
+  pickPreferredRecording,
   type MeetingRecapAskContext,
   type MeetingRecapEnrichment,
   type MeetingRecapClientLink,
@@ -49,10 +50,13 @@ import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import {
+  extractCallRecordingId,
   getAudioCachePath,
+  isRawUnplayableRecordingUrl,
   logRecordingPlaybackError,
   prepareAudioPlayback,
   prepareVideoPlayback,
+  recordingApiStreamUrl,
   startRecordingCacheDownload,
 } from '../../utils/meetingRecordingPlayback';
 import { secureStorage } from '../../utils/storage';
@@ -1277,18 +1281,17 @@ export default function MeetingDetailsScreen() {
     } catch {
       token = null;
     }
-    const recId =
-      recording.recording_db_id ??
-      parseNumericId(String(recording.id || '').match(/call_recording[_-](\d+)/i)?.[1]) ??
-      parseNumericId((recording.url || '').match(/\/recording\/(\d+)\//)?.[1]);
+    const recId = extractCallRecordingId({
+      recordingDbId: recording.recording_db_id,
+      dbId: (recording as { db_id?: number }).db_id,
+      id: recording.id,
+      url: recording.url || recording.downloadUrl,
+    });
     if (recId != null) {
-      const qs = token
-        ? `?token=${encodeURIComponent(token)}&format=mp4`
-        : '?format=mp4';
-      return `${API_BASE_URL}/api/v1/video/recording/${recId}/stream${qs}`;
+      return recordingApiStreamUrl(recId, token);
     }
     const raw = recording.url || recording.downloadUrl;
-    if (!raw) return null;
+    if (!raw || isRawUnplayableRecordingUrl(raw)) return null;
     let url = raw;
     if (token && !url.includes('token=')) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     if (url.includes('/recording/') && url.includes('/stream') && !url.includes('format=mp4')) {
@@ -1309,10 +1312,6 @@ export default function MeetingDetailsScreen() {
     const recordingAssets = collapseRecapRecordings(
       sessionAssets.filter((a) => a.type === 'recording' || a.type === 'video')
     );
-    const recording =
-      recordingAssets.find((a) => isAudioTrackType(a.track_type)) ||
-      recordingAssets[0] ||
-      null;
     const chatAsset = asset._recapChat || sessionAssets.find((a) => isChatAssetType(a.type)) || null;
 
     setShowRecapViewer(true);
@@ -1387,11 +1386,7 @@ export default function MeetingDetailsScreen() {
     setRecapTranscript(transcriptText);
     setRecapChat(chatText);
     setRecapRecordings(availableRecordings);
-    setRecapRecording(
-      availableRecordings.find((row) => isAudioTrackType(row.trackType)) ||
-        availableRecordings[0] ||
-        null
-    );
+    setRecapRecording(pickPreferredRecording(availableRecordings));
     setRecapLoadingSummary(false);
     setRecapLoadingTranscript(false);
   };
@@ -1627,20 +1622,12 @@ export default function MeetingDetailsScreen() {
   };
 
   const extractCallRecordingDbId = (asset: MeetingAsset): number | null => {
-    const anyAsset = asset as any;
-    if (anyAsset.recording_db_id != null && !Number.isNaN(Number(anyAsset.recording_db_id))) {
-      return Number(anyAsset.recording_db_id);
-    }
-    if (typeof asset.id === 'string') {
-      const m = asset.id.match(/call_recording[_-](\d+)/i);
-      if (m) return parseInt(m[1], 10);
-    }
-    for (const u of [asset.url, asset.downloadUrl]) {
-      if (!u) continue;
-      const m = u.match(/\/recording\/(\d+)\/(?:stream|download)/i);
-      if (m) return parseInt(m[1], 10);
-    }
-    return null;
+    return extractCallRecordingId({
+      recordingDbId: (asset as { recording_db_id?: number }).recording_db_id,
+      dbId: (asset as { db_id?: number }).db_id,
+      id: asset.id,
+      url: asset.url || asset.downloadUrl,
+    });
   };
 
   const extractCallTranscriptDbId = (asset: MeetingAsset): number | null => {

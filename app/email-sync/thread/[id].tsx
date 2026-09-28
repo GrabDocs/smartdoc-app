@@ -190,6 +190,7 @@ export default function EmailThreadScreen() {
   } | null>(null);
   const [attOpening, setAttOpening] = useState(false);
   const lastTapRef = useRef(0);
+  const composeScrollRef = useRef<ScrollView>(null);
   const autoComposeRef = useRef(false);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generateInFlightRef = useRef(false);
@@ -355,6 +356,7 @@ export default function EmailThreadScreen() {
       setKeyboardOpen(true);
       setKeyboardTop(e.endCoordinates.screenY);
       setKeyboardHeight(e.endCoordinates.height);
+      requestAnimationFrame(() => composeScrollRef.current?.scrollToEnd({ animated: true }));
     });
     const hide = Keyboard.addListener(hideEvent, () => {
       setKeyboardOpen(false);
@@ -374,7 +376,7 @@ export default function EmailThreadScreen() {
     if (Platform.OS !== 'android' || keyboardTop == null) return 0;
     const fromHeight = keyboardHeight > 0 ? keyboardHeight : 0;
     const fromScreenY = Math.max(0, windowHeight - keyboardTop);
-    return Math.max(fromHeight, fromScreenY) + 8;
+    return Math.max(fromHeight, fromScreenY) + 20;
   }, [keyboardTop, keyboardHeight, windowHeight]);
 
   const persistDraft = async () => {
@@ -1132,19 +1134,18 @@ export default function EmailThreadScreen() {
             />
           </View>
         ) : (
+        <View style={composeFullscreen ? { height: 0, overflow: 'hidden' } : { flex: 1, minHeight: 0 }}>
         <ScrollView
-          style={[
-            {
-              backgroundColor: maximizeFocus
-                ? colors.isDark
-                  ? '#09090B'
-                  : '#9CA3AF'
-                : colors.isDark
-                  ? colors.background
-                  : '#F3F4F6',
-            },
-            composeFullscreen ? { display: 'none' } : { flex: 1 },
-          ]}
+          style={{
+            flex: 1,
+            backgroundColor: maximizeFocus
+              ? colors.isDark
+                ? '#09090B'
+                : '#9CA3AF'
+              : colors.isDark
+                ? colors.background
+                : '#F3F4F6',
+          }}
           contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
         >
@@ -1246,29 +1247,39 @@ export default function EmailThreadScreen() {
             );
           })}
         </ScrollView>
+        </View>
         )}
 
         {!dismissed && !fullscreenMessage ? (
           <View
             style={[
               composeFullscreen
-                ? { flex: 1, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
+                ? { flex: 1, minHeight: 0, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
                 : {
+                    flexGrow: 0,
+                    flexShrink: 0,
                     maxHeight: Math.round(
                       androidKeyboardLift > 0
-                        ? Math.min(windowHeight * 0.58, Math.max(180, windowHeight - androidKeyboardLift - 96))
-                        : windowHeight * 0.58
+                        ? Math.min(windowHeight * 0.42, Math.max(180, windowHeight - androidKeyboardLift - 120))
+                        : keyboardOpen
+                          ? windowHeight * 0.38
+                          : windowHeight * 0.58
                     ),
                     ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null),
                   },
             ]}
           >
           <ScrollView
-            style={[styles.composePanel, composeFullscreen ? { flex: 1, flexGrow: 1 } : { flexGrow: 1 }]}
+            ref={composeScrollRef}
+            style={[styles.composePanel, composeFullscreen ? { flex: 1 } : { flexGrow: 0 }]}
             contentContainerStyle={{
               flexGrow: composeFullscreen ? 1 : undefined,
               paddingBottom:
-                androidKeyboardLift > 0 ? 12 : Math.max(insets.bottom, keyboardOpen ? 12 : 8),
+                androidKeyboardLift > 0
+                  ? 28
+                  : keyboardOpen
+                    ? 32
+                    : Math.max(insets.bottom, 8),
               gap: 0,
             }}
             keyboardShouldPersistTaps="handled"

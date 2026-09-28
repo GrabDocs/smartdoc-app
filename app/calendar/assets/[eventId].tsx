@@ -12,7 +12,12 @@ import {
 } from '../../../components/meeting/meetingRecapTypes';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { calendarAssetContent, calendarMeetingAssets } from '../../../services/calendarApi';
-import { API_BASE_URL, STORAGE_KEYS } from '../../../constants/Config';
+import { STORAGE_KEYS } from '../../../constants/Config';
+import {
+  extractCallRecordingId,
+  isRawUnplayableRecordingUrl,
+  recordingApiStreamUrl,
+} from '../../../utils/meetingRecordingPlayback';
 import { secureStorage } from '../../../utils/storage';
 
 import AppBackButton from '../../../components/AppBackButton';
@@ -98,18 +103,22 @@ export default function CalendarEventAssetsScreen() {
         setTranscriptContent(asText(transcript));
         const recordings = meeting?.recordings || [];
         const preferred =
-          recordings.find((r: any) => isAudioTrackType(r.track_type)) || recordings[0];
-        if (preferred?.recording_db_id != null) {
+          recordings.find((r: any) => !isAudioTrackType(r.track_type)) || recordings[0];
+        const recId = extractCallRecordingId({
+          recordingDbId: preferred?.recording_db_id,
+          id: preferred?.id,
+          url: preferred?.url,
+        });
+        if (recId != null) {
           let token: string | null = null;
           try {
             token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
           } catch {
             token = null;
           }
-          const qs = token ? `?token=${encodeURIComponent(token)}&format=mp4` : '?format=mp4';
-          setRecordingUrl(`${API_BASE_URL}/api/v1/video/recording/${preferred.recording_db_id}/stream${qs}`);
-          setRecordingTrack(preferred.track_type || null);
-        } else if (preferred?.url) {
+          setRecordingUrl(recordingApiStreamUrl(recId, token));
+          setRecordingTrack(preferred?.track_type || null);
+        } else if (preferred?.url && !isRawUnplayableRecordingUrl(preferred.url)) {
           setRecordingUrl(preferred.url);
           setRecordingTrack(preferred.track_type || null);
         }
