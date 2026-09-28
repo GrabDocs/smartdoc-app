@@ -74,7 +74,7 @@ export async function prepareAudioPlayback(audioUrl: string, assetId?: string) {
   return { token, finalUrl, cachePath, cachedUri };
 }
 
-function downloadKey(kind: 'video' | 'audio', url: string): string {
+function downloadKey(kind: string, url: string): string {
   const id = url.match(/\/recording\/(\d+)\//)?.[1];
   return `${kind}:${id || url.split('?')[0]}`;
 }
@@ -87,6 +87,21 @@ export function recordingDownloadUrl(recordingUrl: string, token: string | null,
     return token ? `${base}?token=${encodeURIComponent(token)}&format=mp4` : `${base}?format=mp4`;
   }
   return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+}
+
+/** Cache the mobile stream (MP4) so iOS can play a complete file. One in-flight fetch per recording. */
+export function startStreamFileDownload(streamUrl: string, cachePath: string): Promise<string | null> {
+  const key = downloadKey('video-stream', streamUrl);
+  const existing = inflightDownloads.get(key);
+  if (existing) return existing;
+  const pending = FileSystem.downloadAsync(streamUrl, cachePath)
+    .then(() => cachedFileUri(cachePath))
+    .catch(() => null)
+    .finally(() => {
+      if (inflightDownloads.get(key) === pending) inflightDownloads.delete(key);
+    });
+  inflightDownloads.set(key, pending);
+  return pending;
 }
 
 /** One in-flight cache download per recording. Same endpoints as the old tile player. */

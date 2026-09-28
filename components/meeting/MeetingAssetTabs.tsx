@@ -195,54 +195,42 @@ export default function MeetingAssetTabs({
 
       {showHeaderActions ? (
         <View style={styles.actions}>
-          {clientLink ? (
-            <ClientsButton itemType={clientLink.itemType} itemId={clientLink.itemId} compact />
-          ) : null}
-          {canShare ? (
-            <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn}>
-              <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
-              <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
-            </TouchableOpacity>
-          ) : null}
-          {canAsk ? (
-            <TouchableOpacity onPress={handleAsk} style={styles.actionBtn}>
-              <Ionicons name="chatbubbles" size={16} color="#007AFF" />
-              <Text style={[styles.actionText, { color: colors.textSecondary }]}>Ask ChatGD</Text>
-            </TouchableOpacity>
-          ) : null}
-          {tab === 'recap' && onDownloadSummary ? (
-            <TouchableOpacity onPress={onDownloadSummary} style={styles.actionBtn}>
-              <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
-              <Text style={[styles.actionText, { color: colors.textSecondary }]}>Summary</Text>
-            </TouchableOpacity>
-          ) : null}
-          {tab === 'transcript' && onDownloadTranscript ? (
-            <TouchableOpacity onPress={onDownloadTranscript} style={styles.actionBtn}>
-              <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
-              <Text style={[styles.actionText, { color: colors.textSecondary }]}>Transcript</Text>
-            </TouchableOpacity>
-          ) : null}
+          <View style={styles.actionsLeft}>
+            {clientLink ? (
+              <ClientsButton itemType={clientLink.itemType} itemId={clientLink.itemId} compact />
+            ) : null}
+            {tab === 'recap' && onDownloadSummary ? (
+              <TouchableOpacity onPress={onDownloadSummary} style={styles.actionBtn}>
+                <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Summary</Text>
+              </TouchableOpacity>
+            ) : null}
+            {tab === 'transcript' && onDownloadTranscript ? (
+              <TouchableOpacity onPress={onDownloadTranscript} style={styles.actionBtn}>
+                <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Transcript</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <View style={styles.actionsRight}>
+            {canShare ? (
+              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn}>
+                <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canAsk ? (
+              <TouchableOpacity onPress={handleAsk} style={styles.actionBtn}>
+                <Ionicons name="chatbubbles" size={16} color="#007AFF" />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Ask ChatGD</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
       ) : null}
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
-        {tab === 'recap' ? (
-          <MeetingRecapView
-            summaryContent={summaryContent}
-            loading={loadingSummary}
-            hero={resolvedHero}
-            extraSpeakerNames={extraSpeakers}
-            enrichment={enrichment}
-            transcriptContent={transcriptContent}
-            meetingDurationSeconds={meetingDurationSeconds}
-            onSeekTo={(seconds) => {
-              setSeekToSeconds(seconds);
-              setTab('transcript');
-            }}
-          />
-        ) : tab === 'chat' ? (
-          <MeetingChatView chatContent={chatContent} />
-        ) : (
+      {tab === 'transcript' ? (
+        <View style={{ flex: 1 }}>
           <MeetingTranscriptView
             transcriptContent={transcriptContent}
             loading={loadingTranscript}
@@ -251,8 +239,28 @@ export default function MeetingAssetTabs({
             meetingDurationSeconds={meetingDurationSeconds}
             seekToSeconds={seekToSeconds}
           />
-        )}
-      </ScrollView>
+        </View>
+      ) : (
+        <ScrollView contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+          {tab === 'recap' ? (
+            <MeetingRecapView
+              summaryContent={summaryContent}
+              loading={loadingSummary}
+              hero={resolvedHero}
+              extraSpeakerNames={extraSpeakers}
+              enrichment={enrichment}
+              transcriptContent={transcriptContent}
+              meetingDurationSeconds={meetingDurationSeconds}
+              onSeekTo={(seconds) => {
+                setSeekToSeconds(seconds);
+                setTab('transcript');
+              }}
+            />
+          ) : (
+            <MeetingChatView chatContent={chatContent} />
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -262,7 +270,9 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: 'row', borderRadius: 10, borderWidth: 1, padding: 3 },
   tab: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8 },
   tabText: { fontSize: 14, fontWeight: '600' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginBottom: 12 },
+  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
+  actionsLeft: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1 },
+  actionsRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   actionText: { fontSize: 12 },
 });

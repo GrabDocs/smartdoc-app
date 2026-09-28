@@ -1,8 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS, ResizeMode, Video, VideoFullscreenUpdate } from 'expo-av';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { API_BASE_URL } from '../../constants/Config';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   getAuthToken,
@@ -10,7 +9,7 @@ import {
   prepareVideoPlayback,
   recordingDownloadUrl,
   startRecordingCacheDownload,
-  withPlaybackAuthUrl,
+  startStreamFileDownload,
 } from '../../utils/meetingRecordingPlayback';
 import { isAudioTrackType } from './meetingRecapTypes';
 
@@ -142,28 +141,28 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
 
         const prepared = await prepareVideoPlayback(streamUrl, assetId);
         if (cancelled) return;
-        currentStreamUrlRef.current = prepared.isPlayingFromCache ? null : prepared.finalUrl;
+        if (prepared.isPlayingFromCache) {
+          currentStreamUrlRef.current = null;
+          setUri(prepared.uriToPlay);
+          setVideoKey((k) => k + 1);
+          setBuffering(false);
+          return;
+        }
+        setLoadingMessage('Loading video...');
+        currentStreamUrlRef.current = prepared.finalUrl;
+        const cached = await startStreamFileDownload(prepared.finalUrl, prepared.cachePath);
+        if (cancelled) return;
+        if (cached) {
+          setUri(cached);
+          setVideoKey((k) => k + 1);
+          setBuffering(true);
+          currentStreamUrlRef.current = null;
+          return;
+        }
+        currentStreamUrlRef.current = prepared.finalUrl;
         setUri(prepared.uriToPlay);
         setVideoKey((k) => k + 1);
-        setBuffering(!prepared.isPlayingFromCache);
-
-        if (!prepared.isPlayingFromCache && prepared.finalUrl.includes('/recording/')) {
-          const streamUrlForSwitch = prepared.finalUrl;
-          void startRecordingCacheDownload({
-            recordingUrl: prepared.finalUrl,
-            token: prepared.token,
-            cachePath: prepared.cachePath,
-            kind: 'video',
-          }).then((cached) => {
-            if (cancelled || !cached) return;
-            if (currentStreamUrlRef.current === streamUrlForSwitch) {
-              setUri(cached);
-              setVideoKey((k) => k + 1);
-              setBuffering(false);
-              currentStreamUrlRef.current = null;
-            }
-          });
-        }
+        setBuffering(true);
       } catch (e) {
         if (cancelled) return;
         const message = e instanceof Error ? e.message : String(e);
@@ -253,30 +252,8 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
     }
   };
 
-  const openInBrowser = async () => {
-    const id = streamUrl.match(/\/recording\/(\d+)/)?.[1];
-    if (!id) return;
-    const token = await getAuthToken();
-    const base = `${API_BASE_URL}/api/v1/video/recording/${id}/stream`;
-    const url = withPlaybackAuthUrl(base, token, true);
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) await Linking.openURL(url);
-  };
-
   if (error) {
-    return (
-      <View style={styles.errorBox}>
-        <Text style={styles.error}>{error}</Text>
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <TouchableOpacity onPress={() => start()}>
-            <Text style={styles.retry}>Tap to retry</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => void openInBrowser()}>
-            <Text style={styles.retry}>Open in browser</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
+    return <Text style={styles.error}>{error}</Text>;
   }
 
   if (audio) {
@@ -409,9 +386,7 @@ const MeetingCachedRecordingPlayer = forwardRef<MeetingCachedPlayerHandle, Props
 export default MeetingCachedRecordingPlayer;
 
 const styles = StyleSheet.create({
-  error: { color: '#dc2626', fontSize: 12 },
-  errorBox: { marginTop: 6, gap: 6 },
-  retry: { color: '#007AFF', fontSize: 13, fontWeight: '600' },
+  error: { color: '#dc2626', fontSize: 12, marginTop: 6 },
   videoWrap: { width: '100%', height: 200, borderRadius: 8, overflow: 'hidden', backgroundColor: '#000' },
   video: { width: '100%', height: '100%' },
   videoIdle: { flex: 1, alignItems: 'center', justifyContent: 'center' },

@@ -1027,6 +1027,21 @@ export default function EmailThreadScreen() {
               <Ionicons name="contract-outline" size={22} color={colors.text} />
             </FeedbackTouchable>
           </View>
+        ) : composeFullscreen ? (
+          <View style={styles.header}>
+            <View style={styles.headerBody}>
+              <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
+                {isNewCompose ? 'New message' : 'Compose'}
+              </AppHeaderTitle>
+            </View>
+            <FeedbackTouchable
+              style={styles.iconBtn}
+              onPress={() => setComposeFullscreen(false)}
+              accessibilityLabel="Exit full screen"
+            >
+              <Ionicons name="contract-outline" size={22} color={colors.text} />
+            </FeedbackTouchable>
+          </View>
         ) : (
           <View style={styles.header}>
             <AppBackButton />
@@ -1087,19 +1102,10 @@ export default function EmailThreadScreen() {
                 <Ionicons name="play-skip-forward-outline" size={22} color={colors.text} />
               </FeedbackTouchable>
             )}
-            {composeFullscreen ? (
-              <FeedbackTouchable
-                style={styles.iconBtn}
-                onPress={() => setComposeFullscreen(false)}
-                accessibilityLabel="Exit full screen"
-              >
-                <Ionicons name="contract-outline" size={22} color={colors.text} />
-              </FeedbackTouchable>
-            ) : null}
           </View>
         )}
 
-        {!fullscreenMessage && Number.isFinite(threadId) && threadId > 0 ? (
+        {!fullscreenMessage && !composeFullscreen && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
             {maximizeFocus ? (
@@ -1137,9 +1143,7 @@ export default function EmailThreadScreen() {
                   ? colors.background
                   : '#F3F4F6',
             },
-            composeFullscreen
-              ? { maxHeight: Math.round(windowHeight * (keyboardOpen ? 0.22 : 0.34)) }
-              : { flex: 1 },
+            composeFullscreen ? { display: 'none' } : { flex: 1 },
           ]}
           contentContainerStyle={{ flexGrow: 1, paddingTop: 8, paddingBottom: 16 }}
           keyboardShouldPersistTaps="handled"
@@ -1260,7 +1264,7 @@ export default function EmailThreadScreen() {
             ]}
           >
           <ScrollView
-            style={[styles.composePanel, { flexGrow: 1 }]}
+            style={[styles.composePanel, composeFullscreen ? { flex: 1, flexGrow: 1 } : { flexGrow: 1 }]}
             contentContainerStyle={{
               flexGrow: composeFullscreen ? 1 : undefined,
               paddingBottom:

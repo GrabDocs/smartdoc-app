@@ -202,7 +202,7 @@ export default function MeetingTranscriptView({
   }
 
   return (
-    <View style={{ gap: 10 }}>
+    <View style={{ flex: 1, gap: 10 }}>
       {showPlayer ? (
         <View style={[styles.player, { backgroundColor: colors.surface || colors.card, borderColor: colors.border }]}>
           {recordingOptions.length > 1 ? (
@@ -234,11 +234,6 @@ export default function MeetingTranscriptView({
             assetId={activeRecording!.assetId}
             onPlaybackStatus={onPlaybackSeconds}
           />
-          {!hasTimestamps ? (
-            <Text style={[styles.muted, { color: colors.textSecondary, textAlign: 'left' }]}>
-              Play/pause is available. This transcript has no timestamps to seek.
-            </Text>
-          ) : null}
         </View>
       ) : null}
 
@@ -298,7 +293,7 @@ export default function MeetingTranscriptView({
         })}
       </ScrollView>
 
-      <ScrollView ref={listRef} style={{ maxHeight: 520 }} nestedScrollEnabled>
+      <ScrollView ref={listRef} style={{ flex: 1 }} nestedScrollEnabled>
         {filteredTurns.map(({ turn, index }) => {
           const clock = formatTurnClock(turn.startSeconds);
           const isActive = activeTurn === index;
