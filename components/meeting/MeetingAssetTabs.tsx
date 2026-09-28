@@ -135,7 +135,7 @@ export default function MeetingAssetTabs({
       if (packId != null) {
         try {
           await shareDocumentFile(packId, shareFiles?.packFileName || 'Meeting recap', {
-            fallbackExtension: 'md',
+            fallbackExtension: 'docx',
           });
           return;
         } catch {
@@ -151,7 +151,7 @@ export default function MeetingAssetTabs({
       });
       if (composed.trim().length > 20) {
         await shareTextContent(shareFiles?.packFileName || 'Meeting recap', composed, {
-          extension: 'md',
+          extension: 'txt',
         });
         return;
       }

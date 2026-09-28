@@ -134,7 +134,7 @@ export default function EmailThreadScreen() {
   const router = useRouter();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const { height: windowHeight } = useWindowDimensions();
   const ws = workspaceId ? Number(workspaceId) : undefined;
 
   const [thread, setThread] = useState<EmailThread | null>(null);
@@ -385,7 +385,6 @@ export default function EmailThreadScreen() {
   const systemBottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 48) : Math.max(insets.bottom, 16);
   const restAboveNav = keyboardOpen || androidKeyboardLift > 0 ? 0 : systemBottomPad;
-  const compactComposerTools = windowWidth < 400;
 
   const persistDraft = async () => {
     if (!draft) return;
@@ -1760,7 +1759,7 @@ export default function EmailThreadScreen() {
                       color={expectsReply ? '#007AFF' : colors.textSecondary}
                     />
                     <Text style={{ fontSize: 12, color: colors.text }} numberOfLines={1}>
-                      {compactComposerTools ? 'Await' : 'Await reply'}
+                      Await reply
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1771,7 +1770,7 @@ export default function EmailThreadScreen() {
                   >
                     <Ionicons name="paper-plane" size={14} color="#fff" />
                     <Text style={styles.sendNextTxt} numberOfLines={1}>
-                      {busy ? 'Sending…' : compactComposerTools ? 'Next' : 'Send & Next'}
+                      {busy ? 'Sending…' : 'Send & Next'}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
