@@ -351,12 +351,13 @@ export function CalendarVisualPane({
         {locationLabel ? (
           <Text
             style={styles.rowLocationLink}
+            selectable
             onPress={() => {
               onDismissOverlays?.();
               void openMapsForLocationLabel(locationLabel);
             }}
             accessibilityRole="link"
-            accessibilityLabel={`Open maps for ${locationLabel}`}
+            accessibilityLabel={`Map options for ${locationLabel}`}
           >
             📍 {locationLabel}
           </Text>

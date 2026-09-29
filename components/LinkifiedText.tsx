@@ -16,6 +16,7 @@ export default function LinkifiedText({
   style,
   linkStyle,
   linkColor = '#007AFF',
+  selectable = true,
   ...textProps
 }: LinkifiedTextProps) {
   const parts = useMemo(() => splitTextByUrls(children), [children]);
@@ -36,7 +37,7 @@ export default function LinkifiedText({
   };
 
   return (
-    <Text style={style} {...textProps}>
+    <Text style={style} selectable={selectable} {...textProps}>
       {parts.map((part, index) => {
         if (part.type === 'text') {
           return part.text ? <Text key={index}>{part.text}</Text> : null;

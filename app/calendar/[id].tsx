@@ -21,6 +21,7 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalendarProfile';
 import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { openMapsForLocationLabel } from '../../utils/openMapsQuery';
 import {
     calendarConnections,
     calendarDeleteEvent,
@@ -604,7 +605,17 @@ export default function CalendarEventDetailScreen() {
               : ''}
           </Text>
         ) : null}
-        {locationLabel ? <Text style={styles.meta}>📍 {locationLabel}</Text> : null}
+        {locationLabel ? (
+          <Text
+            style={[styles.meta, { color: colors.tint ?? '#007AFF' }]}
+            selectable
+            onPress={() => void openMapsForLocationLabel(locationLabel)}
+            accessibilityRole="link"
+            accessibilityLabel={`Map options for ${locationLabel}`}
+          >
+            📍 {locationLabel}
+          </Text>
+        ) : null}
         {event.organizer ? (
           <Text style={styles.meta}>
             Organized by {event.organizer.name || event.organizer.email || '—'}

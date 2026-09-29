@@ -24,6 +24,7 @@ import {
 } from '@/utils/calendarPendingCreates';
 import { isDeviceOfflineForCalendar } from '@/utils/calendarOffline';
 import { calendarDisplayLocation, formatEventWhen } from '../../../utils/calendarTime';
+import { openMapsForLocationLabel } from '../../../utils/openMapsQuery';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
@@ -234,7 +235,17 @@ export default function CalendarPendingEventScreen() {
           {String(payload.title ?? 'Untitled')}
         </Text>
         <Text style={styles.meta}>{formatEventWhen(evLike as any)}</Text>
-        {locationLabel ? <Text style={styles.meta}>📍 {locationLabel}</Text> : null}
+        {locationLabel ? (
+          <Text
+            style={[styles.meta, { color: colors.tint ?? '#007AFF' }]}
+            selectable
+            onPress={() => void openMapsForLocationLabel(locationLabel)}
+            accessibilityRole="link"
+            accessibilityLabel={`Map options for ${locationLabel}`}
+          >
+            📍 {locationLabel}
+          </Text>
+        ) : null}
         {payload.description ? (
           <LinkifiedText
             style={{ color: colors.text, marginTop: 12, fontSize: 14 }}

@@ -1218,12 +1218,13 @@ export default function CalendarHomeScreen() {
           {locationLabel ? (
             <Text
               style={[styles.cardSub, { color: colors.tint ?? '#007AFF' }]}
+              selectable
               onPress={() => {
                 dismissCalendarOverlays();
                 void openMapsForLocationLabel(locationLabel);
               }}
               accessibilityRole="link"
-              accessibilityLabel={`Open maps for ${locationLabel}`}
+              accessibilityLabel={`Map options for ${locationLabel}`}
             >
               📍 {locationLabel}
             </Text>
