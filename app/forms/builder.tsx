@@ -31,7 +31,7 @@ import { normalizeFormFields } from '../../utils/normalizeFormFields';
 
 interface FormField {
   id: string;
-  type: 'text' | 'email' | 'phone' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'number';
+  type: 'text' | 'email' | 'phone' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'number' | 'time' | 'file';
   label: string;
   name?: string;
   placeholder?: string;
@@ -79,14 +79,13 @@ export default function FormBuilderScreen() {
   const [loadingResponses, setLoadingResponses] = useState(false);
   const [formId, setFormId] = useState<number | null>((params.formId as string) ? parseInt(params.formId as string) : null);
   const [formShareUrl, setFormShareUrl] = useState<string | null>(null);
-  const publishedParam = params.isPublished;
-  const [isPublished, setIsPublished] = useState(
-    () => publishedParam === 'true' || publishedParam === true
-  );
+  const publishedParam = Array.isArray(params.isPublished) ? params.isPublished[0] : params.isPublished;
+  const [isPublished, setIsPublished] = useState(() => publishedParam === 'true');
   // Avoid flashing Publish→Unpublish: wait until we know status for existing forms.
   const [publishStatusReady, setPublishStatusReady] = useState(() => {
-    if (!(params.formId as string)) return true; // new/unsaved form → unpublished
-    return publishedParam === 'true' || publishedParam === 'false' || publishedParam === true || publishedParam === false;
+    const idParam = Array.isArray(params.formId) ? params.formId[0] : params.formId;
+    if (!idParam) return true; // new/unsaved form → unpublished
+    return publishedParam === 'true' || publishedParam === 'false';
   });
   const [publishing, setPublishing] = useState(false);
   const [shareMenuUrl, setShareMenuUrl] = useState<string | null>(null);
@@ -301,8 +300,9 @@ export default function FormBuilderScreen() {
         : await apiService.createForm(payload);
 
       // Handle different response structures
-      const isSuccess = response?.success === true || response?.success === 'true';
-      const savedForm = response?.form || response?.data || response;
+      const body = response as { success?: boolean; form?: any; data?: any };
+      const isSuccess = body?.success === true;
+      const savedForm = body?.form || body?.data || body;
 
       if (isSuccess) {
         const savedFormId = savedForm?.id || savedForm?.form?.id || existingId;
@@ -428,7 +428,7 @@ export default function FormBuilderScreen() {
       
       if (!shareUrl) {
         // Get the form's share URL from API
-        const formResponse = await apiService.getFormById(formIdToShare);
+        const formResponse = await apiService.getFormById(formIdToShare) as { form?: any; data?: any };
         const form = formResponse?.form || formResponse?.data || formResponse;
         shareUrl = form?.share_url;
         
@@ -502,7 +502,7 @@ export default function FormBuilderScreen() {
 
   const renderFieldItem = ({ item, index }: { item: FormField; index: number }) => {
     return (
-      <View style={styles.fieldItem} accessibilityRole="listitem" accessibilityLabel={`Form field: ${item.label || 'Unnamed'}, ${FIELD_TYPES.find(t => t.id === item.type)?.name || item.type}`}>
+      <View style={styles.fieldItem} accessibilityLabel={`Form field: ${item.label || 'Unnamed'}, ${FIELD_TYPES.find(t => t.id === item.type)?.name || item.type}`}>
         <View style={styles.fieldHeader}>
           <View style={styles.fieldInfo}>
             <Text style={styles.fieldLabel}>{item.label || 'Unnamed Field'}</Text>
@@ -1120,7 +1120,13 @@ export default function FormBuilderScreen() {
       <View style={[styles.header, { backgroundColor: colors.headerBackground, borderBottomColor: colors.border }]}>
         <AppBackButton />
         <AppHeaderTitle>Form Builder</AppHeaderTitle>
-        <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+        {formId && publishStatusReady ? (
+          <Text style={{ fontSize: 13, fontWeight: '600', color: isPublished ? '#15803d' : colors.textSecondary }}>
+            {isPublished ? 'Live' : 'Offline'}
+          </Text>
+        ) : (
+          <View style={{ width: APP_BACK_BUTTON_SLOT }} />
+        )}
       </View>
 
       <View style={{ flex: 1, backgroundColor: colors.background }}>

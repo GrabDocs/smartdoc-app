@@ -426,6 +426,11 @@ export async function researchAndGenerateMailboxDraft(threadId: number, body: Re
   };
 }
 
+export async function searchMailboxContacts(query: string) {
+  const { data } = await client().get(`${MAILBOX}/contacts`, { params: { q: query, limit: 8 } });
+  return (data?.contacts || []) as { email: string; name?: string }[];
+}
+
 export async function patchMailboxDraft(draftId: number, body: Record<string, unknown>) {
   const { data } = await client().patch(`${MAILBOX}/drafts/${draftId}`, body);
   return data;

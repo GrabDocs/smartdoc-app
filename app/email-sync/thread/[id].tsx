@@ -51,6 +51,7 @@ import {
     patchMailboxSettings,
     reconcileMailboxSend,
     researchAndGenerateMailboxDraft,
+    searchMailboxContacts,
     sendMailboxDraft,
     undismissMailboxThread,
     undoMailboxSend,
@@ -75,6 +76,7 @@ import {
     type ReplyTone,
 } from '../_components/emailReplyShared';
 import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
+import { emailsFromAddressText, RecipientAddressField } from '../_components/RecipientAddressField';
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
@@ -106,13 +108,6 @@ function isImageMimeOrName(mime: string, name: string) {
 function isPdfMimeOrName(mime: string, name: string) {
   if ((mime || '').includes('pdf')) return true;
   return /\.pdf$/i.test(name || '');
-}
-
-function splitAddrs(s: string): string[] {
-  return s
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean);
 }
 
 export default function EmailThreadScreen() {
@@ -158,6 +153,7 @@ export default function EmailThreadScreen() {
   const [expectsReply, setExpectsReply] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
+  const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [headersOpen, setHeadersOpen] = useState(false);
   const [attachMenu, setAttachMenu] = useState(false);
@@ -264,6 +260,7 @@ export default function EmailThreadScreen() {
     if (!d) return;
     setTo((d.to || []).join(', '));
     setCc((d.cc || []).join(', '));
+    setBcc((d.bcc || []).join(', '));
     setSubject(d.subject || '');
     setBody(d.body_text || '');
     setExpectsReply(!!d.expects_reply);
@@ -386,8 +383,9 @@ export default function EmailThreadScreen() {
   const persistDraft = async () => {
     if (!draft) return;
     await patchMailboxDraft(draft.id, {
-      to: splitAddrs(to),
-      cc: splitAddrs(cc),
+      to: emailsFromAddressText(to),
+      cc: emailsFromAddressText(cc),
+      bcc: emailsFromAddressText(bcc),
       subject,
       body_text: body,
       expects_reply: expectsReply,
@@ -585,7 +583,7 @@ export default function EmailThreadScreen() {
 
   const send = async (advance: boolean) => {
     if (!draft) return;
-    if ((draft.reply_mode === 'new' || isNewCompose) && splitAddrs(to).length === 0) {
+    if ((draft.reply_mode === 'new' || isNewCompose) && emailsFromAddressText(to).length === 0) {
       Alert.alert('Recipient required', 'Add at least one recipient.');
       return;
     }
@@ -597,8 +595,9 @@ export default function EmailThreadScreen() {
         /* send payload still carries edits */
       }
       const res = await sendMailboxDraft(draft.id, {
-        to: splitAddrs(to),
-        cc: splitAddrs(cc),
+        to: emailsFromAddressText(to),
+        cc: emailsFromAddressText(cc),
+        bcc: emailsFromAddressText(bcc),
         subject,
         body_text: body,
         expects_reply: expectsReply,
@@ -724,7 +723,7 @@ export default function EmailThreadScreen() {
           paddingBottom: 8,
           gap: 0,
         },
-        label: { width: 36, fontSize: 13, color: colors.textSecondary },
+        label: { width: 40, fontSize: 13, color: colors.textSecondary },
         fieldInput: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 4 },
         input: {
           minHeight: 140,
@@ -1479,7 +1478,7 @@ export default function EmailThreadScreen() {
                       style={{ transform: [{ rotate: headersOpen ? '0deg' : '-90deg' }] }}
                     />
                     {headersOpen ? (
-                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>Hide From, To, Cc, Subject</Text>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>Hide From, To, Cc, Bcc, Subject</Text>
                     ) : (
                       <Text style={{ fontSize: 14, color: colors.text, flex: 1 }} numberOfLines={1}>
                         {replyFrom?.from_address || 'Connected mailbox'}
@@ -1508,30 +1507,54 @@ export default function EmailThreadScreen() {
                           ) : null}
                         </View>
                       </View>
-                      <View style={styles.headerField}>
-                        <Text style={styles.label}>To</Text>
-                        <TextInput
-                          style={styles.fieldInput}
-                          value={to}
-                          onChangeText={setTo}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          editable={!drafting && !busy}
-                          onEndEditing={() => void persistDraft().catch(() => {})}
-                        />
-                      </View>
-                      <View style={styles.headerField}>
-                        <Text style={styles.label}>Cc</Text>
-                        <TextInput
-                          style={styles.fieldInput}
-                          value={cc}
-                          onChangeText={setCc}
-                          autoCapitalize="none"
-                          keyboardType="email-address"
-                          editable={!drafting && !busy}
-                          onEndEditing={() => void persistDraft().catch(() => {})}
-                        />
-                      </View>
+                      <RecipientAddressField
+                        label="To"
+                        value={to}
+                        onChangeText={setTo}
+                        editable={!drafting && !busy}
+                        placeholder="Name or email"
+                        textColor={colors.text}
+                        secondaryColor={colors.textSecondary}
+                        borderColor={colors.border}
+                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                        searchContacts={searchMailboxContacts}
+                        onCommit={(addrs) => {
+                          if (!draft) return;
+                          void patchMailboxDraft(draft.id, { to: addrs }).catch(() => {});
+                        }}
+                      />
+                      <RecipientAddressField
+                        label="Cc"
+                        value={cc}
+                        onChangeText={setCc}
+                        editable={!drafting && !busy}
+                        placeholder="Name or email"
+                        textColor={colors.text}
+                        secondaryColor={colors.textSecondary}
+                        borderColor={colors.border}
+                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                        searchContacts={searchMailboxContacts}
+                        onCommit={(addrs) => {
+                          if (!draft) return;
+                          void patchMailboxDraft(draft.id, { cc: addrs }).catch(() => {});
+                        }}
+                      />
+                      <RecipientAddressField
+                        label="Bcc"
+                        value={bcc}
+                        onChangeText={setBcc}
+                        editable={!drafting && !busy}
+                        placeholder="Name or email"
+                        textColor={colors.text}
+                        secondaryColor={colors.textSecondary}
+                        borderColor={colors.border}
+                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                        searchContacts={searchMailboxContacts}
+                        onCommit={(addrs) => {
+                          if (!draft) return;
+                          void patchMailboxDraft(draft.id, { bcc: addrs }).catch(() => {});
+                        }}
+                      />
                       <View style={styles.headerField}>
                         <Text style={styles.label}>Subj</Text>
                         <TextInput
@@ -1689,9 +1712,9 @@ export default function EmailThreadScreen() {
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
+                    style={[styles.sendNext, (busy || !sendReady || drafting || (isNewCompose && !emailsFromAddressText(to).length)) && { opacity: 0.5 }]}
                     onPress={() => send(true)}
-                    disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
+                    disabled={busy || !sendReady || drafting || (isNewCompose && !emailsFromAddressText(to).length)}
                     accessibilityLabel="Send and next"
                   >
                     <Ionicons name="paper-plane" size={14} color="#fff" />
@@ -1700,9 +1723,9 @@ export default function EmailThreadScreen() {
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)) && { opacity: 0.5 }]}
+                    style={[styles.sendOnly, (busy || !sendReady || drafting || (isNewCompose && !emailsFromAddressText(to).length)) && { opacity: 0.5 }]}
                     onPress={() => send(false)}
-                    disabled={busy || !sendReady || drafting || (isNewCompose && !splitAddrs(to).length)}
+                    disabled={busy || !sendReady || drafting || (isNewCompose && !emailsFromAddressText(to).length)}
                   >
                     <Text style={styles.sendOnlyTxt}>Send</Text>
                   </TouchableOpacity>

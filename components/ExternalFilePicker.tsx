@@ -13,6 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import FileNameText from './FileNameText';
 import AppHeaderTitle from './AppHeaderTitle';
+import { DropboxLogo } from './DropboxLogo';
+import { GoogleDriveLogo } from './GoogleDriveLogo';
 import { ExternalFile, externalFileService } from '../services/externalFileServices';
 
 interface ExternalFilePickerProps {
@@ -25,7 +27,6 @@ interface ExternalFilePickerProps {
 interface ServiceConfig {
   id: 'dropbox' | 'googledrive';
   name: string;
-  icon: keyof typeof Ionicons.glyphMap;
   color: string;
 }
 
@@ -33,13 +34,11 @@ const SERVICES: ServiceConfig[] = [
   {
     id: 'dropbox',
     name: 'Dropbox',
-    icon: 'logo-dropbox',
     color: '#0061FF',
   },
   {
     id: 'googledrive',
     name: 'Google Drive',
-    icon: 'logo-google',
     color: '#4285F4',
   },
 ];
@@ -228,8 +227,8 @@ export function ExternalFilePicker({
       disabled={loading}
     >
       <View style={styles.serviceContent}>
-        <View style={[styles.serviceIcon, { backgroundColor: `${item.color}20` }]}>
-          <Ionicons name={item.icon} size={32} color={item.color} />
+        <View style={[styles.serviceIcon, { backgroundColor: '#ffffff' }]}>
+          {item.id === 'dropbox' ? <DropboxLogo size={32} /> : <GoogleDriveLogo size={28} />}
         </View>
         <Text style={styles.serviceName}>{item.name}</Text>
         {authenticated[item.id] && (
