@@ -29,7 +29,7 @@ export function AttachmentNamesRow({
     () =>
       StyleSheet.create({
         row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 4 },
-        name: { fontSize: 15, fontWeight: '600', color: colors.isDark ? '#7DD3FC' : '#0369A1' },
+        name: { fontSize: 15, fontWeight: '400', color: colors.isDark ? '#7DD3FC' : '#0369A1' },
         more: { fontSize: 14, color: colors.textSecondary },
       }),
     [colors]

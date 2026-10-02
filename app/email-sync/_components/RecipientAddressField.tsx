@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export type AccountContact = {
   email: string;
@@ -109,7 +109,16 @@ export function RecipientAddressField({
   };
 
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: borderColor, paddingVertical: 6 }}>
+    <View
+      style={{
+        borderBottomWidth: 1,
+        borderBottomColor: borderColor,
+        paddingVertical: 6,
+        position: 'relative',
+        // Raise this field above the ones below it (Cc/Bcc/Subj) while its suggestions are open.
+        zIndex: visible.length > 0 ? 30 : 0,
+      }}
+    >
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         <Text style={{ width: 40, fontSize: 13, color: secondaryColor }}>{label}</Text>
         <TextInput
@@ -130,17 +139,33 @@ export function RecipientAddressField({
         />
       </View>
       {visible.length > 0 ? (
+        // Floating menu: absolutely positioned just below the field so it overlays the fields beneath
+        // instead of pushing them down. Capped height + inner scroll keeps long result lists contained.
         <View
           style={{
-            marginTop: 4,
-            marginLeft: 40,
+            position: 'absolute',
+            top: '100%',
+            left: 40,
+            right: 0,
+            maxHeight: 188,
             borderRadius: 10,
             backgroundColor: menuColor,
             borderWidth: 1,
             borderColor,
             overflow: 'hidden',
+            zIndex: 40,
+            elevation: 12,
+            shadowColor: '#000',
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 4 },
           }}
         >
+          <ScrollView
+            keyboardShouldPersistTaps="always"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
           {visible.map((contact) => {
             const title = contact.name || contact.email;
             return (
@@ -168,6 +193,7 @@ export function RecipientAddressField({
               </TouchableOpacity>
             );
           })}
+          </ScrollView>
         </View>
       ) : null}
     </View>

@@ -1,14 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image as ExpoImage } from 'expo-image';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
     BackHandler,
     Keyboard,
-    KeyboardAvoidingView,
+    LayoutAnimation,
     Modal,
     Platform,
     ScrollView,
@@ -144,10 +145,12 @@ export default function EmailThreadScreen() {
   const [loading, setLoading] = useState(true);
   const [sendReady, setSendReady] = useState(true);
   const [composing, setComposing] = useState(false);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  /** Keyboard top (screenY) — Android needs a manual lift; iOS uses KeyboardAvoidingView. */
-  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  /**
+   * How far the keyboard actually covers the bottom of this screen's root view (px).
+   * Single source of truth for keyboard avoidance on iOS and Android — see the keyboard effect below.
+   */
+  const [kbInset, setKbInset] = useState(0);
+  const keyboardOpen = kbInset > 0;
   const [busy, setBusy] = useState(false);
   const [body, setBody] = useState('');
   const [expectsReply, setExpectsReply] = useState(false);
@@ -185,6 +188,11 @@ export default function EmailThreadScreen() {
   } | null>(null);
   const [attOpening, setAttOpening] = useState(false);
   const composeScrollRef = useRef<ScrollView>(null);
+  const rootRef = useRef<View>(null);
+  /** Window-space Y of the bottom edge of the root view (kept fresh via onLayout / before each keyboard event). */
+  const rootBottomRef = useRef<number | null>(null);
+  const composeScrollYRef = useRef(0);
+  const composeScrollHRef = useRef(0);
   const autoComposeRef = useRef(false);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generateInFlightRef = useRef(false);
@@ -344,41 +352,177 @@ export default function EmailThreadScreen() {
     };
   }, [load, ws, threadId]);
 
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const show = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardOpen(true);
-      setKeyboardTop(e.endCoordinates.screenY);
-      setKeyboardHeight(e.endCoordinates.height);
-      requestAnimationFrame(() => composeScrollRef.current?.scrollToEnd({ animated: true }));
+  // ---------------------------------------------------------------------------
+  // Keyboard avoidance — one mechanism for iOS and Android.
+  //
+  // `kbInset` = how many px the keyboard actually covers of this screen's root view. It is computed as
+  // (root view bottom in window coords) - (keyboard top in window coords), so:
+  //   - iOS / Android where the window does NOT resize: inset == keyboard height.
+  //   - Android where the window DOES resize (adjustResize): root bottom already sits above the
+  //     keyboard, inset == 0, so we never double-lift.
+  // The root is a plain View with paddingBottom = kbInset (no KeyboardAvoidingView, no hand-tuned offsets).
+  // State is re-synced on focus / app resume / modal close so a missed hide event can't leave it stuck.
+  // ---------------------------------------------------------------------------
+  const lastKbRef = useRef<{ screenY?: number; height?: number } | null>(null);
+  const kbInsetRef = useRef(0);
+  kbInsetRef.current = kbInset;
+
+  const measureRoot = useCallback((then: () => void) => {
+    const root = rootRef.current;
+    if (!root) {
+      then();
+      return;
+    }
+    root.measureInWindow((_x, y, _w, h) => {
+      if (h > 0) rootBottomRef.current = y + h;
+      then();
     });
-    const hide = Keyboard.addListener(hideEvent, () => {
-      setKeyboardOpen(false);
-      setKeyboardTop(null);
-      setKeyboardHeight(0);
-    });
-    return () => {
-      show.remove();
-      hide.remove();
-    };
   }, []);
 
-  // Edge-to-edge Android often overlays the keyboard instead of resizing; lift the compose panel.
-  // Prefer reported keyboard height; fall back to screenY. Do not subtract insets.bottom — that
-  // leaves the Generate row partly under the keyboard.
-  const androidKeyboardLift = useMemo(() => {
-    if (Platform.OS !== 'android' || keyboardTop == null) return 0;
-    const fromHeight = keyboardHeight > 0 ? keyboardHeight : 0;
-    const fromScreenY = Math.max(0, windowHeight - keyboardTop);
-    return Math.max(fromHeight, fromScreenY) + 20;
-  }, [keyboardTop, keyboardHeight, windowHeight]);
+  const computeKbInset = useCallback((k: { screenY?: number; height?: number } | null) => {
+    if (!k) return 0;
+    const bottom = rootBottomRef.current;
+    let inset = k.height ?? 0;
+    if (bottom != null && typeof k.screenY === 'number' && k.screenY > 0) inset = bottom - k.screenY;
+    // Never lift by more than the keyboard itself (guards against a bad measurement).
+    if (k.height && k.height > 0) inset = Math.min(inset, k.height);
+    return Math.max(0, Math.round(inset));
+  }, []);
+
+  const setKeyboard = useCallback(
+    (k: { screenY?: number; height?: number } | null, duration?: number) => {
+      lastKbRef.current = k;
+      measureRoot(() => {
+        // Always use the latest event (a hide may land while a show measurement is in flight).
+        const next = computeKbInset(lastKbRef.current);
+        if (next === kbInsetRef.current) return;
+        if (Platform.OS === 'ios' && duration && duration > 0) {
+          LayoutAnimation.configureNext({
+            duration,
+            update: { duration, type: LayoutAnimation.Types.keyboard },
+          });
+        }
+        setKbInset(next);
+      });
+    },
+    [computeKbInset, measureRoot]
+  );
+
+  const scrollFocusedInputIntoView = useCallback(() => {
+    const scroll = composeScrollRef.current as any;
+    const input = (TextInput as any).State?.currentlyFocusedInput?.();
+    if (!scroll || !input?.measureLayout) return;
+    const inner = scroll.getInnerViewRef?.() ?? scroll.getInnerViewNode?.();
+    if (!inner) return;
+    try {
+      input.measureLayout(
+        inner,
+        (_x: number, y: number, _w: number, h: number) => {
+          const viewH = composeScrollHRef.current;
+          if (!viewH) return;
+          const top = composeScrollYRef.current;
+          const pad = 12;
+          const bottomY = y + h;
+          if (h > viewH - pad * 2) {
+            // Tall field (e.g. long body): keep the end (where you type) visible.
+            if (bottomY > top + viewH - pad) {
+              scroll.scrollTo({ y: Math.max(0, bottomY - viewH + pad), animated: true });
+            } else if (bottomY < top + pad) {
+              scroll.scrollTo({ y: Math.max(0, y - pad), animated: true });
+            }
+          } else if (y < top + pad) {
+            scroll.scrollTo({ y: Math.max(0, y - pad), animated: true });
+          } else if (bottomY > top + viewH - pad) {
+            scroll.scrollTo({ y: Math.max(0, bottomY - viewH + pad), animated: true });
+          }
+        },
+        () => {}
+      );
+    } catch {
+      // measureLayout can throw if the input unmounted mid-call
+    }
+  }, []);
+
+  const scrollFocusedInputSoon = useCallback(() => {
+    setTimeout(scrollFocusedInputIntoView, 80);
+  }, [scrollFocusedInputIntoView]);
+
+  useEffect(() => {
+    const onShow = (e: any) => {
+      setKeyboard(
+        { screenY: e?.endCoordinates?.screenY, height: e?.endCoordinates?.height },
+        e?.duration
+      );
+      // Once the inset/layout has settled, make sure the field being typed in is visible.
+      setTimeout(scrollFocusedInputIntoView, 80);
+      setTimeout(scrollFocusedInputIntoView, 380);
+    };
+    const onHide = (e: any) => setKeyboard(null, e?.duration);
+    const subs =
+      Platform.OS === 'ios'
+        ? [
+            Keyboard.addListener('keyboardWillShow', onShow),
+            // Covers suggestion-bar / keyboard-type height changes and frame moves off-screen.
+            Keyboard.addListener('keyboardWillChangeFrame', (e: any) =>
+              setKeyboard(
+                { screenY: e?.endCoordinates?.screenY, height: e?.endCoordinates?.height },
+                e?.duration
+              )
+            ),
+            Keyboard.addListener('keyboardWillHide', onHide),
+          ]
+        : [
+            Keyboard.addListener('keyboardDidShow', onShow),
+            Keyboard.addListener('keyboardDidHide', onHide),
+          ];
+    return () => subs.forEach((s) => s.remove());
+  }, [setKeyboard, scrollFocusedInputIntoView]);
+
+  // Reconcile with what the OS says right now (screen focus, app resume, modal closed).
+  const syncKeyboardState = useCallback(() => {
+    const focused = (TextInput as any).State?.currentlyFocusedInput?.();
+    const visible = typeof (Keyboard as any).isVisible === 'function' ? Keyboard.isVisible() : false;
+    if (!visible || !focused) {
+      setKeyboard(null);
+      return;
+    }
+    const m = (Keyboard as any).metrics?.();
+    if (m && m.height > 0) setKeyboard({ screenY: m.screenY, height: m.height });
+  }, [setKeyboard]);
+
+  useFocusEffect(
+    useCallback(() => {
+      syncKeyboardState();
+    }, [syncKeyboardState])
+  );
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') syncKeyboardState();
+    });
+    return () => sub.remove();
+  }, [syncKeyboardState]);
+
+  // Modals (attach / tone / GrabDocs picker / viewers) steal focus and can swallow keyboard-hide events.
+  useEffect(() => {
+    const t = setTimeout(syncKeyboardState, 450);
+    return () => clearTimeout(t);
+  }, [attachMenu, toneMenu, gdOpen, viewerFileId, directPreview, syncKeyboardState]);
+
+  const onRootLayout = useCallback(() => {
+    // Window resized (rotation, Android adjustResize, split-screen): re-measure and recompute.
+    measureRoot(() => {
+      const next = computeKbInset(lastKbRef.current);
+      if (next !== kbInsetRef.current) setKbInset(next);
+    });
+  }, [computeKbInset, measureRoot]);
 
   // Android 3-button nav is ~48dp and edge-to-edge often reports 0.
   // iPhone home indicator is insets.bottom (~34); floor so attachments stay above it.
   const systemBottomPad =
     Platform.OS === 'android' ? Math.max(insets.bottom, 48) : Math.max(insets.bottom, 16);
-  const restAboveNav = keyboardOpen || androidKeyboardLift > 0 ? 0 : systemBottomPad;
+  // While the keyboard is up it already covers the nav/home-indicator area.
+  const restAboveNav = keyboardOpen ? 0 : systemBottomPad;
 
   const persistDraft = async () => {
     if (!draft) return;
@@ -712,6 +856,9 @@ export default function EmailThreadScreen() {
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: colors.border,
           marginBottom: 8,
+          // Lift above the body field below so the floating recipient suggestions draw/touch on top of it.
+          position: 'relative',
+          zIndex: 20,
         },
         composeHeaderToggle: {
           flexDirection: 'row',
@@ -1014,13 +1161,14 @@ export default function EmailThreadScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? -16 : 0}
+      <View
+        ref={rootRef}
+        collapsable={false}
+        onLayout={onRootLayout}
+        style={{ flex: 1, paddingBottom: kbInset }}
       >
         {fullscreenMessage ? (
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: 6 }]}>
             <View style={styles.headerBody}>
               <View style={styles.bubbleHeadText}>
                 <Text style={styles.from} numberOfLines={1}>
@@ -1043,7 +1191,7 @@ export default function EmailThreadScreen() {
             </FeedbackTouchable>
           </View>
         ) : composeFullscreen ? (
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: 6 }]}>
             <View style={styles.headerBody}>
               <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
                 {isNewCompose ? 'New message' : 'Compose'}
@@ -1274,25 +1422,30 @@ export default function EmailThreadScreen() {
         {!dismissed && !fullscreenMessage ? (
           <View
             style={[
-              composeFullscreen
-                ? { flex: 1, minHeight: 0, ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null) }
+              // Fullscreen, or keyboard up (thread is collapsed to a one-line peek): fill all the space
+              // between the header and the keyboard so the footer (Send) is pinned right above it.
+              composeFullscreen || threadCollapsedForCompose
+                ? { flex: 1, minHeight: 0 }
                 : {
                     flexGrow: 0,
                     flexShrink: 0,
-                    maxHeight: Math.round(
-                      androidKeyboardLift > 0
-                        ? Math.min(windowHeight * 0.42, Math.max(180, windowHeight - androidKeyboardLift - 120))
-                        : keyboardOpen
-                          ? windowHeight * 0.38
-                          : windowHeight * 0.58
-                    ),
-                    ...(androidKeyboardLift > 0 ? { marginBottom: androidKeyboardLift } : null),
+                    maxHeight: Math.round(windowHeight * 0.58),
                   },
             ]}
           >
           <ScrollView
             ref={composeScrollRef}
-            style={[styles.composePanel, composeFullscreen ? { flex: 1 } : { flexGrow: 0 }]}
+            style={[
+              styles.composePanel,
+              composeFullscreen || threadCollapsedForCompose ? { flex: 1 } : { flexGrow: 0 },
+            ]}
+            scrollEventThrottle={16}
+            onScroll={(e) => {
+              composeScrollYRef.current = e.nativeEvent.contentOffset.y;
+            }}
+            onLayout={(e) => {
+              composeScrollHRef.current = e.nativeEvent.layout.height;
+            }}
             contentContainerStyle={{
               paddingBottom: 8,
               gap: 0,
@@ -1352,6 +1505,7 @@ export default function EmailThreadScreen() {
                             }}
                             placeholder="What should GrabDocs look up?"
                             placeholderTextColor={colors.textSecondary}
+                            onFocus={scrollFocusedInputSoon}
                             multiline
                             editable={!workspaceGenerating && !drafting && !busy}
                           />
@@ -1409,6 +1563,7 @@ export default function EmailThreadScreen() {
                 onChangeText={setCustomInstructions}
                 placeholder="Tell AI anything to include…"
                 placeholderTextColor={colors.textSecondary}
+                onFocus={scrollFocusedInputSoon}
                 editable={!drafting && !busy}
               />
               <View style={styles.actionRow}>
@@ -1561,6 +1716,7 @@ export default function EmailThreadScreen() {
                           style={styles.fieldInput}
                           value={subject}
                           onChangeText={setSubject}
+                          onFocus={scrollFocusedInputSoon}
                           editable={!drafting && !busy}
                           onEndEditing={() => void persistDraft().catch(() => {})}
                         />
@@ -1601,6 +1757,10 @@ export default function EmailThreadScreen() {
                     placeholderTextColor={colors.textSecondary}
                     multiline
                     textAlignVertical="top"
+                    onFocus={scrollFocusedInputSoon}
+                    onContentSizeChange={() => {
+                      if (keyboardOpen) scrollFocusedInputSoon();
+                    }}
                     editable={!drafting && !busy}
                     onEndEditing={() => void persistDraft().catch(() => {})}
                   />
@@ -1737,7 +1897,7 @@ export default function EmailThreadScreen() {
         ) : null}
 
         {undo && undoLeft > 0 ? (
-          <View style={[styles.undo, { bottom: Math.max(systemBottomPad, 12) + 72 }]}>
+          <View style={[styles.undo, { bottom: Math.max(systemBottomPad, 12) + 72 + kbInset }]}>
             <Text style={{ color: '#fff', flex: 1 }}>
               Sending in {formatRemainingCountdown(undoLeft, undo.maxSecs)}
             </Text>
@@ -1765,7 +1925,7 @@ export default function EmailThreadScreen() {
         {restAboveNav > 0 ? (
           <View style={{ height: restAboveNav, backgroundColor: colors.background }} />
         ) : null}
-      </KeyboardAvoidingView>
+      </View>
 
       <AdaptiveListPickerModal
         visible={toneMenu}

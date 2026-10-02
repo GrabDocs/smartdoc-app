@@ -146,7 +146,15 @@ export default function CalendarCreateScreen() {
     setDurationPickerOpen(false);
   }, []);
 
+  // Close the date / time / duration popups (not the member search sheet, which has its own input).
+  const closePickers = useCallback(() => {
+    setShowPicker(null);
+    setDurationPickerOpen(false);
+  }, []);
+
+  // Opening a popup always drops the keyboard first so the popup isn't covered by it.
   const openDatePicker = useCallback(() => {
+    Keyboard.dismiss();
     setDurationPickerOpen(false);
     setMemberModal(false);
     setShowPicker('date');
@@ -154,6 +162,7 @@ export default function CalendarCreateScreen() {
   }, []);
 
   const openTimePicker = useCallback(() => {
+    Keyboard.dismiss();
     setDurationPickerOpen(false);
     setMemberModal(false);
     setShowPicker('time');
@@ -161,11 +170,20 @@ export default function CalendarCreateScreen() {
   }, []);
 
   const openDurationPicker = useCallback(() => {
+    Keyboard.dismiss();
     setShowPicker(null);
     setMemberModal(false);
     setDurationPickerOpen(true);
     setDurationPickerExpandNonce((n) => n + 1);
   }, []);
+
+  // Focusing any text field (title, location, URL, description, reminders, participants…) closes the
+  // date / time / duration popups. Listening for the keyboard covers every input without per-field wiring.
+  useEffect(() => {
+    const evt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const sub = Keyboard.addListener(evt, closePickers);
+    return () => sub.remove();
+  }, [closePickers]);
 
   useEffect(() => {
     refresh();
@@ -656,10 +674,16 @@ export default function CalendarCreateScreen() {
 
               <Text style={styles.label}>Participants</Text>
               {participants.map((p) => (
-                <View key={p.email} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 }}>
-                  <Text style={{ color: colors.text }}>{p.name}</Text>
-                  <TouchableOpacity onPress={() => setParticipants((x) => x.filter((q) => q.email !== p.email))}>
-                    <Text style={{ color: '#ef4444' }}>Remove</Text>
+                <View key={p.email} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 }}>
+                  <Text style={{ color: colors.text, flex: 1, marginRight: 8 }} numberOfLines={1}>{p.name}</Text>
+                  <TouchableOpacity
+                    onPress={() => setParticipants((x) => x.filter((q) => q.email !== p.email))}
+                    style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+                    hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${p.name}`}
+                  >
+                    <Ionicons name="close" size={24} color="#ef4444" />
                   </TouchableOpacity>
                 </View>
               ))}
