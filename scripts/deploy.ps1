@@ -16,6 +16,8 @@
 #
 #   In production, UpdateReason is prompted (1=security, 2=breaking, 3=feature) or use -UpdateReason param.
 #   Interactive mode prompts: environment → deploy type (build/OTA) → platform (build only) → OTA message (OTA only).
+#   Development fresh builds reuse version and build number from app.versions.json and do not write them back.
+#   Pass -Version and -BuildNumber only to override that reuse. Production is the path that increments and saves them.
 #
 #   Interactive builds default to GitHub Actions (commit/push already done by the script). Use -Local for EAS on this machine.
 #   For EAS cloud builds, run eas directly (e.g. eas build --profile production --platform android).
@@ -516,6 +518,30 @@ try {
         }
     }
 
+    # Non-production fresh builds (development) reuse app.versions.json for the GitHub Actions
+    # inputs. Those numbers are not written back; only a production deploy updates the file.
+    if ($DeployType -eq "build" -and $normalizedEnv -ne "production") {
+        if ([string]::IsNullOrWhiteSpace($Version)) {
+            $Version = Get-CurrentVersion
+        }
+        if ([string]::IsNullOrWhiteSpace($BuildNumber)) {
+            $BuildNumber = Get-CurrentBuildNumber -Platform $Platform
+        }
+
+        if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Host "❌ Development build needs a version in app.versions.json (x.y.z), or pass -Version." -ForegroundColor Red
+            exit 1
+        }
+        if ($BuildNumber -notmatch '^\d+$') {
+            $buildLabel = if ($Platform -eq "ios") { "iOS build number" } else { "Android version code" }
+            Write-Host "❌ Development build needs a ${buildLabel} in app.versions.json, or pass -BuildNumber." -ForegroundColor Red
+            exit 1
+        }
+
+        $buildLabel = if ($Platform -eq "ios") { "iOS build number" } else { "Android version code" }
+        Write-Host "ℹ️  Development build reuses current numbers (not saved): version $Version, ${buildLabel} $BuildNumber" -ForegroundColor Cyan
+    }
+
     # Auto commit, push to francis, merge to main, and push main
     Write-Host "`n📦 Git Operations:" -ForegroundColor Cyan
     Set-Location "$PSScriptRoot\.."
@@ -775,11 +801,15 @@ try {
             Write-Host "   Build: EAS cloud" -ForegroundColor White
         }
     }
-    if ($DeployType -eq "build" -and $normalizedEnv -eq "production") {
+    if ($DeployType -eq "build" -and $Version -and $BuildNumber) {
         Write-Host "   Version name: $Version" -ForegroundColor White
         $buildLabel = if ($Platform -eq "ios") { "Build number" } else { "Version code" }
         Write-Host "   ${buildLabel}: $BuildNumber" -ForegroundColor White
-        
+        if ($normalizedEnv -ne "production") {
+            Write-Host "   Numbers reused from app.versions.json (production file unchanged)" -ForegroundColor Gray
+        }
+    }
+    if ($DeployType -eq "build" -and $normalizedEnv -eq "production") {
         # Verify values in app.versions.json match what we expect
         Write-Host "`n🔍 Verifying app.versions.json values:" -ForegroundColor Cyan
         $versionsPath = "$PSScriptRoot\..\app.versions.json"
