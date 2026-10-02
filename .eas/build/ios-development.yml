@@ -1,0 +1,226 @@
+build:
+  name: iOS Development (ad hoc, Hermes workaround, no App Store submit)
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - eas/resolve_apple_team_id_from_credentials:
+        id: resolve_apple_team_id_from_credentials
+    - eas/prebuild:
+        inputs:
+          clean: false
+          apple_team_id: ${ steps.resolve_apple_team_id_from_credentials.apple_team_id }
+    - run:
+        name: Patch Podfile for GrabDocsBroadcastUpload extension
+        command: node scripts/ensure-podfile-extension.js && node scripts/ensure-pbxproj-embed-phase.js
+    - run:
+        name: Ensure extension entitlements have App Group
+        command: node scripts/ensure-extension-entitlements.js
+    - run:
+        name: Install CocoaPods dependencies
+        command: |
+          cd ios
+          # Ensure CocoaPods is recent (fixes XCFramework path bugs)
+          pod --version
+          # Clear hermes cache to force fresh download; then install
+          pod cache clean hermes-engine --all 2>/dev/null || true
+          pod install --repo-update 2>&1 | tee ../pod_install.log
+          HERMES_XCFW="Pods/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64"
+          if [ ! -d "$HERMES_XCFW" ] || [ -z "$(ls -A "$HERMES_XCFW" 2>/dev/null)" ]; then
+            echo "::warning::Hermes not found after first pod install. Last 80 lines of pod_install.log:"
+            tail -80 ../pod_install.log
+            echo "Retrying pod install..."
+            pod install --repo-update 2>&1 | tee -a ../pod_install.log
+          fi
+          # If Hermes XCFramework still missing, the [Hermes] Replace Hermes script and [CP] Copy XCFrameworks
+          # will fail during xcodebuild (tarball missing → destroot empty → rsync No such file).
+          # Explicitly download and extract the prebuilt tarball from Maven so it exists before archive.
+          RN_VERSION=$(node -p "require('../package.json').dependencies['react-native'] || require('../package.json').devDependencies['react-native'] || '0.81.5'" 2>/dev/null | tr -d "'" | sed 's/[\^~]//g')
+          HERMES_TAR="Pods/hermes-engine-artifacts/hermes-ios-${RN_VERSION}-release.tar.gz"
+          if [ ! -d "$HERMES_XCFW" ] || [ -z "$(ls -A "$HERMES_XCFW" 2>/dev/null)" ]; then
+            echo "Hermes XCFramework or tarball missing; downloading prebuilt from Maven (RN $RN_VERSION)..."
+            mkdir -p Pods/hermes-engine-artifacts
+            MAVEN_URL="https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/${RN_VERSION}/react-native-artifacts-${RN_VERSION}-hermes-ios-release.tar.gz"
+            if [ ! -f "$HERMES_TAR" ]; then
+              curl -f -L -o "$HERMES_TAR" "$MAVEN_URL" || { echo "::error::Failed to download Hermes from $MAVEN_URL"; exit 1; }
+              echo "Downloaded $HERMES_TAR"
+            fi
+            mkdir -p Pods/hermes-engine
+            (cd Pods/hermes-engine && tar -xzf "../hermes-engine-artifacts/hermes-ios-${RN_VERSION}-release.tar.gz")
+            echo "Extracted Hermes tarball into Pods/hermes-engine/destroot"
+          fi
+          if [ ! -d "$HERMES_XCFW" ] || [ -z "$(ls -A "$HERMES_XCFW" 2>/dev/null)" ]; then
+            echo "::error::Hermes XCFramework still missing at $HERMES_XCFW."
+            ls -la Pods/hermes-engine 2>/dev/null || true
+            ls -la Pods/hermes-engine/destroot 2>/dev/null || true
+            echo "=== pod_install.log (hermes grep) ==="
+            grep -i hermes ../pod_install.log || true
+            exit 1
+          fi
+          echo "✅ Hermes XCFramework present at $HERMES_XCFW"
+    - run:
+        name: Sanitize project.pbxproj (remove undefined / empty file types for Xcode)
+        command: |
+          PBXPROJ=$(find ios -name "project.pbxproj" -path "*.xcodeproj/*" | head -1)
+          if [ -z "$PBXPROJ" ]; then exit 0; fi
+          node scripts/ensure-pbxproj-embed-phase.js
+          if grep -q " = undefined" "$PBXPROJ" 2>/dev/null; then
+            sed -i '' 's/fileEncoding = undefined/fileEncoding = 4/g' "$PBXPROJ"
+            sed -i '' 's/includeInIndex = undefined/includeInIndex = 0/g' "$PBXPROJ"
+            sed -i '' -E 's/([a-zA-Z0-9_]+) = undefined/\1 = ""/g' "$PBXPROJ"
+            echo "✅ Sanitized remaining undefined in project.pbxproj"
+          fi
+    - eas/configure_eas_update
+    - eas/configure_ios_credentials
+    - run:
+        name: Verify Hermes XCFramework before archive
+        command: |
+          cd ios
+          HERMES_XCFW="Pods/hermes-engine/destroot/Library/Frameworks/universal/hermes.xcframework/ios-arm64"
+          echo "PWD=$PWD"
+          echo "Checking $HERMES_XCFW ..."
+          if [ -d "$HERMES_XCFW" ]; then
+            echo "Contents:"
+            ls -la "$HERMES_XCFW"
+          else
+            echo "::error::Hermes path missing before gym. Listing Pods/hermes-engine:"
+            ls -laR Pods/hermes-engine 2>/dev/null || true
+            exit 1
+          fi
+    - run:
+        name: Write Gymfile and ExportOptions
+        command: |
+          # Determine the main app and extension provisioning profile UUIDs from installed profiles
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          MAIN_UUID=$(ls "$PROFILE_DIR"/*.mobileprovision 2>/dev/null | while read f; do
+            plist=$(/usr/bin/security cms -D -i "$f" 2>/dev/null)
+            bid=$(echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin 2>/dev/null | sed 's/^[^.]*\.//')
+            if [ "$bid" = "com.grabdocs.mobile" ]; then
+              echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin 2>/dev/null
+              break
+            fi
+          done)
+          EXT_UUID=$(ls "$PROFILE_DIR"/*.mobileprovision 2>/dev/null | while read f; do
+            plist=$(/usr/bin/security cms -D -i "$f" 2>/dev/null)
+            bid=$(echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin 2>/dev/null | sed 's/^[^.]*\.//')
+            if [ "$bid" = "com.grabdocs.mobile.GrabDocsBroadcastUpload" ]; then
+              echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin 2>/dev/null
+              break
+            fi
+          done)
+          echo "Main app profile UUID: ${MAIN_UUID:-NOT FOUND}"
+          echo "Extension profile UUID: ${EXT_UUID:-NOT FOUND}"
+
+          # Write ExportOptions.plist with explicit profile mapping for both targets
+          EXPORT_PLIST="ios/ExportOptions.plist"
+          printf '<?xml version="1.0" encoding="UTF-8"?>\n' > "$EXPORT_PLIST"
+          printf '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' >> "$EXPORT_PLIST"
+          printf '<plist version="1.0">\n' >> "$EXPORT_PLIST"
+          printf '<dict>\n' >> "$EXPORT_PLIST"
+          printf '    <key>method</key>\n    <string>ad-hoc</string>\n' >> "$EXPORT_PLIST"
+          printf '    <key>teamID</key>\n    <string>Q33K3Q7Q53</string>\n' >> "$EXPORT_PLIST"
+          printf '    <key>signingStyle</key>\n    <string>manual</string>\n' >> "$EXPORT_PLIST"
+          printf '    <key>provisioningProfiles</key>\n    <dict>\n' >> "$EXPORT_PLIST"
+          printf '        <key>com.grabdocs.mobile</key>\n        <string>%s</string>\n' "${MAIN_UUID}" >> "$EXPORT_PLIST"
+          printf '        <key>com.grabdocs.mobile.GrabDocsBroadcastUpload</key>\n        <string>%s</string>\n' "${EXT_UUID}" >> "$EXPORT_PLIST"
+          printf '    </dict>\n</dict>\n</plist>\n' >> "$EXPORT_PLIST"
+          echo "=== ExportOptions.plist ==="
+          cat ios/ExportOptions.plist
+
+          # Write Gymfile pointing to ExportOptions.plist
+          GYMFILE="ios/Gymfile"
+          printf 'workspace "./GrabDocs.xcworkspace"\n' > "$GYMFILE"
+          printf 'scheme "GrabDocs"\n' >> "$GYMFILE"
+          printf 'configuration "Release"\n' >> "$GYMFILE"
+          printf 'clean false\n' >> "$GYMFILE"
+          printf 'export_method "ad-hoc"\n' >> "$GYMFILE"
+          printf 'export_team_id "Q33K3Q7Q53"\n' >> "$GYMFILE"
+          printf 'export_options "./ExportOptions.plist"\n' >> "$GYMFILE"
+          printf 'output_directory "./build"\n' >> "$GYMFILE"
+          printf 'output_name "GrabDocs.ipa"\n' >> "$GYMFILE"
+          printf 'skip_profile_detection true\n' >> "$GYMFILE"
+          echo "=== Gymfile ==="
+          cat "$GYMFILE"
+    - run:
+        name: Run Fastlane gym
+        command: |
+          cd ios
+          echo "PWD before gym: $PWD"
+
+          RN_VERSION=$(node -p "require('../package.json').dependencies['react-native'] || require('../package.json').devDependencies['react-native'] || '0.81.5'" 2>/dev/null | tr -d "'" | sed 's/[\^~]//g')
+          HERMES_ARTIFACTS_DIR="Pods/hermes-engine-artifacts"
+          HERMES_TAR="${HERMES_ARTIFACTS_DIR}/hermes-ios-${RN_VERSION}-release.tar.gz"
+          HERMES_ENGINE_DIR="Pods/hermes-engine"
+          HERMES_DESTROOT="${HERMES_ENGINE_DIR}/destroot"
+          HERMES_XCFW_DIR="${HERMES_DESTROOT}/Library/Frameworks/universal/hermes.xcframework"
+          HERMES_IOS_ARM64="${HERMES_XCFW_DIR}/ios-arm64"
+
+          echo "===== Hermes state before gym ====="
+          echo "Tarball: $HERMES_TAR (exists: $([ -f "$HERMES_TAR" ] && echo yes || echo no))"
+          echo "destroot: $HERMES_DESTROOT (exists: $([ -d "$HERMES_DESTROOT" ] && echo yes || echo no))"
+          echo "xcfw dir: $HERMES_XCFW_DIR (exists: $([ -d "$HERMES_XCFW_DIR" ] && echo yes || echo no))"
+          if [ -d "$HERMES_XCFW_DIR" ]; then
+            echo "xcfw contents:"; ls -la "$HERMES_XCFW_DIR" 2>/dev/null
+          fi
+          echo "ios-arm64: $HERMES_IOS_ARM64 (exists: $([ -d "$HERMES_IOS_ARM64" ] && echo yes || echo no))"
+
+          # Download tarball if not present (needed by [Hermes] Replace Hermes build script at xcodebuild time)
+          mkdir -p "$HERMES_ARTIFACTS_DIR" "$HERMES_ENGINE_DIR"
+          if [ ! -f "$HERMES_TAR" ]; then
+            echo "Downloading Hermes tarball from Maven (RN $RN_VERSION)..."
+            MAVEN_URL="https://repo1.maven.org/maven2/com/facebook/react/react-native-artifacts/${RN_VERSION}/react-native-artifacts-${RN_VERSION}-hermes-ios-release.tar.gz"
+            curl -f -L -o "$HERMES_TAR" "$MAVEN_URL" || { echo "::error::Failed to download $MAVEN_URL"; exit 1; }
+            echo "Downloaded: $(wc -c < "$HERMES_TAR") bytes"
+          else
+            echo "Tarball already present: $(wc -c < "$HERMES_TAR") bytes"
+          fi
+
+          # Inspect tarball structure to know what it contains
+          echo "===== Tarball top-level contents (first 30 entries) ====="
+          tar -tzf "$HERMES_TAR" 2>/dev/null | head -30
+
+          # Ensure destroot is populated with the correct hermes.xcframework/ios-arm64 slice.
+          # The [Hermes] Replace Hermes script will remove destroot and re-extract during xcodebuild;
+          # we pre-populate here so any mis-extraction by that script doesn't leave ios-arm64 missing.
+          echo "===== Extracting Hermes tarball into $HERMES_ENGINE_DIR ====="
+          (cd "$HERMES_ENGINE_DIR" && tar -xzf "../hermes-engine-artifacts/hermes-ios-${RN_VERSION}-release.tar.gz")
+          echo "After extraction:"
+          [ -d "$HERMES_XCFW_DIR" ] && ls -la "$HERMES_XCFW_DIR" || echo "(xcfw dir not found after extraction)"
+
+          # If ios-arm64 still missing, check other slice names and create a symlink
+          if [ ! -d "$HERMES_IOS_ARM64" ]; then
+            echo "ios-arm64 not found; checking for other slice dirs in xcfw..."
+            if [ -d "$HERMES_XCFW_DIR" ]; then
+              ALT_SLICE=$(ls "$HERMES_XCFW_DIR" | grep -v "Info.plist" | head -1)
+              echo "Found alternative slice: '$ALT_SLICE'"
+              if [ -n "$ALT_SLICE" ] && [ -d "$HERMES_XCFW_DIR/$ALT_SLICE" ]; then
+                echo "Creating symlink ios-arm64 -> $ALT_SLICE"
+                (cd "$HERMES_XCFW_DIR" && ln -sf "$ALT_SLICE" ios-arm64)
+              fi
+            fi
+          fi
+
+          echo "Final ios-arm64 state:"
+          ls -la "$HERMES_IOS_ARM64" 2>/dev/null || echo "(still missing)"
+
+          mkdir -p build
+          set +e
+          fastlane gym 2>&1 | tee ../gym_output.log
+          GYM_EXIT=$?
+          set -e
+          echo ""
+          echo "===== BUILD RESULT: exit code $GYM_EXIT ====="
+          echo "PWD=$PWD"
+          LOG="../gym_output.log"
+          [ ! -f "$LOG" ] && LOG="gym_output.log"
+          [ ! -f "$LOG" ] && LOG="$HOME/Library/Logs/gym/GrabDocs-GrabDocs.log"
+          if [ -f "$LOG" ]; then
+            echo "===== Lines that may indicate failure (grep) ====="
+            grep -n "error:\|Error:\|ARCHIVE FAILED\|BUILD FAILED\|failure\|failed\|doesn't include\|No profiles for\|signing certificate\|rsync\|No such file\|exited with status\|Exit status\|timed out\|timeout\|killed\|signal\|\*\* ARCHIVE FAILED" "$LOG" | tail -100
+            echo ""
+            echo "===== Last 180 lines of gym output (how the step ended) ====="
+            tail -180 "$LOG"
+          else
+            echo "::warning::gym_output.log not found (PWD=$PWD)"
+          fi
+          exit $GYM_EXIT
+    - eas/find_and_upload_build_artifacts

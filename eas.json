@@ -20,7 +20,8 @@
         "EXPO_PUBLIC_DROPBOX_APP_KEY": "hmlhlh1h44gtth0"
       },
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "config": "ios-development.yml"
       },
       "android": {
         "resourceClass": "medium"
