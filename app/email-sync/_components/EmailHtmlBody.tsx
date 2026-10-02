@@ -78,6 +78,7 @@ export function EmailHtmlBody({
   expanded,
   tall,
   fill,
+  plain,
   reserveBottom = 0,
 }: {
   html?: string | null;
@@ -93,6 +94,8 @@ export function EmailHtmlBody({
   tall?: boolean;
   /** Fill the parent (fullscreen reader). Ignores expanded/tall height caps. */
   fill?: boolean;
+  /** Thread list: no rounded border. A divider separates messages. */
+  plain?: boolean;
   /** Leave room below the body (attachment chips) when maximized. */
   reserveBottom?: number;
 }) {
@@ -138,7 +141,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 
   return (
     <View
-      style={[styles.wrap, fill ? styles.fill : { minHeight: minH, maxHeight: maxH }]}
+      style={[styles.wrap, fill ? styles.fill : { minHeight: minH, maxHeight: maxH }, plain ? styles.plain : null]}
       onLayout={(e) => {
         const w = Math.round(e.nativeEvent.layout.width);
         if (w > 0 && w !== boxW) setBoxW(w);
@@ -177,6 +180,10 @@ const styles = StyleSheet.create({
   fill: {
     flex: 1,
     minHeight: 0,
+    borderRadius: 0,
+    borderWidth: 0,
+  },
+  plain: {
     borderRadius: 0,
     borderWidth: 0,
   },

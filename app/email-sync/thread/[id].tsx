@@ -132,6 +132,12 @@ function messagePreviewText(m: EmailMessage): string {
   return (line || text).replace(/\s+/g, ' ').trim();
 }
 
+function messageToLine(m: EmailMessage): string {
+  const names = (m.to_addresses || []).map((a) => senderDisplayName(a) || a).filter(Boolean);
+  if (!names.length) return '';
+  return `to ${names.join(', ')}`;
+}
+
 export default function EmailThreadScreen() {
   const { id, workspaceId, filter, compose, client_id: clientIdParam, to: toParam } = useLocalSearchParams<{
     id: string;
@@ -862,23 +868,33 @@ export default function EmailThreadScreen() {
         bubbleHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
         bubbleHeadText: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
         expandBtn: { padding: 4, marginLeft: 8 },
+        messageRow: {
+          paddingHorizontal: 16,
+          paddingTop: 12,
+          paddingBottom: 14,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        toLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 8 },
         collapsedRow: {
           flexDirection: 'row',
           alignItems: 'center',
-          marginHorizontal: 16,
-          marginBottom: 8,
-          paddingVertical: 10,
-          paddingLeft: 12,
-          paddingRight: 4,
-          borderRadius: 16,
-          backgroundColor: colors.isDark ? '#1C1E22' : '#FFFFFF',
-          borderWidth: StyleSheet.hairlineWidth,
-          borderColor: colors.isDark ? '#3F3F46' : '#D1D5DB',
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
         },
         collapsedMain: { flex: 1, minWidth: 0, paddingVertical: 2 },
-        collapsedTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        collapsedTitle: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },
         collapsedWhen: { marginLeft: 'auto', fontSize: 13, color: colors.textSecondary, flexShrink: 0 },
         snippet: { marginTop: 2, fontSize: 13, color: colors.textSecondary },
+        stackCountWrap: {
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+          alignItems: 'flex-start',
+        },
         stackCount: {
           minWidth: 36,
           height: 36,
@@ -888,11 +904,7 @@ export default function EmailThreadScreen() {
           borderColor: colors.isDark ? '#71717A' : '#D1D5DB',
           alignItems: 'center',
           justifyContent: 'center',
-          alignSelf: 'flex-start',
-          marginLeft: 16,
-          marginBottom: 10,
-          marginTop: 2,
-          backgroundColor: colors.isDark ? colors.background : '#F3F4F6',
+          backgroundColor: 'transparent',
         },
         stackCountText: { fontSize: 14, fontWeight: '600', color: colors.text },
         composeSizeBar: {
@@ -1286,33 +1298,73 @@ export default function EmailThreadScreen() {
 
   const renderFullMessage = (m: EmailMessage) => {
     const out = m.direction === 'outbound';
-    const fromName = out ? 'You' : m.from_address || 'Them';
+    const fromName = out ? 'You' : senderDisplayName(m.from_address) || m.from_address || 'Them';
     const when = formatEmailWhen(m.provider_received_at);
+    const expand = (
+      <TouchableOpacity
+        onPress={() => openMessageFullscreen(m)}
+        style={styles.expandBtn}
+        hitSlop={8}
+        accessibilityLabel="Full screen"
+      >
+        <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
+      </TouchableOpacity>
+    );
+    if (Platform.OS === 'web') {
+      return (
+        <View key={m.id} style={[styles.bubble, out && styles.outbound]}>
+          <View style={styles.bubbleHead}>
+            <View style={styles.bubbleHeadText}>
+              <Text style={styles.from} numberOfLines={1}>
+                {fromName}
+              </Text>
+              <Text style={styles.meta} numberOfLines={1}>
+                {' · '}
+                {when}
+              </Text>
+            </View>
+            {expand}
+          </View>
+          <EmailHtmlBody
+            html={m.body_html}
+            text={m.body_text}
+            tall={dismissed}
+            reserveBottom={(m.attachments || []).length ? 56 : 0}
+          />
+          <View style={{ flexShrink: 0 }}>
+            <AttachmentNamesRow
+              attachments={m.attachments}
+              onOpen={openAttachment}
+              style={{ marginTop: 8 }}
+            />
+          </View>
+        </View>
+      );
+    }
+    const toLine = messageToLine(m);
     return (
-      <View key={m.id} style={[styles.bubble, out && styles.outbound]}>
+      <View key={m.id} style={styles.messageRow}>
         <View style={styles.bubbleHead}>
-          <View style={styles.bubbleHeadText}>
+          <View style={styles.collapsedTitle}>
             <Text style={styles.from} numberOfLines={1}>
               {fromName}
             </Text>
-            <Text style={styles.meta} numberOfLines={1}>
-              {' · '}
+            <Text style={styles.collapsedWhen} numberOfLines={1}>
               {when}
             </Text>
           </View>
-          <TouchableOpacity
-            onPress={() => openMessageFullscreen(m)}
-            style={styles.expandBtn}
-            hitSlop={8}
-            accessibilityLabel="Full screen"
-          >
-            <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
+          {expand}
         </View>
+        {toLine ? (
+          <Text style={styles.toLine} numberOfLines={1}>
+            {toLine}
+          </Text>
+        ) : null}
         <EmailHtmlBody
           html={m.body_html}
           text={m.body_text}
           tall={dismissed}
+          plain
           reserveBottom={(m.attachments || []).length ? 56 : 0}
         />
         <View style={{ flexShrink: 0 }}>
@@ -1332,7 +1384,7 @@ export default function EmailThreadScreen() {
     const when = formatEmailWhen(m.provider_received_at);
     const preview = messagePreviewText(m);
     return (
-      <View key={m.id} style={[styles.collapsedRow, out && styles.outbound]}>
+      <View key={m.id} style={styles.collapsedRow}>
         <TouchableOpacity
           style={styles.collapsedMain}
           onPress={() => openMessageFullscreen(m)}
@@ -1366,13 +1418,13 @@ export default function EmailThreadScreen() {
   };
 
   const renderThreadMessages = () => {
-    const stackOnMobile = Platform.OS !== 'web' && messages.length > 3;
-    if (!stackOnMobile) return messages.map(renderFullMessage);
+    if (Platform.OS === 'web' || messages.length <= 1) return messages.map(renderFullMessage);
     const last = messages[messages.length - 1];
-    if (threadStackExpanded) {
+    const earlier = messages.slice(0, -1);
+    if (messages.length <= 3 || threadStackExpanded) {
       return (
         <>
-          {messages.slice(0, -1).map(renderCollapsedMessage)}
+          {earlier.map(renderCollapsedMessage)}
           {renderFullMessage(last)}
         </>
       );
@@ -1382,13 +1434,15 @@ export default function EmailThreadScreen() {
       <>
         {renderCollapsedMessage(messages[0])}
         <TouchableOpacity
-          style={styles.stackCount}
+          style={styles.stackCountWrap}
           onPress={() => setThreadStackExpanded(true)}
           hitSlop={10}
           accessibilityRole="button"
           accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
         >
-          <Text style={styles.stackCountText}>{hiddenCount}</Text>
+          <View style={styles.stackCount}>
+            <Text style={styles.stackCountText}>{hiddenCount}</Text>
+          </View>
         </TouchableOpacity>
         {renderCollapsedMessage(messages[messages.length - 2])}
         {renderFullMessage(last)}
@@ -1566,7 +1620,7 @@ export default function EmailThreadScreen() {
         <ScrollView
           style={{
             flex: 1,
-            backgroundColor: colors.isDark ? colors.background : '#F3F4F6',
+            backgroundColor: colors.background,
           }}
           contentContainerStyle={{
             flexGrow: 1,
