@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export type AccountContact = {
@@ -50,6 +50,8 @@ type Props = {
   borderColor: string;
   menuColor: string;
   searchContacts: (query: string) => Promise<AccountContact[]>;
+  /** Shown at the right of the field, e.g. the chevron that reveals Cc / Bcc. */
+  trailing?: ReactNode;
 };
 
 export function RecipientAddressField({
@@ -64,6 +66,7 @@ export function RecipientAddressField({
   borderColor,
   menuColor,
   searchContacts,
+  trailing,
 }: Props) {
   const [contacts, setContacts] = useState<AccountContact[]>([]);
   const seq = useRef(0);
@@ -137,6 +140,7 @@ export function RecipientAddressField({
             setTimeout(() => onCommit(emailsFromAddressText(valueRef.current)), 50);
           }}
         />
+        {trailing}
       </View>
       {visible.length > 0 ? (
         // Floating menu: absolutely positioned just below the field so it overlays the fields beneath

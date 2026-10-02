@@ -265,6 +265,35 @@ export default function HMSMeetingInterfaceScreen() {
   const networkPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Explicit leave (connection-lost banner, HMS Leave). Navigate immediately.
+  // The banner is shown because the network is down, so the leave request must not block the exit.
+  // Set the away flag first so beforeRemove does not turn this into a minimize (which keeps the call up).
+  const exitMeeting = useCallback(() => {
+    if (isNavigatingAwayRef.current) return;
+    isNavigatingAwayRef.current = true;
+    isMinimizingAwayRef.current = false;
+
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    if (networkPollRef.current) {
+      clearInterval(networkPollRef.current);
+      networkPollRef.current = null;
+    }
+    if (reconnectedTimerRef.current) {
+      clearTimeout(reconnectedTimerRef.current);
+      reconnectedTimerRef.current = null;
+    }
+    setIsNetworkDown(false);
+    setShowReconnected(false);
+
+    void AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+    void leaveConfirmedReachSession();
+
+    router.replace(meetingExitPath as any);
+  }, [router, meetingExitPath, leaveConfirmedReachSession]);
+
   // In-meeting dismissable banners (recording started, peer joined)
   const [bannerQueue, setBannerQueue] = useState<
     { message: string; subtitle?: string; type: 'recording' | 'joined' }[]
@@ -1138,28 +1167,8 @@ export default function HMSMeetingInterfaceScreen() {
         { 
           text: 'Leave', 
           style: 'destructive', 
-          onPress: async () => {
-            try {
-              // Stop heartbeat immediately
-              if (heartbeatIntervalRef.current) {
-                clearInterval(heartbeatIntervalRef.current);
-                heartbeatIntervalRef.current = null;
-              }
-
-              try {
-                await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-              } catch {
-                /* ignore */
-              }
-              // Call backend to leave meeting (clears ActiveParticipant table)
-              await leaveConfirmedReachSession();
-            } catch (error: any) {
-              // Log error but don't block navigation - user is leaving anyway
-              console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
-              console.error('⚠️ [LEAVE] Continuing with navigation despite error');
-            }
-            // Navigate back to origin (Reach list, or Calendar when joined from calendar)
-            router.replace(meetingExitPath as any);
+          onPress: () => {
+            exitMeeting();
           }
         }
       ]
@@ -1464,7 +1473,10 @@ export default function HMSMeetingInterfaceScreen() {
             onRequestClose={() => {}}
           >
             <View style={styles.networkOverlay} pointerEvents="box-none">
-              <View style={[styles.networkBanner, showReconnected && !isNetworkDown && styles.networkBannerOnline]}>
+              <View
+                style={[styles.networkBanner, showReconnected && !isNetworkDown && styles.networkBannerOnline]}
+                pointerEvents="auto"
+              >
                 {isNetworkDown ? (
                   <>
                     <View style={styles.networkDot} />
@@ -1474,20 +1486,8 @@ export default function HMSMeetingInterfaceScreen() {
                     </View>
                     <TouchableOpacity
                       style={styles.networkLeaveButton}
-                      onPress={async () => {
-                        if (networkPollRef.current) clearInterval(networkPollRef.current);
-                        try {
-                          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-                        } catch {
-                          /* ignore */
-                        }
-                        try {
-                          await leaveConfirmedReachSession();
-                        } catch {
-                          /* ignore */
-                        }
-                        router.replace(meetingExitPath as any);
-                      }}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      onPress={exitMeeting}
                     >
                       <Text style={styles.networkLeaveButtonText}>Leave</Text>
                     </TouchableOpacity>
@@ -1616,28 +1616,7 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Prejoin cancel (HMS back) — never joined; no leave API.
-                        if (!presenceConfirmed) {
-                          if (!isNavigatingAwayRef.current) {
-                            isNavigatingAwayRef.current = true;
-                            router.replace(meetingExitPath as any);
-                          }
-                          return;
-                        }
-
-                        try {
-                          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-                        } catch {
-                          /* ignore */
-                        }
-                        try {
-                          await leaveConfirmedReachSession();
-                        } catch (error: any) {
-                          console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
-                        }
-
-                        isNavigatingAwayRef.current = true;
-                        router.replace(meetingExitPath as any);
+                        exitMeeting();
                       }}
                       style={hmsProps.style}
                       // Note: React Native HMSPrebuilt does NOT support onJoin callback

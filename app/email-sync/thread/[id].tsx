@@ -65,7 +65,7 @@ import {
     type ThreadAttention,
 } from '../../../services/emailSyncApi';
 import { AttachmentNamesRow, type AttachPreview } from '../_components/AttachmentNamesRow';
-import { formatEmailWhen } from '../_components/emailFormat';
+import { formatEmailWhen, senderDisplayName } from '../_components/emailFormat';
 import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import {
     canReplyAll,
@@ -109,6 +109,27 @@ function isImageMimeOrName(mime: string, name: string) {
 function isPdfMimeOrName(mime: string, name: string) {
   if ((mime || '').includes('pdf')) return true;
   return /\.pdf$/i.test(name || '');
+}
+
+function messagePreviewText(m: EmailMessage): string {
+  let text = m.body_text || '';
+  if (!text.trim() && m.body_html) {
+    text = m.body_html
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>');
+  }
+  const line = text
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0 && !l.startsWith('>'));
+  return (line || text).replace(/\s+/g, ' ').trim();
 }
 
 export default function EmailThreadScreen() {
@@ -159,11 +180,16 @@ export default function EmailThreadScreen() {
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
   const [headersOpen, setHeadersOpen] = useState(false);
+  /** Cc and Bcc stay closed until the chevron on the field above is tapped. */
+  const [ccOpen, setCcOpen] = useState(false);
+  const [bccOpen, setBccOpen] = useState(false);
   const [attachMenu, setAttachMenu] = useState(false);
   const [toneMenu, setToneMenu] = useState(false);
   const [gdOpen, setGdOpen] = useState(false);
   const [fullscreenMessage, setFullscreenMessage] = useState<EmailMessage | null>(null);
   const [composeFullscreen, setComposeFullscreen] = useState(false);
+  /** Mobile threads with 4+ messages hide the middle until this is set. */
+  const [threadStackExpanded, setThreadStackExpanded] = useState(false);
   const [threadCollapsedForCompose, setThreadCollapsedForCompose] = useState(false);
   const [grabdocsResearchOn, setGrabdocsResearchOn] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone>(DEFAULT_REPLY_TONE);
@@ -172,6 +198,8 @@ export default function EmailThreadScreen() {
   const [analysis, setAnalysis] = useState<ThreadAnalysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  /** Keyboard-open AI card. Collapsed by default so the letter stays above the keyboard. */
+  const [aiCardOpen, setAiCardOpen] = useState(false);
   const [researchQuestion, setResearchQuestion] = useState('');
   const [researchAiSuggested, setResearchAiSuggested] = useState(false);
   const [researchNote, setResearchNote] = useState('');
@@ -194,6 +222,8 @@ export default function EmailThreadScreen() {
   const composeScrollYRef = useRef(0);
   const composeScrollHRef = useRef(0);
   const autoComposeRef = useRef(false);
+  const openComposeMaximizedRef = useRef(false);
+  openComposeMaximizedRef.current = Platform.OS !== 'web' && (wantCompose || attention === 'drafts');
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generateInFlightRef = useRef(false);
   const generateGenRef = useRef(0);
@@ -221,6 +251,10 @@ export default function EmailThreadScreen() {
   useEffect(() => {
     setFullscreenMessage(null);
     setComposeFullscreen(false);
+    setThreadStackExpanded(false);
+    setCcOpen(false);
+    setBccOpen(false);
+    autoComposeRef.current = false;
   }, [threadId]);
 
   useEffect(() => {
@@ -263,18 +297,26 @@ export default function EmailThreadScreen() {
     if (replyFrom?.forward_without_send_as || isNewCompose) setHeadersOpen(true);
   }, [threadId, replyFrom?.forward_without_send_as, isNewCompose]);
 
-  const applyDraft = (d: EmailDraft | null, openComposer = true) => {
+  const applyDraft = (d: EmailDraft | null, openComposer = true, maximizeComposer = false) => {
     setDraft(d);
     if (!d) return;
     setTo((d.to || []).join(', '));
     setCc((d.cc || []).join(', '));
     setBcc((d.bcc || []).join(', '));
+    const hasCc = (d.cc || []).some((a) => a.trim());
+    const hasBcc = (d.bcc || []).some((a) => a.trim());
+    setCcOpen(hasCc || hasBcc);
+    setBccOpen(hasBcc);
     setSubject(d.subject || '');
     setBody(d.body_text || '');
     setExpectsReply(!!d.expects_reply);
     if (d.tone) setReplyTone(restoreTone(d.tone));
     setReplyAll(d.reply_mode === 'reply_all');
-    if (openComposer) setComposing(true);
+    if (openComposer) {
+      const starting = !composingRef.current;
+      setComposing(true);
+      if (starting && maximizeComposer && Platform.OS !== 'web') setComposeFullscreen(true);
+    }
   };
 
   const load = useCallback(
@@ -293,7 +335,7 @@ export default function EmailThreadScreen() {
           : null
       );
       if (data.reply_from) setReplyFrom(data.reply_from);
-      if (!before && data.draft) applyDraft(data.draft, true);
+      if (!before && data.draft) applyDraft(data.draft, true, openComposeMaximizedRef.current);
     },
     [threadId]
   );
@@ -463,12 +505,17 @@ export default function EmailThreadScreen() {
         ? [
             Keyboard.addListener('keyboardWillShow', onShow),
             // Covers suggestion-bar / keyboard-type height changes and frame moves off-screen.
-            Keyboard.addListener('keyboardWillChangeFrame', (e: any) =>
-              setKeyboard(
-                { screenY: e?.endCoordinates?.screenY, height: e?.endCoordinates?.height },
-                e?.duration
-              )
-            ),
+            Keyboard.addListener('keyboardWillChangeFrame', (e: any) => {
+              const h = e?.endCoordinates?.height ?? 0;
+              const y = e?.endCoordinates?.screenY;
+              // Hide is handled by keyboardWillHide. A one-character edit (suggestion list closing,
+              // predictive bar twitching) also fires this with a few px of difference and used to
+              // animate the whole screen up and back.
+              if (!h || (typeof y === 'number' && y >= windowHeight - 1)) return;
+              const prev = lastKbRef.current?.height ?? 0;
+              if (prev > 0 && Math.abs(h - prev) < 24) return;
+              setKeyboard({ screenY: y, height: h }, e?.duration);
+            }),
             Keyboard.addListener('keyboardWillHide', onHide),
           ]
         : [
@@ -476,7 +523,7 @@ export default function EmailThreadScreen() {
             Keyboard.addListener('keyboardDidHide', onHide),
           ];
     return () => subs.forEach((s) => s.remove());
-  }, [setKeyboard, scrollFocusedInputIntoView]);
+  }, [setKeyboard, scrollFocusedInputIntoView, windowHeight]);
 
   // Reconcile with what the OS says right now (screen focus, app resume, modal closed).
   const syncKeyboardState = useCallback(() => {
@@ -510,12 +557,18 @@ export default function EmailThreadScreen() {
   }, [attachMenu, toneMenu, gdOpen, viewerFileId, directPreview, syncKeyboardState]);
 
   const onRootLayout = useCallback(() => {
-    // Window resized (rotation, Android adjustResize, split-screen): re-measure and recompute.
+    // Keep the measured bottom fresh. Do not rewrite kbInset here: paddingBottom changes this
+    // layout, and feeding that measurement back into the inset makes the screen bounce.
+    measureRoot(() => {});
+  }, [measureRoot]);
+
+  useEffect(() => {
+    // Real window change (rotation, split-screen, Android resize): recompute once.
     measureRoot(() => {
       const next = computeKbInset(lastKbRef.current);
       if (next !== kbInsetRef.current) setKbInset(next);
     });
-  }, [computeKbInset, measureRoot]);
+  }, [windowHeight, measureRoot, computeKbInset]);
 
   // Android 3-button nav is ~48dp and edge-to-edge often reports 0.
   // iPhone home indicator is insets.bottom (~34); floor so attachments stay above it.
@@ -563,7 +616,7 @@ export default function EmailThreadScreen() {
       if (generateGenRef.current !== gen) return;
       if (data.reply_from) setReplyFrom(data.reply_from);
       if (data.thread) setThread(data.thread);
-      applyDraft(data.draft);
+      applyDraft(data.draft, true, true);
       setSuggestedReply(opts?.source === 'auto_suggest');
     } catch (e: any) {
       const status = e?.response?.status;
@@ -646,7 +699,7 @@ export default function EmailThreadScreen() {
       if (generateGenRef.current !== gen) return;
       if (res.reply_from) setReplyFrom(res.reply_from);
       if (res.thread) setThread(res.thread);
-      applyDraft(res.draft);
+      applyDraft(res.draft, true, true);
       setSuggestedReply(true);
       setResearchNote(res.research_note || '');
       setResearchPhase('ready');
@@ -680,7 +733,9 @@ export default function EmailThreadScreen() {
     if (!wantCompose || loading || dismissed) return;
     if (!autoComposeRef.current) {
       autoComposeRef.current = true;
+      const starting = !composingRef.current;
       setComposing(true);
+      if (starting && Platform.OS !== 'web') setComposeFullscreen(true);
     }
     if (draft) setComposing(true);
   }, [wantCompose, loading, draft, dismissed]);
@@ -807,6 +862,39 @@ export default function EmailThreadScreen() {
         bubbleHead: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
         bubbleHeadText: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
         expandBtn: { padding: 4, marginLeft: 8 },
+        collapsedRow: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginHorizontal: 16,
+          marginBottom: 8,
+          paddingVertical: 10,
+          paddingLeft: 12,
+          paddingRight: 4,
+          borderRadius: 16,
+          backgroundColor: colors.isDark ? '#1C1E22' : '#FFFFFF',
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.isDark ? '#3F3F46' : '#D1D5DB',
+        },
+        collapsedMain: { flex: 1, minWidth: 0, paddingVertical: 2 },
+        collapsedTitle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+        collapsedWhen: { marginLeft: 'auto', fontSize: 13, color: colors.textSecondary, flexShrink: 0 },
+        snippet: { marginTop: 2, fontSize: 13, color: colors.textSecondary },
+        stackCount: {
+          minWidth: 36,
+          height: 36,
+          paddingHorizontal: 8,
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: colors.isDark ? '#71717A' : '#D1D5DB',
+          alignItems: 'center',
+          justifyContent: 'center',
+          alignSelf: 'flex-start',
+          marginLeft: 16,
+          marginBottom: 10,
+          marginTop: 2,
+          backgroundColor: colors.isDark ? colors.background : '#F3F4F6',
+        },
+        stackCountText: { fontSize: 14, fontWeight: '600', color: colors.text },
         composeSizeBar: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -1030,6 +1118,25 @@ export default function EmailThreadScreen() {
           fontSize: 13,
           fontWeight: '600',
         },
+        aiSummaryBar: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingVertical: 2,
+        },
+        aiSummaryToggle: {
+          flex: 1,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+          minWidth: 0,
+        },
+        aiSummaryText: {
+          flex: 1,
+          fontSize: 13,
+          fontWeight: '600',
+          color: colors.text,
+        },
         generateBtn: {
           backgroundColor: colors.isDark ? '#f4f4f5' : '#111827',
           borderRadius: 10,
@@ -1067,6 +1174,14 @@ export default function EmailThreadScreen() {
   };
 
   const toneLabel = REPLY_TONES.find((t) => t.value === replyTone)?.label || 'Professional';
+  const aiRequestCount = analysis?.requests?.length ?? 0;
+  const aiSummaryLabel =
+    aiRequestCount === 1
+      ? `AI · 1 item · ${toneLabel}`
+      : aiRequestCount > 1
+        ? `AI · ${aiRequestCount} items · ${toneLabel}`
+        : `AI · ${toneLabel}`;
+  const aiCardCollapsed = keyboardOpen && !aiCardOpen && !isNewCompose;
   const drafting = !!generatingMessage;
   const workspaceGenerating = researchPhase === 'searching' || researchPhase === 'writing';
   const showReplyAll = canReplyAll(messages);
@@ -1123,6 +1238,19 @@ export default function EmailThreadScreen() {
     setThreadCollapsedForCompose(false);
   }, [composeFullscreen, composing, keyboardOpen, threadReading]);
 
+  useEffect(() => {
+    if (keyboardOpen) return;
+    setAiCardOpen(false);
+  }, [keyboardOpen]);
+
+  useEffect(() => {
+    if (!aiCardCollapsed) return;
+    const t = setTimeout(() => {
+      composeScrollRef.current?.scrollTo({ y: 0, animated: false });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [aiCardCollapsed]);
+
   const openAttachment = async (att: AttachPreview) => {
     const name = (att.filename || '').trim() || 'Attachment';
     if (att.file_id) {
@@ -1149,6 +1277,123 @@ export default function EmailThreadScreen() {
       return;
     }
     Alert.alert('Attachment', 'Still importing…');
+  };
+
+  const openMessageFullscreen = (m: EmailMessage) => {
+    setComposeFullscreen(false);
+    setFullscreenMessage(m);
+  };
+
+  const renderFullMessage = (m: EmailMessage) => {
+    const out = m.direction === 'outbound';
+    const fromName = out ? 'You' : m.from_address || 'Them';
+    const when = formatEmailWhen(m.provider_received_at);
+    return (
+      <View key={m.id} style={[styles.bubble, out && styles.outbound]}>
+        <View style={styles.bubbleHead}>
+          <View style={styles.bubbleHeadText}>
+            <Text style={styles.from} numberOfLines={1}>
+              {fromName}
+            </Text>
+            <Text style={styles.meta} numberOfLines={1}>
+              {' · '}
+              {when}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => openMessageFullscreen(m)}
+            style={styles.expandBtn}
+            hitSlop={8}
+            accessibilityLabel="Full screen"
+          >
+            <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
+        <EmailHtmlBody
+          html={m.body_html}
+          text={m.body_text}
+          tall={dismissed}
+          reserveBottom={(m.attachments || []).length ? 56 : 0}
+        />
+        <View style={{ flexShrink: 0 }}>
+          <AttachmentNamesRow
+            attachments={m.attachments}
+            onOpen={openAttachment}
+            style={{ marginTop: 8 }}
+          />
+        </View>
+      </View>
+    );
+  };
+
+  const renderCollapsedMessage = (m: EmailMessage) => {
+    const out = m.direction === 'outbound';
+    const fromName = out ? 'You' : senderDisplayName(m.from_address) || m.from_address || 'Them';
+    const when = formatEmailWhen(m.provider_received_at);
+    const preview = messagePreviewText(m);
+    return (
+      <View key={m.id} style={[styles.collapsedRow, out && styles.outbound]}>
+        <TouchableOpacity
+          style={styles.collapsedMain}
+          onPress={() => openMessageFullscreen(m)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open message from ${fromName}`}
+        >
+          <View style={styles.collapsedTitle}>
+            <Text style={styles.from} numberOfLines={1}>
+              {fromName}
+            </Text>
+            <Text style={styles.collapsedWhen} numberOfLines={1}>
+              {when}
+            </Text>
+          </View>
+          {preview ? (
+            <Text style={styles.snippet} numberOfLines={1}>
+              {preview}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => openMessageFullscreen(m)}
+          style={styles.expandBtn}
+          hitSlop={8}
+          accessibilityLabel="Full screen"
+        >
+          <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderThreadMessages = () => {
+    const stackOnMobile = Platform.OS !== 'web' && messages.length > 3;
+    if (!stackOnMobile) return messages.map(renderFullMessage);
+    const last = messages[messages.length - 1];
+    if (threadStackExpanded) {
+      return (
+        <>
+          {messages.slice(0, -1).map(renderCollapsedMessage)}
+          {renderFullMessage(last)}
+        </>
+      );
+    }
+    const hiddenCount = messages.length - 3;
+    return (
+      <>
+        {renderCollapsedMessage(messages[0])}
+        <TouchableOpacity
+          style={styles.stackCount}
+          onPress={() => setThreadStackExpanded(true)}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
+        >
+          <Text style={styles.stackCountText}>{hiddenCount}</Text>
+        </TouchableOpacity>
+        {renderCollapsedMessage(messages[messages.length - 2])}
+        {renderFullMessage(last)}
+      </>
+    );
   };
 
   if (loading) {
@@ -1368,53 +1613,7 @@ export default function EmailThreadScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {messages.map((m) => {
-            const out = m.direction === 'outbound';
-            const fromName = out ? 'You' : m.from_address || 'Them';
-            const when = formatEmailWhen(m.provider_received_at);
-            return (
-              <View
-                key={m.id}
-                style={[styles.bubble, out && styles.outbound]}
-              >
-                <View style={styles.bubbleHead}>
-                  <View style={styles.bubbleHeadText}>
-                    <Text style={styles.from} numberOfLines={1}>
-                      {fromName}
-                    </Text>
-                    <Text style={styles.meta} numberOfLines={1}>
-                      {' · '}
-                      {when}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setComposeFullscreen(false);
-                      setFullscreenMessage(m);
-                    }}
-                    style={styles.expandBtn}
-                    hitSlop={8}
-                    accessibilityLabel="Full screen"
-                  >
-                    <Ionicons name="scan-outline" size={20} color={colors.textSecondary} />
-                  </TouchableOpacity>
-                </View>
-                <EmailHtmlBody
-                  html={m.body_html}
-                  text={m.body_text}
-                  tall={dismissed}
-                  reserveBottom={(m.attachments || []).length ? 56 : 0}
-                />
-                <View style={{ flexShrink: 0 }}>
-                  <AttachmentNamesRow
-                    attachments={m.attachments}
-                    onOpen={openAttachment}
-                    style={{ marginTop: 8 }}
-                  />
-                </View>
-              </View>
-            );
-          })}
+          {renderThreadMessages()}
         </ScrollView>
         </View>
         )}
@@ -1449,12 +1648,13 @@ export default function EmailThreadScreen() {
             contentContainerStyle={{
               paddingBottom: 8,
               gap: 0,
+              flexGrow: aiCardCollapsed ? 1 : undefined,
             }}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
             showsVerticalScrollIndicator
           >
-            {!composeFullscreen ? (
+            {!composeFullscreen && !keyboardOpen ? (
               <View style={styles.composeSizeBar}>
                 <TouchableOpacity
                   onPress={() => {
@@ -1471,6 +1671,43 @@ export default function EmailThreadScreen() {
             ) : null}
             <View style={styles.actions}>
               {!isNewCompose ? (
+              <>
+              {keyboardOpen ? (
+                <View style={styles.aiSummaryBar}>
+                  <TouchableOpacity
+                    style={styles.aiSummaryToggle}
+                    onPress={() => setAiCardOpen((open) => !open)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: aiCardOpen }}
+                    accessibilityLabel={aiSummaryLabel}
+                  >
+                    <Ionicons
+                      name={aiCardOpen ? 'chevron-down' : 'chevron-forward'}
+                      size={16}
+                      color={colors.textSecondary}
+                    />
+                    <Text style={styles.aiSummaryText} numberOfLines={1}>
+                      {aiSummaryLabel}
+                    </Text>
+                  </TouchableOpacity>
+                  {aiCardCollapsed ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {drafting ? (
+                        <ActivityIndicator size="small" color="#007AFF" accessibilityLabel="Drafting reply" />
+                      ) : null}
+                      <TouchableOpacity
+                        style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
+                        onPress={() => void generate()}
+                        disabled={drafting || busy || !sendReady}
+                        accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
+                      >
+                        <Text style={styles.generateBtnText}>{drafting ? 'Drafting' : 'Generate'}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+              {!aiCardCollapsed ? (
               <>
               {(analysis || analysisLoading || grabdocsResearchOn) ? (
                 <View style={styles.insight}>
@@ -1505,7 +1742,10 @@ export default function EmailThreadScreen() {
                             }}
                             placeholder="What should GrabDocs look up?"
                             placeholderTextColor={colors.textSecondary}
-                            onFocus={scrollFocusedInputSoon}
+                            onFocus={() => {
+                              setAiCardOpen(true);
+                              scrollFocusedInputSoon();
+                            }}
                             multiline
                             editable={!workspaceGenerating && !drafting && !busy}
                           />
@@ -1563,7 +1803,10 @@ export default function EmailThreadScreen() {
                 onChangeText={setCustomInstructions}
                 placeholder="Tell AI anything to include…"
                 placeholderTextColor={colors.textSecondary}
-                onFocus={scrollFocusedInputSoon}
+                onFocus={() => {
+                  setAiCardOpen(true);
+                  scrollFocusedInputSoon();
+                }}
                 editable={!drafting && !busy}
               />
               <View style={styles.actionRow}>
@@ -1610,10 +1853,12 @@ export default function EmailThreadScreen() {
               </View>
               </>
               ) : null}
+              </>
+              ) : null}
             </View>
 
             {composing && draft ? (
-              <View style={styles.composer}>
+              <View style={[styles.composer, aiCardCollapsed && { flex: 1 }]}>
                 {suggestedReply ? (
                   <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>
                     AI prepared a suggested reply — review before sending.
@@ -1673,11 +1918,25 @@ export default function EmailThreadScreen() {
                         borderColor={colors.border}
                         menuColor={colors.isDark ? '#111827' : '#ffffff'}
                         searchContacts={searchMailboxContacts}
+                        trailing={
+                          ccOpen ? null : (
+                            <TouchableOpacity
+                              onPress={() => setCcOpen(true)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Show Cc"
+                              style={{ paddingLeft: 8, paddingVertical: 4 }}
+                            >
+                              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                          )
+                        }
                         onCommit={(addrs) => {
                           if (!draft) return;
                           void patchMailboxDraft(draft.id, { to: addrs }).catch(() => {});
                         }}
                       />
+                      {ccOpen ? (
                       <RecipientAddressField
                         label="Cc"
                         value={cc}
@@ -1689,11 +1948,26 @@ export default function EmailThreadScreen() {
                         borderColor={colors.border}
                         menuColor={colors.isDark ? '#111827' : '#ffffff'}
                         searchContacts={searchMailboxContacts}
+                        trailing={
+                          bccOpen ? null : (
+                            <TouchableOpacity
+                              onPress={() => setBccOpen(true)}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel="Show Bcc"
+                              style={{ paddingLeft: 8, paddingVertical: 4 }}
+                            >
+                              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                          )
+                        }
                         onCommit={(addrs) => {
                           if (!draft) return;
                           void patchMailboxDraft(draft.id, { cc: addrs }).catch(() => {});
                         }}
                       />
+                      ) : null}
+                      {bccOpen ? (
                       <RecipientAddressField
                         label="Bcc"
                         value={bcc}
@@ -1710,13 +1984,17 @@ export default function EmailThreadScreen() {
                           void patchMailboxDraft(draft.id, { bcc: addrs }).catch(() => {});
                         }}
                       />
+                      ) : null}
                       <View style={styles.headerField}>
                         <Text style={styles.label}>Subj</Text>
                         <TextInput
                           style={styles.fieldInput}
                           value={subject}
                           onChangeText={setSubject}
-                          onFocus={scrollFocusedInputSoon}
+                          onFocus={() => {
+                            setAiCardOpen(false);
+                            scrollFocusedInputSoon();
+                          }}
                           editable={!drafting && !busy}
                           onEndEditing={() => void persistDraft().catch(() => {})}
                         />
@@ -1724,7 +2002,7 @@ export default function EmailThreadScreen() {
                     </View>
                   ) : null}
                 </View>
-                <View style={{ position: 'relative' }}>
+                <View style={[{ position: 'relative' }, aiCardCollapsed && { flex: 1 }]}>
                   {drafting && !workspaceGenerating ? (
                     <View
                       style={{
@@ -1743,7 +2021,11 @@ export default function EmailThreadScreen() {
                   <TextInput
                     style={[
                       styles.input,
-                      composeFullscreen ? { minHeight: 160 } : styles.inputCollapsed,
+                      composeFullscreen
+                        ? { minHeight: 160 }
+                        : aiCardCollapsed
+                          ? { flex: 1, minHeight: 120 }
+                          : styles.inputCollapsed,
                       drafting ? { opacity: 0.45 } : null,
                     ]}
                     value={body}
@@ -1757,7 +2039,10 @@ export default function EmailThreadScreen() {
                     placeholderTextColor={colors.textSecondary}
                     multiline
                     textAlignVertical="top"
-                    onFocus={scrollFocusedInputSoon}
+                    onFocus={() => {
+                      setAiCardOpen(false);
+                      scrollFocusedInputSoon();
+                    }}
                     onContentSizeChange={() => {
                       if (keyboardOpen) scrollFocusedInputSoon();
                     }}
