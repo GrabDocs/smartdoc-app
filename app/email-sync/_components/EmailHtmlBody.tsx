@@ -1,6 +1,6 @@
-import { WebView } from 'react-native-webview';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 
 function escapeHtml(text: string) {
@@ -112,8 +112,8 @@ function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boole
     while (wrap.nextSibling) wrap.appendChild(wrap.nextSibling);
     var endBtn = document.createElement('button');
     endBtn.type = 'button';
-    endBtn.className = 'gd-quote-ellipsis';
-    fillKebab(endBtn);
+    endBtn.className = 'gd-quote-ellipsis gd-quote-ellipsis-h';
+    endBtn.textContent = '...';
     endBtn.setAttribute('aria-label', 'Hide quoted conversation');
     wrap.appendChild(endBtn);
     btn.addEventListener('click', function(e){
@@ -206,6 +206,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 #gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
 .gd-quote-ellipsis{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 8px;margin:2px 0;min-height:36px;min-width:28px;border:0;background:transparent;color:inherit;cursor:pointer;user-select:none;vertical-align:middle;-webkit-appearance:none;appearance:none}
 .gd-quote-ellipsis span{display:block;font-size:8px;line-height:1;font-weight:700;height:6px}
+.gd-quote-ellipsis-h{display:inline-block;letter-spacing:2px;font-size:20px;font-weight:700;line-height:1;padding:8px 14px 8px 4px;min-width:44px}
 </style></head><body>
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>

@@ -4,24 +4,24 @@ import { Image as ExpoImage } from 'expo-image';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    AppState,
-    BackHandler,
-    Dimensions,
-    Keyboard,
-    LayoutAnimation,
-    Modal,
-    Platform,
-    ScrollView,
-    Share,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  Alert,
+  AppState,
+  BackHandler,
+  Dimensions,
+  Keyboard,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -34,51 +34,51 @@ import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { getClientsForItem, setItemClients } from '../../../services/clientsApi';
 import {
-    addDraftAttachmentFile,
-    addDraftAttachmentFileId,
-    analyzeMailboxThread,
-    composeMailboxEmail,
-    deleteDraftAttachment,
-    deleteMailboxDraft,
-    dismissMailboxThread,
-    downloadMessageAttachment,
-    emailApiError,
-    generateMailboxDraft,
-    getMailboxSettings,
-    getMailboxThread,
-    isOpenableMailboxThread,
-    listMailboxThreads,
-    mailboxCapabilities,
-    markMailboxThreadAwaiting,
-    stopMailboxThreadAwaiting,
-    nextPendingMailboxThread,
-    patchMailboxDraft,
-    patchMailboxSettings,
-    reconcileMailboxSend,
-    researchAndGenerateMailboxDraft,
-    searchMailboxContacts,
-    sendMailboxDraft,
-    undismissMailboxThread,
-    undoMailboxSend,
-    type EmailDraft,
-    type EmailMessage,
-    type EmailThread,
-    type MailboxSettings,
-    type ReplyFromInfo,
-    type ThreadAnalysis,
-    type ThreadAttention,
+  addDraftAttachmentFile,
+  addDraftAttachmentFileId,
+  analyzeMailboxThread,
+  composeMailboxEmail,
+  deleteDraftAttachment,
+  deleteMailboxDraft,
+  dismissMailboxThread,
+  downloadMessageAttachment,
+  emailApiError,
+  generateMailboxDraft,
+  getMailboxSettings,
+  getMailboxThread,
+  isOpenableMailboxThread,
+  listMailboxThreads,
+  mailboxCapabilities,
+  markMailboxThreadAwaiting,
+  nextPendingMailboxThread,
+  patchMailboxDraft,
+  patchMailboxSettings,
+  reconcileMailboxSend,
+  researchAndGenerateMailboxDraft,
+  searchMailboxContacts,
+  sendMailboxDraft,
+  stopMailboxThreadAwaiting,
+  undismissMailboxThread,
+  undoMailboxSend,
+  type EmailDraft,
+  type EmailMessage,
+  type EmailThread,
+  type MailboxSettings,
+  type ReplyFromInfo,
+  type ThreadAnalysis,
+  type ThreadAttention,
 } from '../../../services/emailSyncApi';
 import { AttachmentNamesRow, type AttachPreview } from '../_components/AttachmentNamesRow';
 import { formatEmailWhen, senderDisplayName } from '../_components/emailFormat';
 import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import {
-    canReplyAll,
-    DEFAULT_REPLY_TONE,
-    prepopulateResearchQuestion,
-    REPLY_TONES,
-    requestIcon,
-    restoreTone,
-    type ReplyTone,
+  canReplyAll,
+  DEFAULT_REPLY_TONE,
+  prepopulateResearchQuestion,
+  REPLY_TONES,
+  requestIcon,
+  restoreTone,
+  type ReplyTone,
 } from '../_components/emailReplyShared';
 import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
 import { emailsFromAddressText, RecipientAddressField } from '../_components/RecipientAddressField';
@@ -87,8 +87,8 @@ import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../../utils/chatTitleDisplay';
 import {
-    anchoredPopoverCardStyle,
-    anchoredPopoverOverlayStyle,
+  anchoredPopoverCardStyle,
+  anchoredPopoverOverlayStyle,
 } from '../../../utils/dialogSurfaceStyles';
 import { formatRemainingCountdown } from '../../../utils/timeFormatting';
 import { emailSyncClearUndo, emailSyncSetUndo, useEmailSyncUndo } from '../_components/emailSyncCache';
@@ -1024,17 +1024,21 @@ export default function EmailThreadScreen() {
         snippet: { marginTop: 2, fontSize: 13, color: colors.textSecondary },
         stackCountOnLine: {
           zIndex: 2,
-          justifyContent: 'center',
+          alignItems: 'flex-start',
+          marginTop: -12,
+          marginBottom: -12,
         },
         stackCount: {
           marginLeft: 16,
           minWidth: 28,
-          paddingHorizontal: 6,
+          height: 28,
+          paddingHorizontal: 8,
           borderRadius: 8,
           borderWidth: 1,
           borderColor: colors.isDark ? '#71717A' : '#D1D5DB',
           alignItems: 'center',
           justifyContent: 'center',
+          alignSelf: 'flex-start',
           backgroundColor: colors.background,
         },
         stackCountText: { fontSize: 14, fontWeight: '600', color: colors.text },
@@ -1669,23 +1673,19 @@ export default function EmailThreadScreen() {
   const renderMobileMessage = (m: EmailMessage) =>
     openMessageIds.includes(m.id) ? renderFullMessage(m) : renderCollapsedMessage(m);
 
-  const renderStackCount = (hiddenCount: number) => {
-    const lineH = 22;
-    const height = Math.max(28, Math.min(hiddenCount, 3) * lineH);
-    return (
-      <View key="thread-stack-count" style={[styles.stackCountOnLine, { height, marginVertical: -height / 2 }]}>
-        <TouchableOpacity
-          style={[styles.stackCount, { height }]}
-          onPress={() => setThreadStackExpanded(true)}
-          hitSlop={10}
-          accessibilityRole="button"
-          accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
-        >
-          <Text style={styles.stackCountText}>{hiddenCount}</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  const renderStackCount = (hiddenCount: number) => (
+    <View key="thread-stack-count" style={styles.stackCountOnLine}>
+      <TouchableOpacity
+        style={styles.stackCount}
+        onPress={() => setThreadStackExpanded(true)}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
+      >
+        <Text style={styles.stackCountText}>{hiddenCount}</Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const renderThreadMessages = () => {
     if (Platform.OS === 'web') return messages.map(renderFullMessage);
@@ -1953,7 +1953,12 @@ export default function EmailThreadScreen() {
             ref={composeScrollRef}
             style={
               composeFill
-                ? { flexGrow: 0, flexShrink: aiCardCollapsed ? 0 : 1, maxHeight: aiCardCollapsed ? undefined : 220 }
+                ? {
+                    flexGrow: 0,
+                    flex: aiCardCollapsed ? 0 : undefined,
+                    flexShrink: aiCardCollapsed ? 0 : 1,
+                    maxHeight: aiCardCollapsed ? undefined : 220,
+                  }
                 : { flexGrow: 0, flexShrink: 0 }
             }
             scrollEventThrottle={16}
@@ -2310,13 +2315,13 @@ export default function EmailThreadScreen() {
             ) : null}
           </ScrollView>
           {composing && draft ? (
-            <View style={[styles.composer, composeFill && { flex: 1, minHeight: 0 }]}>
+            <View style={[styles.composer, composeFill && { flex: 1, minHeight: 160 }]}>
               {suggestedReply ? (
                 <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>
                   AI prepared a suggested reply — review before sending.
                 </Text>
               ) : null}
-                <View style={[{ position: 'relative' }, composeFill && { flex: 1, minHeight: 0 }]}>
+                <View style={[{ position: 'relative' }, composeFill && { flex: 1, minHeight: 160 }]}>
                   {drafting && !workspaceGenerating ? (
                     <View
                       style={{
@@ -2336,7 +2341,7 @@ export default function EmailThreadScreen() {
                     style={[
                       styles.input,
                       composeFill
-                        ? { flex: 1, minHeight: 0 }
+                        ? { flex: 1, minHeight: 160 }
                         : styles.inputCollapsed,
                       drafting ? { opacity: 0.45 } : null,
                     ]}
