@@ -243,6 +243,45 @@ function messageToLine(m: EmailMessage): string {
   return `to ${names.join(', ')}`;
 }
 
+/**
+ * Collapsed compose chrome is a single row. A ScrollView with flex:0 (flex-basis 0)
+ * lays out at height 0 and, under a parent that also fails to grow, hides the draft.
+ */
+function ComposeChrome({
+  scroll,
+  scrollRef,
+  style,
+  onScroll,
+  onLayout,
+  children,
+}: {
+  scroll: boolean;
+  scrollRef: React.RefObject<ScrollView | null>;
+  style?: object;
+  onScroll?: (e: any) => void;
+  onLayout?: (e: any) => void;
+  children: React.ReactNode;
+}) {
+  if (!scroll) {
+    return <View style={style as any}>{children}</View>;
+  }
+  return (
+    <ScrollView
+      ref={scrollRef}
+      style={style as any}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
+      onLayout={onLayout}
+      contentContainerStyle={{ paddingBottom: 8, gap: 0 }}
+      keyboardShouldPersistTaps="handled"
+      nestedScrollEnabled
+      showsVerticalScrollIndicator
+    >
+      {children}
+    </ScrollView>
+  );
+}
+
 export default function EmailThreadScreen() {
   const { id, workspaceId, filter, compose, client_id: clientIdParam, to: toParam } = useLocalSearchParams<{
     id: string;
@@ -349,6 +388,8 @@ export default function EmailThreadScreen() {
   const autoSuggestCancelledRef = useRef(false);
   const userHasTypedRef = useRef(false);
   const composingRef = useRef(false);
+  /** First load of a thread opens an existing reply draft instead of the one-line peek. */
+  const openedDraftForThreadRef = useRef(false);
   const analyzedForRef = useRef<number | null>(null);
   const draftRef = useRef<EmailDraft | null>(null);
   const threadRef = useRef<EmailThread | null>(null);
@@ -373,6 +414,7 @@ export default function EmailThreadScreen() {
     setOpenMessageIds([]);
     setAiDetailsOpen(true);
     setComposing(false);
+    openedDraftForThreadRef.current = false;
     setCcOpen(false);
     setBccOpen(false);
     autoComposeRef.current = false;
@@ -473,7 +515,13 @@ export default function EmailThreadScreen() {
       if (!before) {
         if (data.draft) {
           const isNew = data.draft.reply_mode === 'new';
-          applyDraft(data.draft, isNew, isNew && openComposeMaximizedRef.current);
+          const firstOpen = !openedDraftForThreadRef.current;
+          openedDraftForThreadRef.current = true;
+          applyDraft(data.draft, isNew || firstOpen, isNew && openComposeMaximizedRef.current);
+          if (firstOpen && !isNew && (data.draft.body_text || '').trim()) {
+            setAiDetailsOpen(false);
+            setAiCardOpen(false);
+          }
         } else {
           setDraft(null);
           setComposing(false);
@@ -1064,7 +1112,6 @@ export default function EmailThreadScreen() {
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
           backgroundColor: colors.background,
-          flexGrow: 0,
         },
         composer: {
           borderTopWidth: StyleSheet.hairlineWidth,
@@ -1925,7 +1972,6 @@ export default function EmailThreadScreen() {
               setHeadersOpen(false);
               setAiDetailsOpen(false);
               setAiCardOpen(false);
-              if (Platform.OS !== 'web') setComposeFullscreen(true);
             }}
             accessibilityRole="button"
             accessibilityLabel="Open draft reply"
@@ -1941,7 +1987,7 @@ export default function EmailThreadScreen() {
             style={[
               styles.composePanel,
               composeFill
-                ? { flex: 1, minHeight: 0, overflow: 'hidden' }
+                ? { flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0 }
                 : {
                     flexGrow: 0,
                     flexShrink: 0,
@@ -1949,32 +1995,22 @@ export default function EmailThreadScreen() {
                   },
             ]}
           >
-          <ScrollView
-            ref={composeScrollRef}
+          <ComposeChrome
+            scroll={!aiCardCollapsed}
+            scrollRef={composeScrollRef}
             style={
-              composeFill
-                ? {
-                    flexGrow: 0,
-                    flex: aiCardCollapsed ? 0 : undefined,
-                    flexShrink: aiCardCollapsed ? 0 : 1,
-                    maxHeight: aiCardCollapsed ? undefined : 220,
-                  }
-                : { flexGrow: 0, flexShrink: 0 }
+              aiCardCollapsed
+                ? { flexGrow: 0, flexShrink: 0 }
+                : composeFill
+                  ? { flexGrow: 0, flexShrink: 1, maxHeight: 220 }
+                  : { flexGrow: 0, flexShrink: 0 }
             }
-            scrollEventThrottle={16}
             onScroll={(e) => {
               composeScrollYRef.current = e.nativeEvent.contentOffset.y;
             }}
             onLayout={(e) => {
               composeScrollHRef.current = e.nativeEvent.layout.height;
             }}
-            contentContainerStyle={{
-              paddingBottom: 8,
-              gap: 0,
-            }}
-            keyboardShouldPersistTaps="handled"
-            nestedScrollEnabled
-            showsVerticalScrollIndicator
           >
             <View style={styles.actions}>
               {!isNewCompose ? (
@@ -2313,7 +2349,7 @@ export default function EmailThreadScreen() {
                   ) : null}
                 </View>
             ) : null}
-          </ScrollView>
+          </ComposeChrome>
           {composing && draft ? (
             <View style={[styles.composer, composeFill && { flex: 1, minHeight: 160 }]}>
               {suggestedReply ? (

@@ -200,8 +200,8 @@ table{max-width:100%!important}
 td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
 pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 #gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
-#gd-fit .gd-quote-ellipsis{display:flex;align-items:center;justify-content:flex-start;width:36px;height:32px;margin:8px 0 2px;padding:0;border:0!important;background:transparent!important;color:${fg}!important;cursor:pointer;-webkit-appearance:none;appearance:none}
-#gd-fit .gd-quote-ellipsis svg{display:block;width:22px!important;height:22px!important;max-width:none!important;fill:${fg}!important;background:transparent!important}
+#gd-fit .gd-quote-ellipsis{display:flex;align-items:center;justify-content:flex-start;width:32px;height:28px;margin:8px 0 2px;padding:0;border:0!important;background:transparent!important;color:${fg}!important;cursor:pointer;-webkit-appearance:none;appearance:none}
+#gd-fit .gd-quote-ellipsis svg{display:block;width:18px!important;height:18px!important;max-width:none!important;fill:${fg}!important;background:transparent!important}
 </style></head><body>
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
