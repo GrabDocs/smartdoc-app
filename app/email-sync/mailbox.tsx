@@ -11,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -57,7 +58,7 @@ const SENSITIVITY_LEVELS: NeedsReplySensitivity[] = ['conservative', 'balanced',
 
 const SENSITIVITY_HINT: Record<NeedsReplySensitivity, string> = {
   conservative: 'Shows fewer emails, prioritizing high-confidence replies.',
-  balanced: 'Recommended. Focuses on emails most likely to need a response.',
+  balanced: 'Focuses on emails most likely to need a response.',
   aggressive: 'Catches more possible replies, but may include mail that does not require action.',
 };
 
@@ -115,6 +116,7 @@ export function EmailSetupPane({
   const [grabdocsResearch, setGrabdocsResearch] = useState<boolean | null>(
     cached?.grabdocsResearch ?? null,
   );
+  const [emailSignature, setEmailSignature] = useState(cached?.emailSignature || '');
   const [loading, setLoading] = useState(!cached);
   const [menuConn, setMenuConn] = useState<InboxConnection | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -146,6 +148,7 @@ export function EmailSetupPane({
       needsReplySensitivity: (s.needs_reply_sensitivity || 'balanced') as NeedsReplySensitivity,
       awaitingReplySensitivity: (s.awaiting_reply_sensitivity || 'balanced') as NeedsReplySensitivity,
       grabdocsResearch: (s.grabdocs_research_enabled ?? null) as boolean | null,
+      emailSignature: s.email_signature || '',
     };
     setConns(next.conns);
     setAliases(next.aliases);
@@ -154,6 +157,7 @@ export function EmailSetupPane({
     setNeedsReplySensitivity(next.needsReplySensitivity);
     setAwaitingReplySensitivity(next.awaitingReplySensitivity || 'balanced');
     setGrabdocsResearch(next.grabdocsResearch);
+    setEmailSignature(next.emailSignature);
     emailSyncCacheSetSetup(next);
     const n = Number(count) || 0;
     emailSyncCacheSetPending(n);
@@ -282,6 +286,26 @@ export function EmailSetupPane({
     if (!workspaceId) return;
     setAwaitingReplySensitivity(level);
     void patchMailboxSettings({ workspace_id: workspaceId, awaiting_reply_sensitivity: level }).catch((e) =>
+      Alert.alert('Settings', emailApiError(e, 'Could not save')),
+    );
+  };
+
+  const patchSignature = (value: string) => {
+    if (!workspaceId) return;
+    const hit = emailSyncCacheSetup();
+    if (hit) {
+      emailSyncCacheSetSetup({
+        conns: hit.conns,
+        aliases: hit.aliases,
+        senders: hit.senders,
+        patterns: hit.patterns,
+        needsReplySensitivity: hit.needsReplySensitivity,
+        awaitingReplySensitivity: hit.awaitingReplySensitivity,
+        grabdocsResearch: hit.grabdocsResearch,
+        emailSignature: value,
+      });
+    }
+    void patchMailboxSettings({ workspace_id: workspaceId, email_signature: value }).catch((e) =>
       Alert.alert('Settings', emailApiError(e, 'Could not save')),
     );
   };
@@ -594,7 +618,6 @@ export function EmailSetupPane({
                   >
                     <Text style={{ color: colors.text, fontWeight: selected ? '600' : '400' }}>
                       {label}
-                      {level === 'balanced' ? ' (recommended)' : ''}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -622,7 +645,6 @@ export function EmailSetupPane({
                   >
                     <Text style={{ color: colors.text, fontWeight: selected ? '600' : '400' }}>
                       {label}
-                      {level === 'balanced' ? ' (recommended)' : ''}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -631,6 +653,32 @@ export function EmailSetupPane({
           </View>
 
           <Text style={styles.section}>Reply settings</Text>
+          <View style={[styles.card, { padding: 14, marginBottom: 8 }]}>
+            <Text style={[styles.name, { fontSize: 15 }]}>Email signature</Text>
+            <Text style={[styles.sub, { marginTop: 6, lineHeight: 18 }]}>
+              Appended to AI-generated replies and agent drafts. Leave blank to close with "Best," and your first name. If your first name is empty, the closing uses [Your Name].
+            </Text>
+            <TextInput
+              style={{
+                marginTop: 10,
+                minHeight: 96,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: colors.border,
+                backgroundColor: colors.background,
+                padding: 12,
+                color: colors.text,
+                fontSize: 15,
+                textAlignVertical: 'top',
+              }}
+              multiline
+              placeholder={'Best regards,\nYour Name\nYour Title'}
+              placeholderTextColor={colors.textSecondary}
+              value={emailSignature}
+              onChangeText={setEmailSignature}
+              onBlur={() => patchSignature(emailSignature)}
+            />
+          </View>
           <View style={[styles.card, { padding: 14, marginBottom: 8 }]}>
             {grabdocsResearch == null ? (
               <>

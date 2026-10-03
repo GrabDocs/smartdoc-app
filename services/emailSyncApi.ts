@@ -473,6 +473,7 @@ export type MailboxSettings = {
   awaiting_reply_sensitivity?: NeedsReplySensitivity;
   grabdocs_research_enabled?: boolean | null;
   workspace_search_expanded?: boolean | null;
+  email_signature?: string | null;
   undo_send_seconds?: number;
 };
 

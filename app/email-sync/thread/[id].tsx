@@ -1791,6 +1791,16 @@ export default function EmailThreadScreen() {
           </View>
         ) : composeFullscreen ? (
           <View style={[styles.header, { paddingTop: 6 }]}>
+            <AppBackButton
+              onPress={() => {
+                if (isNewCompose) {
+                  router.back();
+                  return;
+                }
+                Keyboard.dismiss();
+                setComposeFullscreen(false);
+              }}
+            />
             <View style={styles.headerBody}>
               <AppHeaderTitle fill={false} size={18} shrink={false} style={{ flexShrink: 1 }}>
                 {isNewCompose ? 'New message' : 'Compose'}
