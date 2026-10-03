@@ -264,6 +264,7 @@ export default function EmailThreadScreen() {
     setThreadStackExpanded(false);
     setOpenMessageIds([]);
     setAiDetailsOpen(true);
+    setComposing(false);
     setCcOpen(false);
     setBccOpen(false);
     autoComposeRef.current = false;
@@ -361,7 +362,15 @@ export default function EmailThreadScreen() {
           : null
       );
       if (data.reply_from) setReplyFrom(data.reply_from);
-      if (!before && data.draft) applyDraft(data.draft, true, openComposeMaximizedRef.current);
+      if (!before) {
+        if (data.draft) {
+          const isNew = data.draft.reply_mode === 'new';
+          applyDraft(data.draft, isNew, isNew && openComposeMaximizedRef.current);
+        } else {
+          setDraft(null);
+          setComposing(false);
+        }
+      }
     },
     [threadId]
   );
@@ -1023,6 +1032,17 @@ export default function EmailThreadScreen() {
           borderBottomColor: colors.border,
         },
         sectionPeekText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+        draftPeek: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          backgroundColor: colors.background,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+        },
+        draftPeekText: { flex: 1, minWidth: 0, fontSize: 14, color: colors.text },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -1217,6 +1237,12 @@ export default function EmailThreadScreen() {
         : `AI · ${toneLabel}`;
   const aiCardCollapsed = !isNewCompose && !aiDetailsOpen && !aiCardOpen;
   const composeFill = composeFullscreen || threadCollapsedForCompose;
+  const showDraftPeek =
+    Platform.OS !== 'web' && !!draft && !composing && !isNewCompose && !dismissed && !fullscreenMessage;
+  const draftPeekText = (() => {
+    const preview = (body || '').replace(/\s+/g, ' ').trim();
+    return preview ? `Draft · ${preview}` : 'Draft reply';
+  })();
   const drafting = !!generatingMessage;
   const workspaceGenerating = researchPhase === 'searching' || researchPhase === 'writing';
   const showReplyAll = canReplyAll(messages);
@@ -1623,6 +1649,7 @@ export default function EmailThreadScreen() {
             onPress={() => {
               setComposeFullscreen(false);
               setThreadCollapsedForCompose(false);
+              setComposing(false);
               Keyboard.dismiss();
             }}
             accessibilityRole="button"
@@ -1689,7 +1716,26 @@ export default function EmailThreadScreen() {
         </View>
         )}
 
-        {!dismissed && !fullscreenMessage ? (
+        {!dismissed && !fullscreenMessage && showDraftPeek ? (
+          <TouchableOpacity
+            style={styles.draftPeek}
+            onPress={() => {
+              setComposing(true);
+              setHeadersOpen(false);
+              setAiDetailsOpen(false);
+              setAiCardOpen(false);
+              if (Platform.OS !== 'web') setComposeFullscreen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Open draft reply"
+          >
+            <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.draftPeekText} numberOfLines={1}>
+              {draftPeekText}
+            </Text>
+            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
+          </TouchableOpacity>
+        ) : !dismissed && !fullscreenMessage ? (
           <View
             style={[
               styles.composePanel,
