@@ -362,11 +362,23 @@ export default function CalendarSchedulingScreen() {
                 }}
               />
             </View>
-            <View style={styles.field}>
+          </View>
+          <View style={styles.pair}>
+            <View style={styles.pairField}>
               <Text style={styles.label}>Duration (min)</Text>
               <TextInput style={styles.input} value={duration} onChangeText={setDuration} keyboardType="number-pad" />
             </View>
-            <View style={styles.field}>
+            {kind === 'group' ? (
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Seats</Text>
+                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" />
+              </View>
+            ) : (
+              <View style={styles.pairField} />
+            )}
+          </View>
+          <View style={styles.pair}>
+            <View style={styles.pairField}>
               <Text style={styles.label}>Kind</Text>
               <View style={styles.chipRow}>
                 <TouchableOpacity
@@ -383,21 +395,17 @@ export default function CalendarSchedulingScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-            {kind === 'group' ? (
-              <View style={styles.field}>
-                <Text style={styles.label}>Seats</Text>
-                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" />
+            <TouchableOpacity style={styles.pairField} onPress={() => setFormPickerOpen(true)}>
+              <Text style={styles.label}>Form</Text>
+              <View style={styles.pickerField}>
+                <Text style={styles.pickerValue} numberOfLines={1}>{formTitle}</Text>
+                <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
               </View>
-            ) : null}
+            </TouchableOpacity>
           </View>
           {slugInvalid ? (
             <Text style={styles.slugError}>Use lowercase letters, numbers, and hyphens, like intro-call.</Text>
           ) : null}
-          <TouchableOpacity style={styles.pickerRow} onPress={() => setFormPickerOpen(true)}>
-            <Text style={styles.label}>Form</Text>
-            <Text style={styles.pickerValue} numberOfLines={1}>{formTitle}</Text>
-            <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.checkRow}
             onPress={() => setAddReach((value) => !value)}
@@ -606,7 +614,9 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     removeBtn: { padding: 2 },
     link: { color: '#2563eb', fontSize: 12, fontWeight: '600' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    pair: { flexDirection: 'row', gap: 8 },
     field: { width: '48%', flexGrow: 1, gap: 2 },
+    pairField: { flex: 1, minWidth: 0, gap: 2 },
     label: { fontSize: 11, fontWeight: '600', color: colors.textSecondary },
     input: {
       borderWidth: StyleSheet.hairlineWidth,
@@ -634,8 +644,18 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     buttonDisabled: { opacity: 0.5 },
     buttonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
     slugError: { fontSize: 11, color: '#dc2626' },
-    pickerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    pickerValue: { flex: 1, fontSize: 13, color: colors.text },
+    pickerField: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+      backgroundColor: colors.background,
+    },
+    pickerValue: { flex: 1, fontSize: 14, color: colors.text },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     checkLabel: { fontSize: 13, color: colors.text },
     listTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2 },

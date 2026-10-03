@@ -655,9 +655,6 @@ export function EmailSetupPane({
           <Text style={styles.section}>Reply settings</Text>
           <View style={[styles.card, { padding: 14, marginBottom: 8 }]}>
             <Text style={[styles.name, { fontSize: 15 }]}>Email signature</Text>
-            <Text style={[styles.sub, { marginTop: 6, lineHeight: 18 }]}>
-              Appended to AI-generated replies and agent drafts. Leave blank to close with "Best," and your first name. If your first name is empty, the closing uses [Your Name].
-            </Text>
             <TextInput
               style={{
                 marginTop: 10,

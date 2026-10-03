@@ -2565,14 +2565,7 @@ export default function UserChatScreen() {
 
       <Modal visible={showInviteModal} animationType="slide" transparent onRequestClose={() => setShowInviteModal(false)}>
         <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            activeOpacity={1}
-            onPress={() => {
-              Keyboard.dismiss();
-              setShowInviteModal(false);
-            }}
-          />
+          <View style={{ flex: 1 }} />
           <View
             style={{
               backgroundColor: colors.background,
@@ -2593,7 +2586,16 @@ export default function UserChatScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={{ padding: 20, gap: 12 }}
             >
-              <Text style={{ fontSize: 18, fontWeight: '600', color: colors.text }}>Invite to Secure Messaging</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={{ flex: 1, fontSize: 18, fontWeight: '600', color: colors.text }}>Invite to Secure Messaging</Text>
+                <TouchableOpacity
+                  onPress={() => setShowInviteModal(false)}
+                  accessibilityLabel="Close"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={22} color={colors.text} />
+                </TouchableOpacity>
+              </View>
               <Text style={{ fontSize: 13, color: colors.textSecondary }}>
                 Invite by email or SMS. Message content is never included.
               </Text>
