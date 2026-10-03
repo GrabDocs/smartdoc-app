@@ -829,12 +829,15 @@ try {
         }
     }
 
-    # OTA update: publish JS bundle to EAS channel (no native build)
+    # OTA update: publish JS bundle to EAS channel (no native build).
+    # Confirm only for production. Development publishes immediately.
     if ($DeployType -eq "ota") {
-        $confirm = Prompt-WithValidation "`nProceed with OTA update? (y/n)" @("y", "n")
-        if ($confirm -ne "y") {
-            Write-Host "OTA update cancelled." -ForegroundColor Yellow
-            exit 0
+        if ($normalizedEnv -eq "production") {
+            $confirm = Prompt-WithValidation "`nProceed with Production OTA update? (y/n)" @("y", "n")
+            if ($confirm -ne "y") {
+                Write-Host "OTA update cancelled." -ForegroundColor Yellow
+                exit 0
+            }
         }
 
         Run-EasUpdate -Channel $updateChannel -Message $UpdateMessage
