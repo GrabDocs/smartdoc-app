@@ -1,11 +1,7 @@
 import { WebView } from 'react-native-webview';
 import React, { useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
-
-/** Match web `.email-body-html`: always light “paper” so HTML emails keep contrast. */
-const PAPER_TEXT = '#111827';
-const PAPER_BG = '#ffffff';
-const PAPER_LINK = '#2563eb';
+import { useThemeColors } from '../../../hooks/useThemeColors';
 
 function escapeHtml(text: string) {
   return text
@@ -74,7 +70,7 @@ export function EmailHtmlBody({
   text,
   textColor: _textColor,
   background: _background,
-  isDark: _isDark,
+  isDark: isDarkProp,
   expanded,
   tall,
   fill,
@@ -83,11 +79,11 @@ export function EmailHtmlBody({
 }: {
   html?: string | null;
   text?: string | null;
-  /** @deprecated Ignored — HTML bodies always use light paper (same as web). */
+  /** @deprecated Prefer the app theme. */
   textColor?: string;
-  /** @deprecated Ignored — HTML bodies always use light paper (same as web). */
+  /** @deprecated Prefer the app theme. */
   background?: string;
-  /** @deprecated Ignored — HTML bodies always use light paper (same as web). */
+  /** @deprecated Prefer the app theme. */
   isDark?: boolean;
   expanded?: boolean;
   /** View-only / dismissed: use more of the screen for the email body. */
@@ -99,6 +95,11 @@ export function EmailHtmlBody({
   /** Leave room below the body (attachment chips) when maximized. */
   reserveBottom?: number;
 }) {
+  const colors = useThemeColors();
+  const isDark = isDarkProp ?? colors.isDark;
+  const fg = _textColor || colors.text;
+  const bg = _background || colors.background;
+  const link = isDark ? '#93C5FD' : '#2563EB';
   const [boxW, setBoxW] = useState(0);
   const readable = !!(expanded || fill || tall);
   const minScale = fill ? 0.92 : expanded || tall ? 0.88 : 0.8;
@@ -108,14 +109,15 @@ export function EmailHtmlBody({
     const raw = (html || '').trim();
     const inner = raw
       ? stripUnsafeHtml(raw)
-      : `<pre style="white-space:pre-wrap;font-family:system-ui;color:${PAPER_TEXT};font-size:${fontPx}px;line-height:1.5">${escapeHtml(text || '')}</pre>`;
+      : `<pre style="white-space:pre-wrap;font-family:system-ui;color:${fg};font-size:${fontPx}px;line-height:1.5">${escapeHtml(text || '')}</pre>`;
     return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.6, maximum-scale=5, user-scalable=yes" />
-<meta name="color-scheme" content="light only" />
+<meta name="color-scheme" content="${isDark ? 'dark' : 'light'}" />
 <style>
-html,body{margin:0;padding:0;background:${PAPER_BG};color:${PAPER_TEXT};color-scheme:light;overflow:auto;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y pinch-zoom}
+html,body{margin:0;padding:0;background:${bg};color:${fg};color-scheme:${isDark ? 'dark' : 'light'};overflow:auto;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y pinch-zoom}
 body{padding:10px 10px 12px;font:${fontPx}px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
-a{color:${PAPER_LINK}}
-img,video,svg,canvas{max-width:100%!important;height:auto!important}
+#gd-fit,#gd-fit *{color:${fg}!important;background-color:transparent!important;background-image:none!important}
+#gd-fit a,#gd-fit a *{color:${link}!important;background-color:transparent!important}
+img,video,svg,canvas{max-width:100%!important;height:auto!important;background:transparent!important}
 table{max-width:100%!important}
 td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
 pre,code{white-space:pre-wrap!important;word-break:break-word!important}
@@ -124,7 +126,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
 </body></html>`;
-  }, [html, text, fitJs, fontPx]);
+  }, [html, text, fitJs, fontPx, fg, bg, link, isDark]);
 
   const winH = Dimensions.get('window').height;
   const minH = tall ? (expanded ? 280 : 200) : expanded ? 260 : 120;
@@ -136,12 +138,17 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
   const maxH = Math.max(minH, rawMax - Math.max(0, reserveBottom));
 
   if (!(html || '').trim() && !(text || '').trim()) {
-    return <Text style={{ color: PAPER_TEXT, opacity: 0.6, padding: 8, fontSize: 16 }}>(empty)</Text>;
+    return <Text style={{ color: fg, opacity: 0.6, padding: 8, fontSize: 16 }}>(empty)</Text>;
   }
 
   return (
     <View
-      style={[styles.wrap, fill ? styles.fill : { minHeight: minH, maxHeight: maxH }, plain ? styles.plain : null]}
+      style={[
+        styles.wrap,
+        { backgroundColor: bg, borderColor: isDark ? '#3F3F46' : '#E5E7EB' },
+        fill ? styles.fill : { minHeight: minH, maxHeight: maxH },
+        plain ? styles.plain : null,
+      ]}
       onLayout={(e) => {
         const w = Math.round(e.nativeEvent.layout.width);
         if (w > 0 && w !== boxW) setBoxW(w);
@@ -163,7 +170,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
         textZoom={readable ? 115 : 105}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        style={[styles.web, { backgroundColor: PAPER_BG }, boxW > 0 ? { width: boxW } : null]}
+        style={[styles.web, { backgroundColor: bg }, boxW > 0 ? { width: boxW } : null]}
       />
     </View>
   );
@@ -173,9 +180,7 @@ const styles = StyleSheet.create({
   wrap: {
     borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: PAPER_BG,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: '#E5E7EB',
   },
   fill: {
     flex: 1,

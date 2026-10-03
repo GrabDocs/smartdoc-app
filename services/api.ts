@@ -6433,16 +6433,12 @@ class ApiService {
   ): Promise<void> {
     const trimmedId = meetingId.trim();
     if (options?.guestId && options.roomId) {
-      await this.client.post(
-        `/api/v1/video/room/${options.roomId}/leave`,
-        { guest_id: options.guestId },
-        { timeout: 8000 },
-      );
+      await this.client.post(`/api/v1/video/room/${options.roomId}/leave`, {
+        guest_id: options.guestId,
+      });
       return;
     }
-    await this.client.post(`/api/v1/mobile/meetings/${trimmedId}/leave`, undefined, {
-      timeout: 8000,
-    });
+    await this.client.post(`/api/v1/mobile/meetings/${trimmedId}/leave`);
   }
 
   // ==================== MEETING ASSETS & WEBHOOKS ====================
