@@ -1,5 +1,5 @@
 import { WebView } from 'react-native-webview';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 
@@ -24,11 +24,12 @@ function stripUnsafeHtml(html: string) {
  * Only scale fixed-width HTML (e.g. 600px tables) if it still overflows,
  * and never below minScale so expanded/fullscreen text stays usable.
  */
-function fitWidthScript(viewWidth: number, minScale: number) {
+function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boolean) {
   return `
 (function(){
   var VIEW = ${viewWidth > 0 ? viewWidth : 0};
   var MIN = ${minScale};
+  var REPORT = ${reportHeight ? 'true' : 'false'};
   function fitWidth(){
     var el = document.getElementById('gd-fit');
     var body = document.body;
@@ -40,19 +41,22 @@ function fitWidthScript(viewWidth: number, minScale: number) {
     body.style.height = '';
     var view = VIEW || window.innerWidth || document.documentElement.clientWidth;
     var wide = Math.max(el.scrollWidth, body.scrollWidth, document.documentElement.scrollWidth);
-    if (wide <= view + 2) {
-      body.style.height = Math.ceil(el.offsetHeight + 16) + 'px';
-      return;
+    var scale = 1;
+    if (wide > view + 2) {
+      el.style.width = 'max-content';
+      el.style.maxWidth = 'none';
+      el.style.display = 'inline-block';
+      wide = Math.max(el.scrollWidth, el.offsetWidth, el.getBoundingClientRect().width);
+      scale = wide > view + 1 ? (view / wide) : 1;
+      if (scale < MIN) scale = MIN;
+      el.style.transformOrigin = 'top left';
+      el.style.transform = 'scale(' + scale + ')';
     }
-    el.style.width = 'max-content';
-    el.style.maxWidth = 'none';
-    el.style.display = 'inline-block';
-    wide = Math.max(el.scrollWidth, el.offsetWidth, el.getBoundingClientRect().width);
-    var s = wide > view + 1 ? (view / wide) : 1;
-    if (s < MIN) s = MIN;
-    el.style.transformOrigin = 'top left';
-    el.style.transform = 'scale(' + s + ')';
-    body.style.height = Math.ceil(el.offsetHeight * s + 16) + 'px';
+    var h = Math.ceil(el.offsetHeight * scale + 4);
+    body.style.height = h + 'px';
+    if (REPORT && window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'gd-email-height', height: h }));
+    }
   }
   fitWidth();
   window.addEventListener('load', fitWidth);
@@ -101,10 +105,14 @@ export function EmailHtmlBody({
   const bg = _background || colors.background;
   const link = isDark ? '#93C5FD' : '#2563EB';
   const [boxW, setBoxW] = useState(0);
+  const [contentH, setContentH] = useState(0);
+  useEffect(() => {
+    setContentH(0);
+  }, [html, text]);
   const readable = !!(expanded || fill || tall);
   const minScale = fill ? 0.92 : expanded || tall ? 0.88 : 0.8;
   const fontPx = readable ? 18 : 16;
-  const fitJs = useMemo(() => fitWidthScript(boxW, minScale), [boxW, minScale]);
+  const fitJs = useMemo(() => fitWidthScript(boxW, minScale, !!plain), [boxW, minScale, plain]);
   const sourceHtml = useMemo(() => {
     const raw = (html || '').trim();
     const inner = raw
@@ -113,8 +121,8 @@ export function EmailHtmlBody({
     return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.6, maximum-scale=5, user-scalable=yes" />
 <meta name="color-scheme" content="${isDark ? 'dark' : 'light'}" />
 <style>
-html,body{margin:0;padding:0;background:${bg};color:${fg};color-scheme:${isDark ? 'dark' : 'light'};overflow:auto;-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y pinch-zoom}
-body{padding:10px 10px 12px;font:${fontPx}px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+html,body{margin:0;padding:0;background:${bg};color:${fg};color-scheme:${isDark ? 'dark' : 'light'};overflow:${plain ? 'hidden' : 'auto'};-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:pan-x pan-y pinch-zoom}
+body{padding:${plain ? '0 0 4px' : '10px 10px 12px'};font:${fontPx}px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
 #gd-fit,#gd-fit *{color:${fg}!important;background-color:transparent!important;background-image:none!important}
 #gd-fit a,#gd-fit a *{color:${link}!important;background-color:transparent!important}
 img,video,svg,canvas{max-width:100%!important;height:auto!important;background:transparent!important}
@@ -126,7 +134,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
 </body></html>`;
-  }, [html, text, fitJs, fontPx, fg, bg, link, isDark]);
+  }, [html, text, fitJs, fontPx, fg, bg, link, isDark, plain]);
 
   const winH = Dimensions.get('window').height;
   const minH = tall ? (expanded ? 280 : 200) : expanded ? 260 : 120;
@@ -146,7 +154,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
       style={[
         styles.wrap,
         { backgroundColor: bg, borderColor: isDark ? '#3F3F46' : '#E5E7EB' },
-        fill ? styles.fill : { minHeight: minH, maxHeight: maxH },
+        fill ? styles.fill : plain ? { height: Math.max(contentH, 24) } : { minHeight: minH, maxHeight: maxH },
         plain ? styles.plain : null,
       ]}
       onLayout={(e) => {
@@ -164,9 +172,19 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
         setDisplayZoomControls={false}
         showsHorizontalScrollIndicator={false}
         showsVerticalScrollIndicator
-        scrollEnabled
-        nestedScrollEnabled
-        bounces
+        scrollEnabled={!plain}
+        nestedScrollEnabled={!plain}
+        bounces={!plain}
+        onMessage={plain ? (e) => {
+          try {
+            const data = JSON.parse(e.nativeEvent.data);
+            if (data?.type === 'gd-email-height' && data.height > 0 && data.height !== contentH) {
+              setContentH(data.height);
+            }
+          } catch {
+            /* ignore */
+          }
+        } : undefined}
         textZoom={readable ? 115 : 105}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"

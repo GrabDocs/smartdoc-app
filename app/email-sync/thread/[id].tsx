@@ -327,14 +327,9 @@ export default function EmailThreadScreen() {
     if (openComposer) {
       const starting = !composingRef.current;
       setComposing(true);
-      const hasReply = !!(d.body_text || '').trim() && d.reply_mode !== 'new';
-      if (hasReply) {
-        setHeadersOpen(false);
-        setAiDetailsOpen(false);
-        setAiCardOpen(false);
-        setShowSummary(false);
+      if (starting && maximizeComposer && Platform.OS !== 'web' && d.reply_mode === 'new') {
+        setComposeFullscreen(true);
       }
-      if ((starting || hasReply) && maximizeComposer && Platform.OS !== 'web') setComposeFullscreen(true);
     }
   };
 
@@ -649,6 +644,11 @@ export default function EmailThreadScreen() {
       if (data.thread) setThread(data.thread);
       applyDraft(data.draft, true, true);
       setSuggestedReply(opts?.source === 'auto_suggest');
+      setHeadersOpen(false);
+      setAiDetailsOpen(false);
+      setAiCardOpen(false);
+      setShowSummary(false);
+      if (Platform.OS !== 'web') setComposeFullscreen(true);
     } catch (e: any) {
       const status = e?.response?.status;
       const code = e?.response?.data?.code;
@@ -719,6 +719,11 @@ export default function EmailThreadScreen() {
       if (res.thread) setThread(res.thread);
       applyDraft(res.draft, true, true);
       setSuggestedReply(true);
+      setHeadersOpen(false);
+      setAiDetailsOpen(false);
+      setAiCardOpen(false);
+      setShowSummary(false);
+      if (Platform.OS !== 'web') setComposeFullscreen(true);
       setResearchNote(res.research_note || '');
       setResearchPhase('ready');
     } catch (e: any) {
@@ -970,7 +975,9 @@ export default function EmailThreadScreen() {
         composeHeaderSection: {
           borderBottomWidth: StyleSheet.hairlineWidth,
           borderBottomColor: colors.border,
-          marginBottom: 8,
+          marginBottom: 0,
+          paddingHorizontal: 12,
+          backgroundColor: colors.background,
           // Lift above the body field below so the floating recipient suggestions draw/touch on top of it.
           position: 'relative',
           zIndex: 20,
@@ -1208,7 +1215,8 @@ export default function EmailThreadScreen() {
       : aiRequestCount > 1
         ? `AI · ${aiRequestCount} items · ${toneLabel}`
         : `AI · ${toneLabel}`;
-  const aiCardCollapsed = keyboardOpen && !aiCardOpen && !isNewCompose;
+  const aiCardCollapsed = !isNewCompose && !aiDetailsOpen && !aiCardOpen;
+  const composeFill = composeFullscreen || threadCollapsedForCompose;
   const drafting = !!generatingMessage;
   const workspaceGenerating = researchPhase === 'searching' || researchPhase === 'writing';
   const showReplyAll = canReplyAll(messages);
@@ -1684,9 +1692,8 @@ export default function EmailThreadScreen() {
         {!dismissed && !fullscreenMessage ? (
           <View
             style={[
-              // Fullscreen, or keyboard up (thread is collapsed to a one-line peek): fill all the space
-              // between the header and the keyboard so the footer (Send) is pinned right above it.
-              composeFullscreen || threadCollapsedForCompose
+              styles.composePanel,
+              composeFill
                 ? { flex: 1, minHeight: 0 }
                 : {
                     flexGrow: 0,
@@ -1697,10 +1704,7 @@ export default function EmailThreadScreen() {
           >
           <ScrollView
             ref={composeScrollRef}
-            style={[
-              styles.composePanel,
-              composeFullscreen || threadCollapsedForCompose ? { flex: 1 } : { flexGrow: 0 },
-            ]}
+            style={composeFill ? { flexGrow: 0, flexShrink: 1 } : { flexGrow: 0 }}
             scrollEventThrottle={16}
             onScroll={(e) => {
               composeScrollYRef.current = e.nativeEvent.contentOffset.y;
@@ -1711,7 +1715,6 @@ export default function EmailThreadScreen() {
             contentContainerStyle={{
               paddingBottom: 8,
               gap: 0,
-              flexGrow: aiCardCollapsed || !aiDetailsOpen ? 1 : undefined,
             }}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
@@ -1720,43 +1723,52 @@ export default function EmailThreadScreen() {
             <View style={styles.actions}>
               {!isNewCompose ? (
               <>
-              {keyboardOpen ? (
+              {aiCardCollapsed ? (
                 <View style={styles.aiSummaryBar}>
                   <TouchableOpacity
                     style={styles.aiSummaryToggle}
-                    onPress={() => setAiCardOpen((open) => !open)}
+                    onPress={() => {
+                      setAiDetailsOpen(true);
+                      setAiCardOpen(true);
+                    }}
                     accessibilityRole="button"
-                    accessibilityState={{ expanded: aiCardOpen }}
+                    accessibilityState={{ expanded: false }}
                     accessibilityLabel={aiSummaryLabel}
                   >
-                    <Ionicons
-                      name={aiCardOpen ? 'chevron-down' : 'chevron-forward'}
-                      size={16}
-                      color={colors.textSecondary}
-                    />
+                    <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                     <Text style={styles.aiSummaryText} numberOfLines={1}>
                       {aiSummaryLabel}
                     </Text>
                   </TouchableOpacity>
-                  {aiCardCollapsed ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      {drafting ? (
-                        <ActivityIndicator size="small" color="#007AFF" accessibilityLabel="Drafting reply" />
-                      ) : null}
-                      <TouchableOpacity
-                        style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
-                        onPress={() => void generate()}
-                        disabled={drafting || busy || !sendReady}
-                        accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
-                      >
-                        <Text style={styles.generateBtnText}>{drafting ? 'Drafting' : 'Generate'}</Text>
-                      </TouchableOpacity>
-                    </View>
+                  {drafting ? (
+                    <ActivityIndicator size="small" color="#007AFF" accessibilityLabel="Drafting reply" />
                   ) : null}
+                  <TouchableOpacity
+                    style={[styles.generateBtn, { opacity: drafting || busy ? 0.5 : 1 }]}
+                    onPress={() => void generate()}
+                    disabled={drafting || busy || !sendReady}
+                    accessibilityLabel={drafting ? 'Drafting reply' : 'Generate'}
+                  >
+                    <Text style={styles.generateBtnText}>{drafting ? 'Drafting' : 'Generate'}</Text>
+                  </TouchableOpacity>
                 </View>
-              ) : null}
-              {!aiCardCollapsed && aiDetailsOpen ? (
+              ) : (
               <>
+              <TouchableOpacity
+                style={styles.aiSummaryBar}
+                onPress={() => {
+                  setAiDetailsOpen(false);
+                  setAiCardOpen(false);
+                }}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: true }}
+                accessibilityLabel={aiSummaryLabel}
+              >
+                <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+                <Text style={styles.aiSummaryText} numberOfLines={1}>
+                  {aiSummaryLabel}
+                </Text>
+              </TouchableOpacity>
               {(analysis || analysisLoading || grabdocsResearchOn) ? (
                 <View style={styles.insight}>
                   {grabdocsResearchOn ? (
@@ -1857,9 +1869,6 @@ export default function EmailThreadScreen() {
                 }}
                 editable={!drafting && !busy}
               />
-              </>
-              ) : null}
-              {!aiCardCollapsed ? (
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={[styles.toneSelect, (drafting || busy) && { opacity: 0.5 }]}
@@ -1902,19 +1911,14 @@ export default function EmailThreadScreen() {
                   </TouchableOpacity>
                 </View>
               </View>
-              ) : null}
+              </>
+              )}
               </>
               ) : null}
             </View>
 
             {composing && draft ? (
-              <View style={[styles.composer, (aiCardCollapsed || !aiDetailsOpen) && { flex: 1 }]}>
-                {suggestedReply ? (
-                  <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>
-                    AI prepared a suggested reply — review before sending.
-                  </Text>
-                ) : null}
-                <View style={styles.composeHeaderSection}>
+              <View style={styles.composeHeaderSection}>
                   <TouchableOpacity
                     onPress={() => setHeadersOpen((v) => !v)}
                     style={styles.composeHeaderToggle}
@@ -2052,7 +2056,16 @@ export default function EmailThreadScreen() {
                     </View>
                   ) : null}
                 </View>
-                <View style={[{ position: 'relative' }, (aiCardCollapsed || !aiDetailsOpen) && { flex: 1 }]}>
+            ) : null}
+          </ScrollView>
+          {composing && draft ? (
+            <View style={[styles.composer, composeFill && { flex: 1, minHeight: 0 }]}>
+              {suggestedReply ? (
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginBottom: 4 }}>
+                  AI prepared a suggested reply — review before sending.
+                </Text>
+              ) : null}
+                <View style={[{ position: 'relative' }, composeFill && { flex: 1, minHeight: 0 }]}>
                   {drafting && !workspaceGenerating ? (
                     <View
                       style={{
@@ -2071,11 +2084,9 @@ export default function EmailThreadScreen() {
                   <TextInput
                     style={[
                       styles.input,
-                      !aiDetailsOpen || aiCardCollapsed
-                        ? { flex: 1, minHeight: keyboardOpen ? 120 : Math.round(windowHeight * 0.42) }
-                        : composeFullscreen
-                          ? { minHeight: 160 }
-                          : styles.inputCollapsed,
+                      composeFill
+                        ? { flex: 1, minHeight: 120 }
+                        : styles.inputCollapsed,
                       drafting ? { opacity: 0.45 } : null,
                     ]}
                     value={body}
@@ -2094,7 +2105,6 @@ export default function EmailThreadScreen() {
                       setAiDetailsOpen(false);
                       setHeadersOpen(false);
                       if (Platform.OS !== 'web') setComposeFullscreen(true);
-                      scrollFocusedInputSoon();
                     }}
                     onContentSizeChange={() => {
                       if (keyboardOpen) scrollFocusedInputSoon();
@@ -2145,7 +2155,6 @@ export default function EmailThreadScreen() {
                 )}
               </View>
             ) : null}
-          </ScrollView>
           {composing && draft ? (
             <View style={[styles.composeFooter, { paddingBottom: keyboardOpen ? 0 : 4 }]}>
               <View style={styles.tools}>
@@ -2174,6 +2183,7 @@ export default function EmailThreadScreen() {
                       setDraft(null);
                       setComposing(false);
                       setComposeFullscreen(false);
+                      setAiDetailsOpen(true);
                       setSuggestedReply(false);
                       if (isNewCompose) router.back();
                     } catch (e: any) {
