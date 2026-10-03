@@ -7332,6 +7332,7 @@ export default function ChatsScreen() {
     }
   };
 
+  /** Send/export the chat transcript. Not an access change. */
   const handleShareConversation = async () => {
     if (!selectedChat || messages.length === 0) return;
     const now = new Date();

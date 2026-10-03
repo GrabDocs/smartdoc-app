@@ -11,7 +11,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -29,6 +28,8 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createUploadLinkShareAdapter } from '../../components/share/resourceAdapters';
 
 interface UploadLink {
   id: number;
@@ -66,6 +67,7 @@ export default function UploadLinksScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [accessLinkId, setAccessLinkId] = useState<number | null>(null);
   const [selectedLink, setSelectedLink] = useState<UploadLink | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const [searchInput, setSearchInput] = useState('');
@@ -206,33 +208,8 @@ export default function UploadLinksScreen() {
     router.push(`/upload-links/${link.id}`);
   };
 
-  const doShare = async (link: UploadLink) => {
-    const fullUrl = buildUploadLinkUrl(link.token || link.url);
-    if (!fullUrl) {
-      Alert.alert('Error', 'This file request has no shareable link yet');
-      return;
-    }
-    const message = `Upload files using this link: ${fullUrl}\n\nLink: ${link.name}\n${link.description ? `Description: ${link.description}` : ''}`;
-    if (Platform.OS === 'ios' || Platform.OS === 'android') {
-      await Share.share({
-        message,
-        url: fullUrl,
-        title: `Upload Link: ${link.name}`,
-      });
-      return;
-    }
-    // Web / desktop: no native share sheet — copy instead so the action still works
-    Clipboard.setString(fullUrl);
-    Alert.alert('Link copied', 'The upload link was copied to your clipboard.');
-  };
-
-  const handleShareLink = async (link: UploadLink) => {
-    try {
-      await doShare(link);
-    } catch (error: any) {
-      console.error('Share error:', error);
-      Alert.alert('Error', error?.message || 'Failed to share upload link');
-    }
+  const handleShareLink = (link: UploadLink) => {
+    setAccessLinkId(link.id);
   };
 
   const handleToggleActive = async (link: UploadLink) => {
@@ -850,6 +827,11 @@ export default function UploadLinksScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+      <ShareAccessSheet
+        visible={accessLinkId != null}
+        adapter={accessLinkId != null ? createUploadLinkShareAdapter(accessLinkId) : null}
+        onClose={() => setAccessLinkId(null)}
+      />
     </SafeAreaView>
   );
 }

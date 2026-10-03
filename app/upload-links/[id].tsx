@@ -10,7 +10,6 @@ import {
   Modal,
   Platform,
   RefreshControl,
-  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -33,6 +32,8 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createUploadLinkShareAdapter } from '../../components/share/resourceAdapters';
 
 interface UploadLink {
   id: number;
@@ -72,6 +73,7 @@ export default function UploadLinkDetailsScreen() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
   const [uploadLink, setUploadLink] = useState<UploadLink | null>(null);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [shareModalVisible, setShareModalVisible] = useState(false);
@@ -87,7 +89,7 @@ export default function UploadLinkDetailsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [togglingActive, setTogglingActive] = useState(false);
 
-  const linkId = Number(id);
+  const linkId = Number(Array.isArray(id) ? id[0] : id);
   const detailCacheKey = uploadLinkDetailScreenKey(user?.id, linkId);
 
   const invalidateUploadLinkCaches = useCallback(() => {
@@ -213,24 +215,9 @@ export default function UploadLinkDetailsScreen() {
     );
   };
 
-  const handleShareLink = async () => {
+  const handleShareLink = () => {
     if (!uploadLink) return;
-    
-    try {
-      const fullUrl = getFullUrl(uploadLink.url);
-      const codeLine = uploadLink.upload_code ? `\n\nOr enter upload code: ${uploadLink.upload_code} at ${getUploadToBaseUrl()}` : '';
-      const message = `Upload files using this link: ${fullUrl}${codeLine}\n\nLink: ${uploadLink.name}\n${uploadLink.description ? `Description: ${uploadLink.description}` : ''}`;
-      
-      if (Platform.OS === 'ios' || Platform.OS === 'android') {
-        await Share.share({
-          message,
-          url: fullUrl,
-          title: `Upload Link: ${uploadLink.name}`,
-        });
-      }
-    } catch (error) {
-      console.error('Share error:', error);
-    }
+    setAccessOpen(true);
   };
 
   const handleEmailShare = () => {
@@ -1199,7 +1186,12 @@ export default function UploadLinkDetailsScreen() {
         </SafeAreaView>
       </Modal>
       ) : null}
-      
+      <ShareAccessSheet
+        visible={accessOpen && Number.isFinite(linkId)}
+        adapter={Number.isFinite(linkId) ? createUploadLinkShareAdapter(linkId) : null}
+        onClose={() => setAccessOpen(false)}
+      />
+
       {/* Document Viewer Modal - Same viewer as files, handles decryption via backend */}
       {showDocumentViewer && selectedFile && (
         <DocumentViewer

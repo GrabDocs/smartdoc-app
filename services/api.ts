@@ -1991,7 +1991,7 @@ class ApiService {
   /**
    * Create share link for a file (draft or any file). POST /api/v1/web/files/:id/create-link.
    */
-  async createFileShareLink(fileId: number, options?: { role?: 'viewer' | 'member' | 'admin'; expires_in_days?: number }): Promise<ApiResponse> {
+  async createFileShareLink(fileId: number, options?: { role?: 'viewer' | 'member' | 'admin'; general_access?: 'anyone' | 'restricted'; expires_in_days?: number }): Promise<ApiResponse> {
     const response = await this.client.post(`/api/v1/web/files/${fileId}/create-link`, options || {});
     return response.data;
   }
@@ -2010,6 +2010,47 @@ class ApiService {
   /**
    * Get all external shares for a file
    */
+  async listFileDirectShares(fileId: number): Promise<ApiResponse> {
+    const response = await this.client.get(`/api/v1/web/file-sharing/file/${fileId}/shares`);
+    return response.data;
+  }
+
+  async updateFileDirectShareRole(shareId: number, permissions: 'view' | 'download' | 'edit'): Promise<ApiResponse> {
+    const response = await this.client.patch(`/api/v1/web/file-sharing/share/${shareId}`, { permissions });
+    return response.data;
+  }
+
+  async revokeFileDirectShare(shareId: number): Promise<ApiResponse> {
+    const response = await this.client.delete(`/api/v1/web/file-sharing/share/${shareId}/revoke`);
+    return response.data;
+  }
+
+  async updateFileLinkShare(fileId: number, shareId: number, body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin' }): Promise<ApiResponse> {
+    const response = await this.client.patch(`/api/v1/web/files/${fileId}/external-shares/${shareId}`, body);
+    return response.data;
+  }
+
+  async shareFileWithPerson(body: {
+    file_id: number;
+    shared_with_id: number;
+    workspace_id: number;
+    permissions: 'view' | 'download' | 'edit';
+    message?: string;
+  }): Promise<ApiResponse> {
+    const response = await this.client.post(`/api/v1/web/file-sharing/share-file`, body);
+    return response.data;
+  }
+
+  async searchFileShareWorkspaces(): Promise<ApiResponse> {
+    const response = await this.client.get(`/api/v1/web/file-sharing/workspaces/search`);
+    return response.data;
+  }
+
+  async listFileShareWorkspaceUsers(workspaceId: number): Promise<ApiResponse> {
+    const response = await this.client.get(`/api/v1/web/file-sharing/workspace/${workspaceId}/users`);
+    return response.data;
+  }
+
   async getFileExternalShares(fileId: number): Promise<ApiResponse> {
     try {
       const response = await this.client.get(`/api/v1/web/files/${fileId}/external-shares`);

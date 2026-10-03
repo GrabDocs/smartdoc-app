@@ -234,6 +234,7 @@ ${body}
     w.print();
     return;
   }
+  // Send/export: forward the message text. Not an access change.
   void Share.share({ title, message: formatPrintText(m, threadSubject) });
 }
 
@@ -1045,8 +1046,8 @@ export default function EmailThreadScreen() {
           paddingHorizontal: 16,
           paddingTop: 12,
           paddingBottom: 14,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.border,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.isDark ? 'rgba(255,255,255,0.72)' : colors.border,
         },
         toLine: { fontSize: 13, color: colors.textSecondary, marginBottom: 8 },
         collapsedRow: {
@@ -1054,8 +1055,8 @@ export default function EmailThreadScreen() {
           alignItems: 'center',
           paddingHorizontal: 16,
           paddingVertical: 12,
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: colors.border,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.isDark ? 'rgba(255,255,255,0.72)' : colors.border,
         },
         collapsedMain: { flex: 1, minWidth: 0, paddingVertical: 2 },
         collapsedTitle: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 8 },

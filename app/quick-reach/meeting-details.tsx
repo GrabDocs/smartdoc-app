@@ -1793,6 +1793,7 @@ export default function MeetingDetailsScreen() {
     }
   };
 
+  /** Send/export a downloaded meeting asset. Not an access change. */
   const shareAsset = async (asset: MeetingAsset) => {
     try {
       let token: string | null = null;

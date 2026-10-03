@@ -1,5 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createFormShareAdapter } from '../../components/share/resourceAdapters';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -89,6 +91,7 @@ export default function FormBuilderScreen() {
   });
   const [publishing, setPublishing] = useState(false);
   const [shareMenuUrl, setShareMenuUrl] = useState<string | null>(null);
+  const [accessFormId, setAccessFormId] = useState<number | null>(null);
   const [loadingForm, setLoadingForm] = useState(() => {
     const hasFormId = !!(params.formId as string);
     const templateId = params.templateId as string;
@@ -421,36 +424,12 @@ export default function FormBuilderScreen() {
     );
   };
 
-  const handleShareForm = async (formIdToShare: number) => {
-    try {
-      // Try to use cached share URL first, otherwise fetch it
-      let shareUrl = formShareUrl;
-      
-      if (!shareUrl) {
-        // Get the form's share URL from API
-        const formResponse = await apiService.getFormById(formIdToShare) as { form?: any; data?: any };
-        const form = formResponse?.form || formResponse?.data || formResponse;
-        shareUrl = form?.share_url;
-        
-        if (shareUrl) {
-          setFormShareUrl(shareUrl); // Cache it for future use
-        }
-      }
-      
-      if (!shareUrl) {
-        Alert.alert('Error', 'Share URL not available for this form');
-        return;
-      }
-      
-      // Construct the full share URL - use frontend app URL (form page lives at app.grabdocs.com/form/..., not API)
-      const { FRONTEND_URL } = await import('../../constants/Config');
-      const baseUrl = FRONTEND_URL || 'http://localhost:3000';
-      const fullShareUrl = `${baseUrl.replace(/\/$/, '')}/form/${shareUrl}`;
-      setShareMenuUrl(fullShareUrl);
-    } catch (error) {
-      console.error('Failed to get form share URL:', error);
-      Alert.alert('Error', 'Failed to get share link. Please try again.');
+  const handleShareForm = (formIdToShare: number) => {
+    if (!formIdToShare) {
+      Alert.alert('Share', 'Save the form before sharing it.');
+      return;
     }
+    setAccessFormId(formIdToShare);
   };
 
   const shareMenuItems = useMemo((): ActionMenuItem[] => {
@@ -480,21 +459,12 @@ export default function FormBuilderScreen() {
         label: 'Share',
         icon: 'share-outline',
         iconColor: colors.primary,
-        onPress: async () => {
-          // Snapshot values, then return so ActionMenuModal can close first.
-          // Opening Share while the RN Modal is still mounted often fails.
-          const url = fullShareUrl;
-          const title = formData.name;
-          setTimeout(() => {
-            Share.share({
-              message: `Check out this form: ${url}`,
-              url,
-              title,
-            }).catch((error) => {
-              console.error('Failed to share:', error);
-              Alert.alert('Error', 'Failed to open share sheet');
-            });
-          }, 250);
+        onPress: () => {
+          if (!formId) {
+            Alert.alert('Share', 'Save the form before sharing it.');
+            return;
+          }
+          setTimeout(() => setAccessFormId(formId), 250);
         },
       },
     ];
@@ -597,6 +567,7 @@ export default function FormBuilderScreen() {
     }
   };
 
+  /** Send/export form responses as a CSV file. Not an access change. */
   const downloadCSV = async () => {
     if (!params.formId) {
       Alert.alert('Error', 'Form ID not found');
@@ -759,6 +730,7 @@ export default function FormBuilderScreen() {
     }
   };
 
+  /** Send/export form responses as a CSV file. Not an access change. */
   const shareResponses = async () => {
     if (responses.length === 0) {
       Alert.alert('No Responses', 'There are no responses to share yet.');
@@ -1276,6 +1248,11 @@ export default function FormBuilderScreen() {
         message="Choose how you want to share this form:"
         items={shareMenuItems}
         onClose={() => setShareMenuUrl(null)}
+      />
+      <ShareAccessSheet
+        visible={accessFormId != null}
+        adapter={accessFormId != null ? createFormShareAdapter(accessFormId) : null}
+        onClose={() => setAccessFormId(null)}
       />
     </SafeAreaView>
   );

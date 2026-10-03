@@ -334,6 +334,7 @@ export default function SignaturesHubScreen() {
     }
   }, [allHasMoreLocal, hasMore, isAllTab, loadMore, loading, loadingMore]);
 
+  /** Send/export the completed signature PDF. Not an access change. */
   const handleShareFile = useCallback(
     async (fileId: number | string | null | undefined, name: string) => {
       if (fileId == null) {

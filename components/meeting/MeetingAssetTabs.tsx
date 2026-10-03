@@ -7,6 +7,8 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { summarizeMeetingChat } from '../../utils/parseMeetingChat';
 import { parseMeetingTranscript } from '../../utils/parseMeetingTranscript';
 import MeetingChatView from './MeetingChatView';
+import ShareAccessSheet from '../share/ShareAccessSheet';
+import { createFileShareAdapter } from '../share/fileShareAdapter';
 import { shareDocumentFile, shareTextContent } from '../../utils/shareDocumentFile';
 import { buildRecapShareMarkdown } from '../../utils/buildRecapShareMarkdown';
 import MeetingRecapView from './MeetingRecapView';
@@ -70,6 +72,15 @@ export default function MeetingAssetTabs({
     initialTab === 'chat' && !hasChat ? (hasSummary ? 'recap' : 'transcript') : initialTab || (hasSummary ? 'recap' : 'transcript');
   const [tab, setTab] = useState<MeetingRecapTab>(defaultTab);
   const [seekToSeconds, setSeekToSeconds] = useState<number | null>(null);
+  const [accessOpen, setAccessOpen] = useState(false);
+  const accessFile =
+    shareFiles?.packFileId != null
+      ? { id: shareFiles.packFileId, name: shareFiles.packFileName || 'Meeting recap' }
+      : shareFiles?.summaryFileId != null
+        ? { id: shareFiles.summaryFileId, name: shareFiles.summaryFileName || 'Meeting summary' }
+        : shareFiles?.transcriptFileId != null
+          ? { id: shareFiles.transcriptFileId, name: shareFiles.transcriptFileName || 'Meeting transcript' }
+          : null;
 
   const extraSpeakers = useMemo(
     () => parseMeetingTranscript(transcriptContent).speakers.filter((s) => s !== 'Transcript' && s !== 'Speaker'),
@@ -107,6 +118,7 @@ export default function MeetingAssetTabs({
     });
   };
 
+  /** Send/export a copy of the meeting file or text. Access changes use the share sheet. */
   const shareOrFallback = async (
     fileId: number | null | undefined,
     displayName: string,
@@ -220,10 +232,16 @@ export default function MeetingAssetTabs({
         </View>
         {showHeaderActions && (canShare || canAsk) ? (
           <View style={styles.headerActions}>
-            {canShare ? (
-              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn} accessibilityLabel="Share">
+            {canShare && accessFile != null ? (
+              <TouchableOpacity onPress={() => setAccessOpen(true)} style={styles.actionBtn} accessibilityLabel="Share">
                 <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
                 <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canShare ? (
+              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn} accessibilityLabel="Send a copy">
+                <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
+                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Send a copy</Text>
               </TouchableOpacity>
             ) : null}
             {canAsk ? (
@@ -290,6 +308,11 @@ export default function MeetingAssetTabs({
           )}
         </ScrollView>
       )}
+      <ShareAccessSheet
+        visible={accessOpen && accessFile != null}
+        adapter={accessFile ? createFileShareAdapter(accessFile) : null}
+        onClose={() => setAccessOpen(false)}
+      />
     </View>
   );
 }

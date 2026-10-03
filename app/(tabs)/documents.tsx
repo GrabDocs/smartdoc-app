@@ -61,6 +61,8 @@ import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/
 import { sanitizeDisplayFilename } from '../../utils/displayFilename';
 import { removeFileExtension } from '../../utils/fileUtils';
 import { mapFileRowToDocument } from '../../utils/mapFileRowToDocument';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
 import { scaleStyleObject } from '../../utils/styleUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
@@ -329,6 +331,7 @@ export default function QuickFilesScreen() {
   
   // Kebab menu state
   const [showKebabMenu, setShowKebabMenu] = useState(false);
+  const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
   const [selectedDocumentForMenu, setSelectedDocumentForMenu] = useState<Document | null>(null);
   
   // Category selection modal states
@@ -1962,6 +1965,16 @@ export default function QuickFilesScreen() {
   };
 
   const handleShareDocument = () => {
+    if (!selectedDocumentForMenu) return;
+    const doc = selectedDocumentForMenu;
+    setShowKebabMenu(false);
+    const id = Number(doc.id);
+    if (!Number.isFinite(id)) return;
+    setAccessShare({ id, name: doc.name });
+  };
+
+  /** Send/export a copy. Not an access change. */
+  const handleSendCopy = () => {
     if (!selectedDocumentForMenu) return;
     const doc = selectedDocumentForMenu;
     setShowKebabMenu(false);
@@ -3902,6 +3915,11 @@ export default function QuickFilesScreen() {
               <Text style={dynamicStyles.kebabMenuText}>Share</Text>
             </FeedbackTouchable>
 
+            <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleSendCopy}>
+              <Ionicons name="download-outline" size={20} color="#10B981" />
+              <Text style={dynamicStyles.kebabMenuText}>Send a copy</Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={dynamicStyles.kebabMenuItem}
               onPress={handleChatDocument}
@@ -4372,6 +4390,11 @@ export default function QuickFilesScreen() {
         title="Sort options"
         items={sortMenuItems}
         onClose={() => setShowSortMenu(false)}
+      />
+      <ShareAccessSheet
+        visible={accessShare != null}
+        adapter={accessShare ? createFileShareAdapter(accessShare) : null}
+        onClose={() => setAccessShare(null)}
       />
       </TapToToggleHeaderView>
     </SafeAreaView>

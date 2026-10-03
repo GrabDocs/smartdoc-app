@@ -31,6 +31,8 @@ import { apiClient } from '../../services/api';
 import { bookmarkDetailScreenKey, bookmarksListScreenKey } from '../../services/userScopedCache';
 import { formatDateToLocal } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
@@ -92,6 +94,7 @@ export default function BookmarkDetailScreen() {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
   const [showKebabMenu, setShowKebabMenu] = useState(false);
+  const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
   const [selectedDocumentForMenu, setSelectedDocumentForMenu] = useState<Document | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
@@ -374,6 +377,16 @@ export default function BookmarkDetailScreen() {
   };
 
   const handleShareDocument = () => {
+    if (!selectedDocumentForMenu) return;
+    const doc = selectedDocumentForMenu;
+    setShowKebabMenu(false);
+    const id = Number(doc.id);
+    if (!Number.isFinite(id)) return;
+    setAccessShare({ id, name: doc.name });
+  };
+
+  /** Send/export a copy. Not an access change. */
+  const handleSendCopy = () => {
     if (!selectedDocumentForMenu) return;
     const doc = selectedDocumentForMenu;
     setShowKebabMenu(false);
@@ -1261,6 +1274,10 @@ export default function BookmarkDetailScreen() {
               <Ionicons name="share-outline" size={20} color="#10B981" />
               <Text style={dynamicStyles.kebabMenuText}>Share</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleSendCopy}>
+              <Ionicons name="download-outline" size={20} color="#10B981" />
+              <Text style={dynamicStyles.kebabMenuText}>Send a copy</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleChatDocument}>
               <Ionicons name="chatbubble-outline" size={20} color="#4F46E5" />
               <Text style={dynamicStyles.kebabMenuText}>Ask ChatGD</Text>
@@ -1405,6 +1422,11 @@ export default function BookmarkDetailScreen() {
           }}
         />
       )}
+      <ShareAccessSheet
+        visible={accessShare != null}
+        adapter={accessShare ? createFileShareAdapter(accessShare) : null}
+        onClose={() => setAccessShare(null)}
+      />
       </TapToToggleHeaderView>
     </SafeAreaView>
   );

@@ -1344,6 +1344,14 @@ export default function CalendarHomeScreen() {
             />
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => router.push('/calendar/scheduling')}
+            accessibilityLabel="Scheduling"
+            accessibilityRole="button"
+            style={styles.headerIconBtn}
+          >
+            <Ionicons name="link-outline" size={22} color={colors.tint ?? '#007AFF'} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={openCreate}
             accessibilityLabel="New event"
             accessibilityRole="button"

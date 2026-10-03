@@ -1686,6 +1686,7 @@ export default function AnalyticsDashboard() {
     }
   };
 
+  /** Send/export the downloaded report file. Not an access change. */
   const handleShareReport = async () => {
     try {
       const reportType = activeTab === 'receipts' ? 'receipts' : 'invoices';

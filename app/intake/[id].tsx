@@ -12,7 +12,6 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
-  Share,
   StyleSheet,
   Switch,
   Text,
@@ -65,6 +64,8 @@ import { UploadOptionsModal } from '../components/UploadOptionsModal';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createIntakeShareAdapter } from '../../components/share/resourceAdapters';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import { formatRemainingCountdown, parseAsUTC, parseUtcMs } from '../../utils/timeFormatting';
 
@@ -123,6 +124,7 @@ export default function IntakeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [intake, setIntake] = useState<Intake | null>(null);
+  const [accessOpen, setAccessOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -301,18 +303,9 @@ export default function IntakeDetailScreen() {
     Alert.alert('Copied', 'Upload code copied');
   };
 
-  const handleShareLink = async () => {
-    if (!intake?.upload_link?.public_url) return;
-    const fullUrl = getFullPublicUploadUrl(intake.upload_link.public_url);
-    try {
-      await Share.share({
-        message: `Please upload your documents for "${intake.title}" using this link: ${fullUrl}`,
-        url: fullUrl,
-        title: `Upload documents: ${intake.title}`,
-      });
-    } catch (error) {
-      console.error('Share intake link error:', error);
-    }
+  const handleShareLink = () => {
+    if (!intake?.id) return;
+    setAccessOpen(true);
   };
 
   const handleSend = async () => {
@@ -2011,6 +2004,11 @@ export default function IntakeDetailScreen() {
         onCamera={handleUploadFromCamera}
         onGallery={handleUploadFromGallery}
         onLink={handleUploadByLink}
+      />
+      <ShareAccessSheet
+        visible={accessOpen && intake != null}
+        adapter={intake ? createIntakeShareAdapter(intake.id) : null}
+        onClose={() => setAccessOpen(false)}
       />
     </SafeAreaView>
   );

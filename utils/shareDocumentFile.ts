@@ -122,6 +122,7 @@ function stableShareUri(fileId: string | number, filename: string): string {
   return `${cacheDirOrThrow()}${SHARE_CACHE_PREFIX}${fileId}_${filename}`;
 }
 
+/** Send/export a file copy through the OS share sheet. This does not change who can access the file. */
 async function presentShareSheet(localUri: string, shareMime: string, displayName: string): Promise<void> {
   if (sharingAvailableCache == null) {
     sharingAvailableCache = await Sharing.isAvailableAsync();
@@ -268,7 +269,7 @@ export function prefetchShareDocumentFile(
   });
 }
 
-/** Download (or reuse cache) and open the native share sheet with a valid local attachment. */
+/** Send/export: download a copy and hand it to the OS share sheet. Access changes use ShareAccessSheet. */
 export async function shareDocumentFile(
   fileId: number | string,
   displayName: string,
@@ -278,7 +279,7 @@ export async function shareDocumentFile(
   await presentShareSheet(prepared.localUri, prepared.mimeType, prepared.displayName);
 }
 
-/** Share already-loaded text (meeting recap JSON, transcript) without a download. */
+/** Send/export already-loaded text. This does not change who can access the resource. */
 export async function shareTextContent(
   displayName: string,
   content: string,
