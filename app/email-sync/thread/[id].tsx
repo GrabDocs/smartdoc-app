@@ -388,8 +388,6 @@ export default function EmailThreadScreen() {
   const autoSuggestCancelledRef = useRef(false);
   const userHasTypedRef = useRef(false);
   const composingRef = useRef(false);
-  /** First load of a thread opens an existing reply draft instead of the one-line peek. */
-  const openedDraftForThreadRef = useRef(false);
   const analyzedForRef = useRef<number | null>(null);
   const draftRef = useRef<EmailDraft | null>(null);
   const threadRef = useRef<EmailThread | null>(null);
@@ -414,7 +412,6 @@ export default function EmailThreadScreen() {
     setOpenMessageIds([]);
     setAiDetailsOpen(true);
     setComposing(false);
-    openedDraftForThreadRef.current = false;
     setCcOpen(false);
     setBccOpen(false);
     autoComposeRef.current = false;
@@ -515,13 +512,7 @@ export default function EmailThreadScreen() {
       if (!before) {
         if (data.draft) {
           const isNew = data.draft.reply_mode === 'new';
-          const firstOpen = !openedDraftForThreadRef.current;
-          openedDraftForThreadRef.current = true;
-          applyDraft(data.draft, isNew || firstOpen, isNew && openComposeMaximizedRef.current);
-          if (firstOpen && !isNew && (data.draft.body_text || '').trim()) {
-            setAiDetailsOpen(false);
-            setAiCardOpen(false);
-          }
+          applyDraft(data.draft, isNew, isNew && openComposeMaximizedRef.current);
         } else {
           setDraft(null);
           setComposing(false);
@@ -1158,14 +1149,24 @@ export default function EmailThreadScreen() {
         fieldInput: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 4 },
         input: {
           minHeight: 140,
-          borderRadius: 18,
-          backgroundColor: colors.surface,
-          paddingHorizontal: 14,
-          paddingVertical: 12,
           color: colors.text,
           fontSize: 16,
-          marginTop: 8,
           textAlignVertical: 'top',
+          ...(Platform.OS === 'web'
+            ? {
+                borderRadius: 18,
+                backgroundColor: colors.surface,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginTop: 8,
+              }
+            : {
+                borderRadius: 0,
+                backgroundColor: 'transparent',
+                paddingHorizontal: 4,
+                paddingVertical: 4,
+                marginTop: 0,
+              }),
         },
         inputCollapsed: { maxHeight: 200 },
         tools: { flexDirection: 'row', alignItems: 'center', marginTop: 0, gap: 0, flexWrap: 'nowrap' },
@@ -1972,6 +1973,7 @@ export default function EmailThreadScreen() {
               setHeadersOpen(false);
               setAiDetailsOpen(false);
               setAiCardOpen(false);
+              if (Platform.OS !== 'web') setComposeFullscreen(true);
             }}
             accessibilityRole="button"
             accessibilityLabel="Open draft reply"
@@ -2366,7 +2368,7 @@ export default function EmailThreadScreen() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         backgroundColor: colors.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.85)',
-                        borderRadius: 12,
+                        borderRadius: Platform.OS === 'web' ? 12 : 0,
                       }}
                     >
                       <ActivityIndicator color="#007AFF" />
