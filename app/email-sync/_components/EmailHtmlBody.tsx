@@ -82,13 +82,9 @@ function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boole
     }
     var leftover = (clone.innerText || clone.textContent || '').replace(/\\s+/g, ' ').trim();
     if (leftover.length < 8) return;
-    function fillKebab(el){
+    function fillDots(el){
       el.textContent = '';
-      for (var k = 0; k < 3; k++) {
-        var d = document.createElement('span');
-        d.textContent = '\\u2022';
-        el.appendChild(d);
-      }
+      el.innerHTML = '<svg viewBox="0 0 512 512" aria-hidden="true"><circle cx="96" cy="256" r="58"/><circle cx="256" cy="256" r="58"/><circle cx="416" cy="256" r="58"/></svg>';
     }
     var wrap = document.createElement('div');
     wrap.id = 'gd-quoted';
@@ -97,7 +93,7 @@ function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boole
     btn.id = 'gd-quote-btn';
     btn.type = 'button';
     btn.className = 'gd-quote-ellipsis';
-    fillKebab(btn);
+    fillDots(btn);
     btn.setAttribute('aria-label', 'Show quoted conversation');
     btn.setAttribute('aria-expanded', 'false');
     function setQuoteOpen(open){
@@ -112,8 +108,8 @@ function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boole
     while (wrap.nextSibling) wrap.appendChild(wrap.nextSibling);
     var endBtn = document.createElement('button');
     endBtn.type = 'button';
-    endBtn.className = 'gd-quote-ellipsis gd-quote-ellipsis-h';
-    endBtn.textContent = '...';
+    endBtn.className = 'gd-quote-ellipsis';
+    fillDots(endBtn);
     endBtn.setAttribute('aria-label', 'Hide quoted conversation');
     wrap.appendChild(endBtn);
     btn.addEventListener('click', function(e){
@@ -204,9 +200,8 @@ table{max-width:100%!important}
 td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
 pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 #gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
-.gd-quote-ellipsis{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 8px;margin:2px 0;min-height:36px;min-width:28px;border:0;background:transparent;color:inherit;cursor:pointer;user-select:none;vertical-align:middle;-webkit-appearance:none;appearance:none}
-.gd-quote-ellipsis span{display:block;font-size:8px;line-height:1;font-weight:700;height:6px}
-.gd-quote-ellipsis-h{display:inline-block;letter-spacing:2px;font-size:20px;font-weight:700;line-height:1;padding:8px 14px 8px 4px;min-width:44px}
+#gd-fit .gd-quote-ellipsis{display:flex;align-items:center;justify-content:flex-start;width:36px;height:32px;margin:8px 0 2px;padding:0;border:0!important;background:transparent!important;color:${fg}!important;cursor:pointer;-webkit-appearance:none;appearance:none}
+#gd-fit .gd-quote-ellipsis svg{display:block;width:22px!important;height:22px!important;max-width:none!important;fill:${fg}!important;background:transparent!important}
 </style></head><body>
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
