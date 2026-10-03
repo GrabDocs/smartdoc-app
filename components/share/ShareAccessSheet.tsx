@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   Modal,
   Platform,
   ScrollView,
@@ -12,7 +13,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
+  type KeyboardEvent,
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { shareErrorMessage, type ShareAccessAdapter, type ShareAccessSnapshot, type ShareRecipient } from './types';
@@ -23,12 +26,27 @@ type Props = {
   onClose: () => void;
 };
 
+function parseShareEmails(raw: string): string[] {
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  for (const part of raw.split(/[,;\s]+/)) {
+    const email = part.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    emails.push(email);
+  }
+  return emails;
+}
+
 /**
  * Renders only the sections this adapter implements.
  * getShareUrl does not imply people, general access, or email.
  */
 export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
   const colors = useThemeColors();
+  const { height: windowHeight } = useWindowDimensions();
   const [snapshot, setSnapshot] = useState<ShareAccessSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -39,7 +57,12 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ShareRecipient[]>([]);
   const [emailDraft, setEmailDraft] = useState('');
+  const [keyboardLift, setKeyboardLift] = useState(0);
   const pendingRef = useRef<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const sheetRef = useRef<View>(null);
+  const emailFocusedRef = useRef(false);
+  const keyboardLiftRef = useRef(0);
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
 
@@ -73,6 +96,7 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
     setActionError(null);
     setQuery('');
     setResults([]);
+    setEmailDraft('');
     setLoading(true);
     adapter
       .getState()
@@ -89,6 +113,46 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
       });
     return () => {
       alive = false;
+    };
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      keyboardLiftRef.current = 0;
+      setKeyboardLift(0);
+      return;
+    }
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const liftSheet = (event: KeyboardEvent) => {
+      const height = event.endCoordinates?.height ?? 0;
+      const screenY = event.endCoordinates?.screenY;
+      const node = sheetRef.current;
+      const apply = (overlap: number) => {
+        keyboardLiftRef.current = overlap;
+        setKeyboardLift(overlap);
+        if (emailFocusedRef.current) {
+          setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50);
+        }
+      };
+      if (!node || typeof screenY !== 'number') {
+        apply(height);
+        return;
+      }
+      node.measureInWindow((_x, y, _w, h) => {
+        const restingBottom = y + h + keyboardLiftRef.current;
+        const overlap = h > 0 && screenY > 0 ? Math.max(0, Math.round(restingBottom - screenY)) : height;
+        apply(overlap);
+      });
+    };
+    const showSub = Keyboard.addListener(showEvent, liftSheet);
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      keyboardLiftRef.current = 0;
+      setKeyboardLift(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
     };
   }, [visible]);
 
@@ -185,6 +249,43 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
     },
     button: { paddingVertical: 12 },
     buttonText: { color: colors.tint, fontSize: 16, fontWeight: '600' },
+    emailInput: {
+      marginTop: 8,
+      minHeight: 72,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      color: colors.text,
+      fontSize: 16,
+    },
+    emailHint: { marginTop: 6 },
+    emailButtonWrap: { paddingHorizontal: 16, paddingBottom: 4 },
+    emailButton: {
+      marginTop: 4,
+      backgroundColor: colors.tint,
+      borderRadius: 10,
+      paddingVertical: 14,
+      alignItems: 'center',
+    },
+    emailButtonDisabled: { opacity: 0.5 },
+    emailButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+    optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 },
+    optionButton: {
+      flexGrow: 1,
+      flexBasis: '28%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 8,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    optionButtonSelected: { backgroundColor: colors.tint, borderColor: colors.tint },
+    optionButtonText: { fontSize: 15, fontWeight: '600', color: colors.text, textAlign: 'center' },
+    optionButtonTextSelected: { color: '#fff' },
     error: { color: '#F87171', fontSize: 14, marginBottom: 8 },
     note: { color: colors.textSecondary, fontSize: 13, marginBottom: 8 },
   });
@@ -192,18 +293,27 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View
+          ref={sheetRef}
+          style={[
+            styles.sheet,
+            keyboardLift > 0 && {
+              marginBottom: keyboardLift,
+              maxHeight: Math.max(280, windowHeight - keyboardLift - 8),
+              paddingBottom: 12,
+            },
+          ]}
+        >
           <View style={styles.header}>
             {manage ? (
               <TouchableOpacity onPress={() => setManage(false)} accessibilityLabel="Back" style={{ padding: 8 }}>
                 <Ionicons name="chevron-back" size={22} color={colors.text} />
               </TouchableOpacity>
-            ) : (
-              <TouchableOpacity onPress={onClose} accessibilityLabel="Close" style={{ padding: 8 }}>
-                <Ionicons name="close" size={22} color={colors.text} />
-              </TouchableOpacity>
-            )}
+            ) : null}
             <Text style={styles.title}>{manage ? 'Manage access' : 'Share'}</Text>
+            <TouchableOpacity onPress={onClose} accessibilityLabel="Close" style={{ padding: 8 }}>
+              <Ionicons name="close" size={22} color={colors.text} />
+            </TouchableOpacity>
           </View>
           {loading ? (
             <ActivityIndicator style={{ margin: 24 }} color={colors.tint} />
@@ -222,7 +332,12 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
               </TouchableOpacity>
             </View>
           ) : (
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.body}>
+            <ScrollView
+              ref={scrollRef}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.body}
+              style={{ flexShrink: 1 }}
+            >
               {snapshot?.title ? <Text style={styles.note}>{snapshot.title}</Text> : null}
               {refreshError ? (
                 <View>
@@ -340,38 +455,60 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
                     <View key={choice.id} style={{ paddingVertical: 12 }}>
                       <Text style={styles.name}>{choice.label}</Text>
                       {choice.detail ? <Text style={styles.detail}>{choice.detail}</Text> : null}
-                      {choice.options.map((option) => {
-                        const selected = option.id === choice.value;
-                        return (
-                          <TouchableOpacity
-                            key={option.id}
-                            disabled={!!pending || selected}
-                            style={styles.row}
-                            onPress={() => {
-                              const apply = () => void run(`${choice.id}-${option.id}`, () => adapter.setChoice!(choice.id, option.id));
-                              if (option.confirm) {
-                                Alert.alert(choice.label, option.confirm, [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { text: 'Continue', style: 'destructive', onPress: apply },
-                                ]);
-                              } else {
-                                apply();
-                              }
-                            }}
-                          >
-                            <Ionicons
-                              name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                              size={18}
-                              color={selected ? colors.tint : colors.textSecondary}
-                              style={{ marginRight: 10 }}
-                            />
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.name}>{option.label}</Text>
-                              {option.detail ? <Text style={styles.detail}>{option.detail}</Text> : null}
-                            </View>
-                          </TouchableOpacity>
-                        );
-                      })}
+                      {choice.id === 'link-role' ? (
+                        <View style={styles.optionRow}>
+                          {choice.options.map((option) => {
+                            const selected = option.id === choice.value;
+                            return (
+                              <TouchableOpacity
+                                key={option.id}
+                                disabled={!!pending || selected}
+                                style={[styles.optionButton, selected && styles.optionButtonSelected]}
+                                onPress={() =>
+                                  void run(`${choice.id}-${option.id}`, () => adapter.setChoice!(choice.id, option.id))
+                                }
+                              >
+                                <Text style={[styles.optionButtonText, selected && styles.optionButtonTextSelected]}>
+                                  {option.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      ) : (
+                        choice.options.map((option) => {
+                          const selected = option.id === choice.value;
+                          return (
+                            <TouchableOpacity
+                              key={option.id}
+                              disabled={!!pending || selected}
+                              style={styles.row}
+                              onPress={() => {
+                                const apply = () => void run(`${choice.id}-${option.id}`, () => adapter.setChoice!(choice.id, option.id));
+                                if (option.confirm) {
+                                  Alert.alert(choice.label, option.confirm, [
+                                    { text: 'Cancel', style: 'cancel' },
+                                    { text: 'Continue', style: 'destructive', onPress: apply },
+                                  ]);
+                                } else {
+                                  apply();
+                                }
+                              }}
+                            >
+                              <Ionicons
+                                name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                                size={18}
+                                color={selected ? colors.tint : colors.textSecondary}
+                                style={{ marginRight: 10 }}
+                              />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.name}>{option.label}</Text>
+                                {option.detail ? <Text style={styles.detail}>{option.detail}</Text> : null}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })
+                      )}
                     </View>
                   ))
                 : null}
@@ -389,37 +526,58 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
               ) : null}
               {showEmail ? (
                 <View>
+                  <Text style={styles.name}>Email the link</Text>
                   <TextInput
                     value={emailDraft}
-                    onChangeText={setEmailDraft}
-                    placeholder="Email the link"
+                    onChangeText={(value) => {
+                      setEmailDraft(value);
+                      if (emailFocusedRef.current && keyboardLiftRef.current > 0) {
+                        setTimeout(() => scrollRef.current?.scrollToEnd({ animated: false }), 30);
+                      }
+                    }}
+                    placeholder="name@email.com, another@email.com"
                     placeholderTextColor={colors.textSecondary}
-                    style={styles.input}
+                    style={styles.emailInput}
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    multiline
+                    textAlignVertical="top"
+                    blurOnSubmit={false}
                     editable={!pending}
+                    onFocus={() => {
+                      emailFocusedRef.current = true;
+                      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
+                    }}
+                    onBlur={() => {
+                      emailFocusedRef.current = false;
+                    }}
                   />
-                  <TouchableOpacity
-                    style={styles.button}
-                    disabled={!!pending}
-                    onPress={() =>
-                      void run('email', async () => {
-                        const emails = emailDraft
-                          .split(/[,\s]+/)
-                          .map((item) => item.trim())
-                          .filter((item) => item.includes('@'));
-                        if (!emails.length) throw new Error('Enter at least one email address.');
-                        await adapter!.sendLinkEmail!(emails);
-                        setEmailDraft('');
-                      })
-                    }
-                  >
-                    <Text style={styles.buttonText}>Email link</Text>
-                  </TouchableOpacity>
+                  <Text style={[styles.detail, styles.emailHint]}>
+                    Separate multiple addresses with commas or new lines.
+                  </Text>
                 </View>
               ) : null}
               {pending ? <ActivityIndicator color={colors.tint} style={{ marginTop: 8 }} /> : null}
             </ScrollView>
           )}
+          {!loading && !loadError && showEmail ? (
+            <View style={styles.emailButtonWrap}>
+              <TouchableOpacity
+                style={[styles.emailButton, (!!pending || !emailDraft.trim()) && styles.emailButtonDisabled]}
+                disabled={!!pending || !emailDraft.trim()}
+                onPress={() =>
+                  void run('email', async () => {
+                    const emails = parseShareEmails(emailDraft);
+                    if (!emails.length) throw new Error('Enter at least one email address.');
+                    await adapter!.sendLinkEmail!(emails);
+                    setEmailDraft('');
+                  })
+                }
+              >
+                <Text style={styles.emailButtonText}>{pending === 'email' ? 'Sending…' : 'Email link'}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
         </View>
       </View>
     </Modal>

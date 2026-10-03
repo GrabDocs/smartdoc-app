@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { FeedbackTouchable } from './FeedbackTouchable';
@@ -174,7 +175,6 @@ export default function MfaVerificationSheet({
       presentationStyle="overFullScreen"
     >
       <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
@@ -189,6 +189,12 @@ export default function MfaVerificationSheet({
               },
             ]}
           >
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.title, { color: colors.text, flex: 1 }]}>Verify your identity</Text>
+              <Pressable onPress={onClose} accessibilityLabel="Close" hitSlop={8} style={styles.closeBtn}>
+                <Ionicons name="close" size={22} color={colors.text} />
+              </Pressable>
+            </View>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="interactive"
@@ -196,7 +202,6 @@ export default function MfaVerificationSheet({
               contentContainerStyle={styles.scrollContent}
               bounces={false}
             >
-              <Text style={[styles.title, { color: colors.text }]}>Verify your identity</Text>
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                 Confirm it’s you to {purposeLabels[purpose]}.
               </Text>
@@ -311,9 +316,16 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 12,
     maxHeight: '88%',
   },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  closeBtn: { padding: 4 },
   scrollContent: {
     paddingBottom: 8,
   },

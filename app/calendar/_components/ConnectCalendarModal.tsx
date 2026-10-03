@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GoogleLogo } from '../../../components/GoogleLogo';
 import { MicrosoftLogo } from '../../../components/MicrosoftLogo';
@@ -161,7 +161,7 @@ export function ConnectCalendarModal({
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.wrap}>
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={onClose} accessibilityLabel="Close" />
+        <View style={StyleSheet.absoluteFillObject} />
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.header}>

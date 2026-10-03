@@ -206,7 +206,7 @@ export default function PendingTasksModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={modalScrimOverlayStyle(colors.isDark, styles.overlay)}>
-        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <View style={StyleSheet.absoluteFill} />
         <View
           style={[
             styles.sheet,

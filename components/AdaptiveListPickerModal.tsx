@@ -4,7 +4,6 @@ import {
   Keyboard,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -225,7 +224,7 @@ export default function AdaptiveListPickerModal({
     >
       <View style={styles.root}>
         <Animated.View pointerEvents="none" style={[styles.scrim, backdropStyle]} />
-        <Pressable style={StyleSheet.absoluteFill} onPress={requestClose} accessibilityLabel="Close" />
+        <View style={StyleSheet.absoluteFill} />
         <View style={styles.layout} pointerEvents="box-none">
           <Animated.View style={[styles.card, contentAnimStyle]}>
             <View style={styles.header}>

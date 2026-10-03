@@ -297,11 +297,15 @@ export default function MinimizableBottomSheet({
     // above the minimized strip so users can interact with the background screen.
     <View style={styles.root} pointerEvents="box-none">
       {!minimized ? (
-        <Pressable
-          style={styles.backdrop}
-          onPress={minimizable ? minimizeSheet : handleClose}
-          accessibilityLabel={minimizable ? 'Minimize' : 'Close'}
-        />
+        minimizable ? (
+          <Pressable
+            style={styles.backdrop}
+            onPress={minimizeSheet}
+            accessibilityLabel="Minimize"
+          />
+        ) : (
+          <View style={styles.backdrop} />
+        )
       ) : null}
       <Animated.View
         pointerEvents={minimized ? 'box-none' : 'auto'}

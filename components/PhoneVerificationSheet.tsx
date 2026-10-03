@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import PhoneNumberInput from './PhoneNumberInput';
@@ -175,7 +176,6 @@ export default function PhoneVerificationSheet({
       presentationStyle="overFullScreen"
     >
       <View style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
@@ -190,14 +190,8 @@ export default function PhoneVerificationSheet({
               },
             ]}
           >
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="interactive"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.scrollContent}
-              bounces={false}
-            >
-              <Text style={[styles.title, { color: colors.text }]}>
+            <View style={styles.sheetHeader}>
+              <Text style={[styles.title, { color: colors.text, flex: 1 }]}>
                 {step === 'phone'
                   ? mode === 'change'
                     ? 'Change phone'
@@ -206,6 +200,17 @@ export default function PhoneVerificationSheet({
                       : 'Add phone'
                   : 'Enter verification code'}
               </Text>
+              <Pressable onPress={onClose} accessibilityLabel="Close" hitSlop={8} style={styles.closeBtn}>
+                <Ionicons name="close" size={22} color={colors.text} />
+              </Pressable>
+            </View>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              bounces={false}
+            >
               <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                 {step === 'phone'
                   ? mode === 'change'
@@ -319,9 +324,16 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 12,
     maxHeight: '92%',
   },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  closeBtn: { padding: 4 },
   scrollContent: {
     gap: 12,
     paddingBottom: 8,
