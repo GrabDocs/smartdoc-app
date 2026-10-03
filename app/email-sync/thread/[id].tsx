@@ -8,15 +8,18 @@ import {
     Alert,
     AppState,
     BackHandler,
+    Dimensions,
     Keyboard,
     LayoutAnimation,
     Modal,
     Platform,
     ScrollView,
+    Share,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     useWindowDimensions,
     View,
 } from 'react-native';
@@ -34,6 +37,7 @@ import {
     addDraftAttachmentFile,
     addDraftAttachmentFileId,
     analyzeMailboxThread,
+    composeMailboxEmail,
     deleteDraftAttachment,
     deleteMailboxDraft,
     dismissMailboxThread,
@@ -82,6 +86,10 @@ import { emailsFromAddressText, RecipientAddressField } from '../_components/Rec
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../../utils/chatTitleDisplay';
+import {
+    anchoredPopoverCardStyle,
+    anchoredPopoverOverlayStyle,
+} from '../../../utils/dialogSurfaceStyles';
 import { formatRemainingCountdown } from '../../../utils/timeFormatting';
 import { emailSyncClearUndo, emailSyncSetUndo, useEmailSyncUndo } from '../_components/emailSyncCache';
 
@@ -111,25 +119,122 @@ function isPdfMimeOrName(mime: string, name: string) {
   return /\.pdf$/i.test(name || '');
 }
 
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function messagePlainBody(m: EmailMessage): string {
+  if ((m.body_text || '').trim()) return (m.body_text || '').trim();
+  return htmlToPlain(m.body_html || '').replace(/\s+\n/g, '\n').trim();
+}
+
 function messagePreviewText(m: EmailMessage): string {
-  let text = m.body_text || '';
-  if (!text.trim() && m.body_html) {
-    text = m.body_html
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/gi, ' ')
-      .replace(/&amp;/gi, '&')
-      .replace(/&#39;|&apos;/gi, "'")
-      .replace(/&quot;/gi, '"')
-      .replace(/&lt;/gi, '<')
-      .replace(/&gt;/gi, '>');
-  }
+  const text = messagePlainBody(m);
   const line = text
     .split('\n')
     .map((l) => l.trim())
     .find((l) => l.length > 0 && !l.startsWith('>'));
   return (line || text).replace(/\s+/g, ' ').trim();
+}
+
+function fwdSubject(subject?: string | null): string {
+  const s = (subject || '').trim() || '(no subject)';
+  return /^fwd:\s/i.test(s) ? s : `Fwd: ${s}`;
+}
+
+function formatMessageDateLong(iso?: string | null): string {
+  if (!iso) return '';
+  const raw = iso.trim();
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  const d = new Date(hasZone ? raw : `${raw}Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatForwardedBody(m: EmailMessage, threadSubject?: string | null): string {
+  const lines = ['', '---------- Forwarded message ---------', `From: ${m.from_address || ''}`];
+  const when = formatMessageDateLong(m.provider_received_at);
+  if (when) lines.push(`Date: ${when}`);
+  lines.push(`Subject: ${m.subject || threadSubject || '(no subject)'}`);
+  const to = (m.to_addresses || []).join(', ');
+  if (to) lines.push(`To: ${to}`);
+  const cc = (m.cc_addresses || []).join(', ');
+  if (cc) lines.push(`Cc: ${cc}`);
+  lines.push('', messagePlainBody(m));
+  return lines.join('\n');
+}
+
+function escapeHtmlText(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function formatPrintText(m: EmailMessage, threadSubject?: string | null): string {
+  const lines = [
+    m.subject || threadSubject || 'Email',
+    '',
+    `From: ${m.from_address || ''}`,
+  ];
+  const to = (m.to_addresses || []).join(', ');
+  if (to) lines.push(`To: ${to}`);
+  const when = formatMessageDateLong(m.provider_received_at);
+  if (when) lines.push(`Date: ${when}`);
+  lines.push('', messagePlainBody(m));
+  return lines.join('\n');
+}
+
+function printEmailMessage(m: EmailMessage, threadSubject?: string | null) {
+  const title = m.subject || threadSubject || 'Email';
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    const rawHtml = (m.body_html || '').trim();
+    const body = rawHtml
+      ? rawHtml
+          .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+          .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
+      : `<pre style="white-space:pre-wrap;font-family:system-ui">${escapeHtmlText(m.body_text || '')}</pre>`;
+    const when = formatMessageDateLong(m.provider_received_at);
+    const html = `<!DOCTYPE html><html><head><title>${escapeHtmlText(title)}</title>
+<meta charset="utf-8"/>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;padding:24px;color:#111}
+.meta{color:#555;font-size:13px;margin:0 0 16px}
+img,table{max-width:100%}
+</style></head><body>
+<h1 style="font-size:18px">${escapeHtmlText(title)}</h1>
+<div class="meta">From: ${escapeHtmlText(m.from_address || '')}<br/>
+${m.to_addresses?.length ? `To: ${escapeHtmlText(m.to_addresses.join(', '))}<br/>` : ''}
+${when ? escapeHtmlText(when) : ''}
+</div>
+${body}
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+    return;
+  }
+  void Share.share({ title, message: formatPrintText(m, threadSubject) });
 }
 
 function messageToLine(m: EmailMessage): string {
@@ -190,6 +295,9 @@ export default function EmailThreadScreen() {
   const [ccOpen, setCcOpen] = useState(false);
   const [bccOpen, setBccOpen] = useState(false);
   const [attachMenu, setAttachMenu] = useState(false);
+  const [msgMenuVisible, setMsgMenuVisible] = useState(false);
+  const [msgMenuAnchor, setMsgMenuAnchor] = useState({ top: 0, right: 0 });
+  const lastKebabRef = useRef<View>(null);
   const [toneMenu, setToneMenu] = useState(false);
   const [gdOpen, setGdOpen] = useState(false);
   const [fullscreenMessage, setFullscreenMessage] = useState<EmailMessage | null>(null);
@@ -589,7 +697,7 @@ export default function EmailThreadScreen() {
   useEffect(() => {
     const t = setTimeout(syncKeyboardState, 450);
     return () => clearTimeout(t);
-  }, [attachMenu, toneMenu, gdOpen, viewerFileId, directPreview, syncKeyboardState]);
+  }, [attachMenu, msgMenuVisible, toneMenu, gdOpen, viewerFileId, directPreview, syncKeyboardState]);
 
   const onRootLayout = useCallback(() => {
     // Keep the measured bottom fresh. Do not rewrite kbInset here: paddingBottom changes this
@@ -915,20 +1023,14 @@ export default function EmailThreadScreen() {
         collapsedWhen: { marginLeft: 'auto', fontSize: 13, color: colors.textSecondary, flexShrink: 0 },
         snippet: { marginTop: 2, fontSize: 13, color: colors.textSecondary },
         stackCountOnLine: {
-          height: 32,
-          marginTop: -16,
-          marginBottom: -16,
           zIndex: 2,
           justifyContent: 'center',
         },
         stackCount: {
-          position: 'absolute',
-          left: 16,
-          top: 0,
-          minWidth: 32,
-          height: 32,
+          marginLeft: 16,
+          minWidth: 28,
           paddingHorizontal: 6,
-          borderRadius: 16,
+          borderRadius: 8,
           borderWidth: 1,
           borderColor: colors.isDark ? '#71717A' : '#D1D5DB',
           alignItems: 'center',
@@ -1023,6 +1125,7 @@ export default function EmailThreadScreen() {
           backgroundColor: colors.background,
           paddingHorizontal: 4,
           paddingTop: 0,
+          flexShrink: 0,
         },
         sectionPeek: {
           paddingHorizontal: 16,
@@ -1215,6 +1318,20 @@ export default function EmailThreadScreen() {
           flexDirection: 'row',
           alignItems: 'center',
         },
+        popoverOverlay: anchoredPopoverOverlayStyle(colors.isDark),
+        popoverCard: anchoredPopoverCardStyle(colors, colors.isDark, { minWidth: 180 }),
+        popoverItem: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingVertical: 13,
+          paddingHorizontal: 16,
+        },
+        popoverItemBorder: {
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        popoverItemIcon: { marginRight: 12 },
+        popoverItemText: { fontSize: 16, color: colors.text, flex: 1 },
       }),
     [colors]
   );
@@ -1360,6 +1477,83 @@ export default function EmailThreadScreen() {
     </TouchableOpacity>
   );
 
+  const lastMessage = messages[messages.length - 1] ?? null;
+
+  const openLastMessageMenu = useCallback(() => {
+    lastKebabRef.current?.measureInWindow((x, y, w, h) => {
+      const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+      const menuH = 112;
+      const below = y + h + 6;
+      const top = below + menuH > screenHeight - 12 ? Math.max(8, y - menuH - 6) : below;
+      setMsgMenuAnchor({ top, right: Math.max(8, screenWidth - x - w) });
+      setMsgMenuVisible(true);
+    });
+  }, []);
+
+  const forwardLastMessage = async () => {
+    setMsgMenuVisible(false);
+    if (!lastMessage) return;
+    if (!ws) {
+      Alert.alert('Forward', 'Workspace is required.');
+      return;
+    }
+    try {
+      setBusy(true);
+      try {
+        await persistDraft();
+      } catch {
+        /* still start a new compose */
+      }
+      const subject = fwdSubject(thread?.subject || lastMessage.subject);
+      const res = await composeMailboxEmail({ workspace_id: ws, subject });
+      if (res.draft?.id) {
+        await patchMailboxDraft(res.draft.id, {
+          subject,
+          body_text: formatForwardedBody(lastMessage, thread?.subject),
+          to: [],
+        });
+      }
+      if (res.thread?.id) {
+        router.replace({
+          pathname: '/email-sync/thread/[id]',
+          params: {
+            id: String(res.thread.id),
+            workspaceId: String(ws),
+            filter: 'drafts',
+            compose: '1',
+          },
+        } as any);
+      }
+    } catch (e: any) {
+      Alert.alert('Forward', emailApiError(e, 'Could not start forward'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const printLastMessage = () => {
+    setMsgMenuVisible(false);
+    if (!lastMessage) return;
+    printEmailMessage(lastMessage, thread?.subject);
+  };
+
+  const renderLastMessageKebab = (m: EmailMessage) => {
+    if (lastMessage?.id !== m.id) return null;
+    return (
+      <View ref={lastKebabRef} collapsable={false}>
+        <TouchableOpacity
+          onPress={openLastMessageMenu}
+          style={styles.expandBtn}
+          hitSlop={8}
+          accessibilityLabel="More actions"
+          accessibilityRole="button"
+        >
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   const renderFullMessage = (m: EmailMessage) => {
     const out = m.direction === 'outbound';
     const fromName = out ? 'You' : senderDisplayName(m.from_address) || m.from_address || 'Them';
@@ -1377,6 +1571,7 @@ export default function EmailThreadScreen() {
                 {when}
               </Text>
             </View>
+            {renderLastMessageKebab(m)}
             {renderExpandButton(m)}
           </View>
           <EmailHtmlBody
@@ -1412,9 +1607,10 @@ export default function EmailThreadScreen() {
               {when}
             </Text>
           </TouchableOpacity>
-          {renderExpandButton(m)}
-        </View>
-        {toLine ? (
+            {renderLastMessageKebab(m)}
+            {renderExpandButton(m)}
+          </View>
+          {toLine ? (
           <Text style={styles.toLine} numberOfLines={1}>
             {toLine}
           </Text>
@@ -1464,6 +1660,7 @@ export default function EmailThreadScreen() {
             </Text>
           ) : null}
         </TouchableOpacity>
+        {renderLastMessageKebab(m)}
         {renderExpandButton(m)}
       </View>
     );
@@ -1472,19 +1669,23 @@ export default function EmailThreadScreen() {
   const renderMobileMessage = (m: EmailMessage) =>
     openMessageIds.includes(m.id) ? renderFullMessage(m) : renderCollapsedMessage(m);
 
-  const renderStackCount = (hiddenCount: number) => (
-    <View key="thread-stack-count" style={styles.stackCountOnLine}>
-      <TouchableOpacity
-        style={styles.stackCount}
-        onPress={() => setThreadStackExpanded(true)}
-        hitSlop={10}
-        accessibilityRole="button"
-        accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
-      >
-        <Text style={styles.stackCountText}>{hiddenCount}</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const renderStackCount = (hiddenCount: number) => {
+    const lineH = 22;
+    const height = Math.max(28, Math.min(hiddenCount, 3) * lineH);
+    return (
+      <View key="thread-stack-count" style={[styles.stackCountOnLine, { height, marginVertical: -height / 2 }]}>
+        <TouchableOpacity
+          style={[styles.stackCount, { height }]}
+          onPress={() => setThreadStackExpanded(true)}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel={`Show ${hiddenCount} more ${hiddenCount === 1 ? 'message' : 'messages'}`}
+        >
+          <Text style={styles.stackCountText}>{hiddenCount}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   const renderThreadMessages = () => {
     if (Platform.OS === 'web') return messages.map(renderFullMessage);
@@ -1740,7 +1941,7 @@ export default function EmailThreadScreen() {
             style={[
               styles.composePanel,
               composeFill
-                ? { flex: 1, minHeight: 0 }
+                ? { flex: 1, minHeight: 0, overflow: 'hidden' }
                 : {
                     flexGrow: 0,
                     flexShrink: 0,
@@ -1750,7 +1951,11 @@ export default function EmailThreadScreen() {
           >
           <ScrollView
             ref={composeScrollRef}
-            style={composeFill ? { flexGrow: 0, flexShrink: 1 } : { flexGrow: 0 }}
+            style={
+              composeFill
+                ? { flexGrow: 0, flexShrink: aiCardCollapsed ? 0 : 1, maxHeight: aiCardCollapsed ? undefined : 220 }
+                : { flexGrow: 0, flexShrink: 0 }
+            }
             scrollEventThrottle={16}
             onScroll={(e) => {
               composeScrollYRef.current = e.nativeEvent.contentOffset.y;
@@ -2131,7 +2336,7 @@ export default function EmailThreadScreen() {
                     style={[
                       styles.input,
                       composeFill
-                        ? { flex: 1, minHeight: 120 }
+                        ? { flex: 1, minHeight: 0 }
                         : styles.inputCollapsed,
                       drafting ? { opacity: 0.45 } : null,
                     ]}
@@ -2348,6 +2553,39 @@ export default function EmailThreadScreen() {
         ))}
       </AdaptiveListPickerModal>
       <ActionMenuModal visible={attachMenu} title="Attach" items={attachItems} onClose={() => setAttachMenu(false)} />
+
+      <Modal
+        visible={msgMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMsgMenuVisible(false)}
+      >
+        <View style={styles.popoverOverlay}>
+          <TouchableWithoutFeedback onPress={() => setMsgMenuVisible(false)}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
+          <View style={[styles.popoverCard, { top: msgMenuAnchor.top, right: msgMenuAnchor.right }]}>
+            <TouchableOpacity
+              style={[styles.popoverItem, styles.popoverItemBorder]}
+              onPress={() => void forwardLastMessage()}
+              accessibilityRole="button"
+              accessibilityLabel="Forward"
+            >
+              <Ionicons name="arrow-redo-outline" size={20} color={colors.text} style={styles.popoverItemIcon} />
+              <Text style={styles.popoverItemText}>Forward</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.popoverItem}
+              onPress={printLastMessage}
+              accessibilityRole="button"
+              accessibilityLabel="Print"
+            >
+              <Ionicons name="print-outline" size={20} color={colors.text} style={styles.popoverItemIcon} />
+              <Text style={styles.popoverItemText}>Print</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <GrabDocsAttachPicker
         visible={gdOpen}

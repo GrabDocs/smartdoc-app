@@ -24,12 +24,13 @@ function stripUnsafeHtml(html: string) {
  * Only scale fixed-width HTML (e.g. 600px tables) if it still overflows,
  * and never below minScale so expanded/fullscreen text stays usable.
  */
-function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boolean) {
+function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boolean, collapseQuotes: boolean) {
   return `
 (function(){
   var VIEW = ${viewWidth > 0 ? viewWidth : 0};
   var MIN = ${minScale};
   var REPORT = ${reportHeight ? 'true' : 'false'};
+  var COLLAPSE = ${collapseQuotes ? 'true' : 'false'};
   function fitWidth(){
     var el = document.getElementById('gd-fit');
     var body = document.body;
@@ -58,6 +59,76 @@ function fitWidthScript(viewWidth: number, minScale: number, reportHeight: boole
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'gd-email-height', height: h }));
     }
   }
+  function collapseQuotes(){
+    var root = document.getElementById('gd-fit');
+    if (!COLLAPSE || !root || root.getAttribute('data-gd-q') === '1') return;
+    var sel = 'blockquote,.gmail_quote,.gmail_quote_container,.gmail_extra,.yahoo_quoted,.moz-cite-prefix,.OutlookMessageHeader,.email-quote-block,.email-thread-sep';
+    var start = root.querySelector(sel);
+    if (!start) {
+      var kids = root.children;
+      for (var i = 0; i < kids.length; i++) {
+        var t = (kids[i].innerText || kids[i].textContent || '').replace(/\\s+/g, ' ').trim();
+        if (/^On .{8,160}wrote:?$/i.test(t) || /^-{2,}\\s*(Original Message|Forwarded message)/i.test(t)) {
+          start = kids[i];
+          break;
+        }
+      }
+    }
+    if (!start) return;
+    var clone = root.cloneNode(true);
+    var drop = clone.querySelectorAll(sel);
+    for (var d = 0; d < drop.length; d++) {
+      if (drop[d].parentNode) drop[d].parentNode.removeChild(drop[d]);
+    }
+    var leftover = (clone.innerText || clone.textContent || '').replace(/\\s+/g, ' ').trim();
+    if (leftover.length < 8) return;
+    function fillKebab(el){
+      el.textContent = '';
+      for (var k = 0; k < 3; k++) {
+        var d = document.createElement('span');
+        d.textContent = '\\u2022';
+        el.appendChild(d);
+      }
+    }
+    var wrap = document.createElement('div');
+    wrap.id = 'gd-quoted';
+    wrap.style.display = 'none';
+    var btn = document.createElement('button');
+    btn.id = 'gd-quote-btn';
+    btn.type = 'button';
+    btn.className = 'gd-quote-ellipsis';
+    fillKebab(btn);
+    btn.setAttribute('aria-label', 'Show quoted conversation');
+    btn.setAttribute('aria-expanded', 'false');
+    function setQuoteOpen(open){
+      wrap.style.display = open ? 'block' : 'none';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.setAttribute('aria-label', open ? 'Hide quoted conversation' : 'Show quoted conversation');
+      fitWidth();
+    }
+    var parent = start.parentNode;
+    parent.insertBefore(btn, start);
+    parent.insertBefore(wrap, start);
+    while (wrap.nextSibling) wrap.appendChild(wrap.nextSibling);
+    var endBtn = document.createElement('button');
+    endBtn.type = 'button';
+    endBtn.className = 'gd-quote-ellipsis';
+    fillKebab(endBtn);
+    endBtn.setAttribute('aria-label', 'Hide quoted conversation');
+    wrap.appendChild(endBtn);
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      setQuoteOpen(wrap.style.display === 'none');
+    });
+    endBtn.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      setQuoteOpen(false);
+    });
+    root.setAttribute('data-gd-q', '1');
+  }
+  collapseQuotes();
   fitWidth();
   window.addEventListener('load', fitWidth);
   var imgs = document.getElementsByTagName('img');
@@ -112,7 +183,10 @@ export function EmailHtmlBody({
   const readable = !!(expanded || fill || tall);
   const minScale = fill ? 0.92 : expanded || tall ? 0.88 : 0.8;
   const fontPx = readable ? 18 : 16;
-  const fitJs = useMemo(() => fitWidthScript(boxW, minScale, !!plain), [boxW, minScale, plain]);
+  const fitJs = useMemo(
+    () => fitWidthScript(boxW, minScale, !!plain, !!plain && !fill),
+    [boxW, minScale, plain, fill]
+  );
   const sourceHtml = useMemo(() => {
     const raw = (html || '').trim();
     const inner = raw
@@ -130,6 +204,8 @@ table{max-width:100%!important}
 td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
 pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 #gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
+.gd-quote-ellipsis{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 8px;margin:2px 0;min-height:36px;min-width:28px;border:0;background:transparent;color:inherit;cursor:pointer;user-select:none;vertical-align:middle;-webkit-appearance:none;appearance:none}
+.gd-quote-ellipsis span{display:block;font-size:8px;line-height:1;font-weight:700;height:6px}
 </style></head><body>
 <div id="gd-fit">${inner}</div>
 <script>${fitJs}</script>
@@ -175,7 +251,8 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
         scrollEnabled={!plain}
         nestedScrollEnabled={!plain}
         bounces={!plain}
-        onMessage={plain ? (e) => {
+        onMessage={(e) => {
+          if (!plain) return;
           try {
             const data = JSON.parse(e.nativeEvent.data);
             if (data?.type === 'gd-email-height' && data.height > 0 && data.height !== contentH) {
@@ -184,7 +261,7 @@ pre,code{white-space:pre-wrap!important;word-break:break-word!important}
           } catch {
             /* ignore */
           }
-        } : undefined}
+        }}
         textZoom={readable ? 115 : 105}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"

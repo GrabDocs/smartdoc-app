@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent', // Remove background completely
     borderRadius: 12,
     marginHorizontal: 8,
-    marginTop: -2,
+    marginTop: -10,
     marginBottom: 4,
   },
   compactIndicator: {
