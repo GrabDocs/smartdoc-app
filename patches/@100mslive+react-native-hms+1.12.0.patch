@@ -125,3 +125,23 @@ index 5c1ac2f..6ac8203 100644
  
    @RequiresApi(Build.VERSION_CODES.N)
    override fun receiveCommand(
+diff --git a/node_modules/@100mslive/react-native-hms/src/classes/HMSPeer.ts b/node_modules/@100mslive/react-native-hms/src/classes/HMSPeer.ts
+index ad825c3..e64ffcf 100644
+--- a/node_modules/@100mslive/react-native-hms/src/classes/HMSPeer.ts
++++ b/node_modules/@100mslive/react-native-hms/src/classes/HMSPeer.ts
+@@ -248,10 +248,13 @@ export class HMSPeer {
+           'metadata'
+         );
+ 
+-    if (value) {
++    // Always take an explicit string, including "" and {"isBRBOn":false}.
++    // Falling back to the previous string kept BRB stuck on after "I'm Back".
++    if (typeof value === 'string') {
+       this._updateMetadata(value);
++      return value;
+     }
+-    return value ?? this._metadata;
++    return this._metadata;
+   }
+ 
+   /**

@@ -1,3 +1,413 @@
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx
+new file mode 100644
+index 0000000..89f5c5a
+--- /dev/null
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx
+@@ -0,0 +1,68 @@
++import * as React from 'react';
++import { Animated, StyleSheet, View } from 'react-native';
++
++import { emojiGlyph, subscribeEmojiReactions } from '../utils/emojiReactions';
++
++type Item = {
++  id: number;
++  glyph: string;
++  anim: Animated.Value;
++  left: number;
++};
++
++let nextId = 1;
++
++export const FlyingEmoji = () => {
++  const [items, setItems] = React.useState<Item[]>([]);
++
++  React.useEffect(() => {
++    return subscribeEmojiReactions(({ emojiId }) => {
++      const id = nextId++;
++      const anim = new Animated.Value(0);
++      const left = 20 + (id % 5) * 52;
++      setItems((prev) => [...prev.slice(-14), { id, glyph: emojiGlyph(emojiId), anim, left }]);
++      Animated.timing(anim, {
++        toValue: 1,
++        duration: 2200,
++        useNativeDriver: true,
++      }).start(() => {
++        setItems((prev) => prev.filter((item) => item.id !== id));
++      });
++    });
++  }, []);
++
++  return (
++    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
++      {items.map((item) => {
++        const translateY = item.anim.interpolate({
++          inputRange: [0, 1],
++          outputRange: [0, -240],
++        });
++        const opacity = item.anim.interpolate({
++          inputRange: [0, 0.15, 0.75, 1],
++          outputRange: [0, 1, 1, 0],
++        });
++        return (
++          <Animated.Text
++            key={item.id}
++            pointerEvents="none"
++            style={[
++              styles.emoji,
++              { left: item.left, opacity, transform: [{ translateY }] },
++            ]}
++          >
++            {item.glyph}
++          </Animated.Text>
++        );
++      })}
++    </View>
++  );
++};
++
++const styles = StyleSheet.create({
++  emoji: {
++    position: 'absolute',
++    bottom: 72,
++    fontSize: 36,
++  },
++});
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/Footer.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/Footer.tsx
+index 246301b..4a8cbf0 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/Footer.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/Footer.tsx
+@@ -14,27 +14,21 @@ import {
+ } from '../hooks-util';
+ import { HMSManageLeave } from './HMSManageLeave';
+ import { HMSManageRaiseHand } from './HMSManageRaiseHand';
++import { HMSEmojiReaction } from './HMSEmojiReaction';
+ import { HMSManageLocalAudio } from './HMSManageLocalAudio';
+ import { HMSManageLocalVideo } from './HMSManageLocalVideo';
+ import { HMSChat } from './HMSChat';
+ import { HMSRoomOptions } from './HMSRoomOptions';
+-import {
+-  useCanPublishAudio,
+-  useCanPublishScreen,
+-  useCanPublishVideo,
+-} from '../hooks-sdk';
++import { useCanPublishAudio, useCanPublishVideo } from '../hooks-sdk';
+ 
+ interface FooterProps {}
+ 
+ export const _Footer: React.FC<FooterProps> = () => {
+   const canPublishAudio = useCanPublishAudio();
+   const canPublishVideo = useCanPublishVideo();
+-  const canPublishScreen = useCanPublishScreen();
+   const canShowOptions = useCanShowRoomOptionsButton();
+   const { canShowChat } = useShowChatAndParticipants();
+ 
+-  const isViewer = !(canPublishAudio || canPublishVideo || canPublishScreen);
+-
+   const isOnStage = useHMSLayoutConfig((layoutConfig) => {
+     return !!layoutConfig?.screens?.conferencing?.default?.elements
+       ?.on_stage_exp;
+@@ -44,28 +38,35 @@ export const _Footer: React.FC<FooterProps> = () => {
+     (confScreenConfig) => !!confScreenConfig?.elements?.hand_raise
+   );
+ 
+-  const canShowHandRaiseInFooter = canRaiseHand && !isOnStage && isViewer;
++  // Web shows raise hand for every role with hand_raise, including publishers.
++  const canShowHandRaiseInFooter = canRaiseHand && !isOnStage;
++
++  const canShowEmoji = useHMSConferencingScreenConfig(
++    (confScreenConfig) => !!confScreenConfig?.elements?.emoji_reactions
++  );
+ 
+   const footerActionButtons = useMemo(() => {
+-    const actions = [];
++    const actions = ['leave'];
+ 
+-    if (canShowChat) {
+-      actions.push('chat');
++    if (canPublishAudio) {
++      actions.push('audio');
+     }
+ 
+-    if (canShowHandRaiseInFooter) {
+-      actions.unshift('hand-raise');
++    if (canPublishVideo) {
++      actions.push('video');
+     }
+ 
+-    if (canPublishVideo) {
+-      actions.unshift('video');
++    if (canShowHandRaiseInFooter) {
++      actions.push('hand-raise');
+     }
+ 
+-    if (canPublishAudio) {
+-      actions.unshift('audio');
++    if (canShowEmoji) {
++      actions.push('emoji');
+     }
+ 
+-    actions.unshift('leave');
++    if (canShowChat) {
++      actions.push('chat');
++    }
+ 
+     if (canShowOptions) {
+       actions.push('options');
+@@ -74,6 +75,7 @@ export const _Footer: React.FC<FooterProps> = () => {
+     return actions;
+   }, [
+     canShowHandRaiseInFooter,
++    canShowEmoji,
+     canShowOptions,
+     canShowChat,
+     canPublishAudio,
+@@ -105,6 +107,8 @@ export const _Footer: React.FC<FooterProps> = () => {
+                 <HMSRoomOptions />
+               ) : actionType === 'hand-raise' ? (
+                 <HMSManageRaiseHand />
++              ) : actionType === 'emoji' ? (
++                <HMSEmojiReaction />
+               ) : null}
+             </View>
+           );
+@@ -131,11 +135,11 @@ const styles = StyleSheet.create({
+     paddingHorizontal: 16,
+     flexDirection: 'row',
+     alignItems: 'center',
+-    justifyContent: 'center',
++    justifyContent: 'space-evenly',
+     marginBottom: Platform.OS === 'android' ? 16 : 0, // TODO: need to correct hide animation offsets because of this change
+   },
+   iconWrapper: {
+-    marginLeft: 24,
++    marginLeft: 0,
+   },
+ });
+ 
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/HMSEmojiReaction.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/HMSEmojiReaction.tsx
+new file mode 100644
+index 0000000..773d9d4
+--- /dev/null
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/HMSEmojiReaction.tsx
+@@ -0,0 +1,100 @@
++import * as React from 'react';
++import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
++import { useStore } from 'react-redux';
++import Toast from 'react-native-simple-toast';
++
++import type { RootState } from '../redux';
++import { PressableIcon } from './PressableIcon';
++import {
++  EMOJI_REACTION_IDS,
++  EMOJI_REACTION_TYPE,
++  emojiGlyph,
++  emitEmojiReaction,
++} from '../utils/emojiReactions';
++
++export const HMSEmojiReaction = () => {
++  const [open, setOpen] = React.useState(false);
++  const store = useStore<RootState>();
++
++  const send = async (emojiId: string) => {
++    setOpen(false);
++    const state = store.getState();
++    const senderId = state.hmsStates.localPeer?.peerID;
++    emitEmojiReaction({ emojiId, senderId });
++    const hms = state.user.hmsInstance;
++    if (!hms) return;
++    try {
++      await hms.sendBroadcastMessage(
++        JSON.stringify({ type: EMOJI_REACTION_TYPE, emojiId, senderId }),
++        EMOJI_REACTION_TYPE
++      );
++    } catch (error) {
++      console.log('Emoji reaction failed', error);
++      Toast.show('Could not send reaction');
++    }
++  };
++
++  return (
++    <>
++      <PressableIcon onPress={() => setOpen(true)} accessibilityLabel="Emoji reaction">
++        <Text style={styles.trigger}>😊</Text>
++      </PressableIcon>
++      <Modal
++        visible={open}
++        transparent
++        animationType="fade"
++        onRequestClose={() => setOpen(false)}
++      >
++        <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
++          <Pressable style={styles.card} onPress={() => {}}>
++            <View style={styles.grid}>
++              {EMOJI_REACTION_IDS.map((emojiId) => (
++                <Pressable
++                  key={emojiId}
++                  style={styles.emojiButton}
++                  onPress={() => send(emojiId)}
++                >
++                  <Text style={styles.emoji}>{emojiGlyph(emojiId)}</Text>
++                </Pressable>
++              ))}
++            </View>
++          </Pressable>
++        </Pressable>
++      </Modal>
++    </>
++  );
++};
++
++const styles = StyleSheet.create({
++  trigger: {
++    fontSize: 18,
++  },
++  backdrop: {
++    flex: 1,
++    justifyContent: 'flex-end',
++    backgroundColor: 'rgba(0,0,0,0.35)',
++    padding: 16,
++    paddingBottom: 96,
++  },
++  card: {
++    alignSelf: 'center',
++    backgroundColor: '#1c1c1e',
++    borderRadius: 16,
++    padding: 12,
++  },
++  grid: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    width: 240,
++    justifyContent: 'center',
++  },
++  emojiButton: {
++    width: 48,
++    height: 48,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  emoji: {
++    fontSize: 28,
++  },
++});
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/HMSManageRaiseHand.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/HMSManageRaiseHand.tsx
+index 92fe974..79377db 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/HMSManageRaiseHand.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/HMSManageRaiseHand.tsx
+@@ -2,40 +2,23 @@ import * as React from 'react';
+ import { useSelector } from 'react-redux';
+ 
+ import type { RootState } from '../redux';
+-import { useHMSActions } from '../hooks-sdk';
+ import { PressableIcon } from './PressableIcon';
+ import { HandIcon } from '../Icons';
+-import { parseMetadata } from '../utils/functions';
+ import { TestIds } from '../utils/constants';
++import { useMeetingToggles } from '../utils/meetingToggles';
+ 
+ export const HMSManageRaiseHand = () => {
+-  const hmsActions = useHMSActions();
+-  const localPeerMetadata = useSelector(
+-    (state: RootState) => state.hmsStates.localPeer?.metadata
+-  );
+-  const parsedLocalPeerMetadata = parseMetadata(localPeerMetadata);
+-  const isBRBOn = !!parsedLocalPeerMetadata.isBRBOn;
++  const { toggleRaiseHand } = useMeetingToggles();
+   const isHandRaised = useSelector(
+     (state: RootState) => !!state.hmsStates.localPeer?.isHandRaised
+   );
+ 
+-  const toggleRaiseHand = async () => {
+-    if (isBRBOn) {
+-      const newMetadata = {
+-        ...parsedLocalPeerMetadata,
+-        isBRBOn: false,
+-      };
+-      await hmsActions.changeMetadata(newMetadata);
+-    }
+-    if (isHandRaised) {
+-      await hmsActions.lowerLocalPeerHand();
+-    } else {
+-      await hmsActions.raiseLocalPeerHand();
+-    }
+-  };
+-
+   return (
+-    <PressableIcon testID={isHandRaised ? TestIds.hand_raised_btn : TestIds.hand_raise_btn} onPress={toggleRaiseHand} active={isHandRaised}>
++    <PressableIcon
++      testID={isHandRaised ? TestIds.hand_raised_btn : TestIds.hand_raise_btn}
++      onPress={toggleRaiseHand}
++      active={isHandRaised}
++    >
+       <HandIcon />
+     </PressableIcon>
+   );
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx
+index 4f4fc8a..4b0f9ac 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx
+@@ -15,6 +15,7 @@ import { HeaderFooterHideDelayMs, PipModes } from '../utils/types';
+ import type { PeerTrackNode } from '../utils/types';
+ import type { RootState } from '../redux';
+ import { Footer } from './Footer';
++import { FlyingEmoji } from './FlyingEmoji';
+ import { DisplayView } from './DisplayView';
+ import { Header } from './Header';
+ import { useHMSLayoutConfig, useKeyboardState } from '../hooks-util';
+@@ -39,10 +40,9 @@ export const MeetingScreenContent: React.FC<MeetingScreenContentProps> = ({
+   const isPipModeActive = useSelector(
+     (state: RootState) => state.app.pipModeStatus === PipModes.ACTIVE
+   );
+-  const whiteboardActive =
+-    Platform.OS === 'android'
+-      ? useSelector((state: RootState) => !!state.hmsStates.whiteboard)
+-      : null;
++  const whiteboardActive = useSelector(
++    (state: RootState) => !!state.hmsStates.whiteboard
++  );
+   const { keyboardState } = useKeyboardState();
+ 
+   const dismissKeyboard = useCallback(() => {
+@@ -134,7 +134,7 @@ export const MeetingScreenContent: React.FC<MeetingScreenContentProps> = ({
+   }, [clearTimer, toggleControls, !!whiteboardActive]);
+ 
+   const tapGesture = Gesture.Tap()
+-    .enabled(Platform.select({ android: !whiteboardActive, default: true }))
++    .enabled(!whiteboardActive)
+     .onEnd(() => toggleControls())
+     .requireExternalGestureToFail();
+ 
+@@ -172,6 +172,8 @@ export const MeetingScreenContent: React.FC<MeetingScreenContentProps> = ({
+ 
+           <DisplayView offset={offset} peerTrackNodes={peerTrackNodes} />
+ 
++          <FlyingEmoji />
++
+           {isPipModeActive && Platform.OS === 'android' ? null : (
+             <AnimatedFooter offset={offset}>
+               <Footer />
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/PeerVideoTile/PeerMetadata.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/PeerVideoTile/PeerMetadata.tsx
+index ff4ab60..bdf219c 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/PeerVideoTile/PeerMetadata.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/PeerVideoTile/PeerMetadata.tsx
+@@ -1,7 +1,7 @@
+ import * as React from 'react';
+ import { StyleSheet, View } from 'react-native';
+ 
+-import { parseMetadata } from '../../utils/functions';
++import { isBrbOn } from '../../utils/functions';
+ import { BRBIcon, HandIcon } from '../../Icons';
+ import { useHMSRoomStyleSheet } from '../../hooks-util';
+ 
+@@ -14,7 +14,7 @@ export const PeerMetadata: React.FC<PeerMetadataProps> = ({
+   metadata,
+   isHandRaised,
+ }) => {
+-  const isBRBOn = !!parseMetadata(metadata).isBRBOn;
++  const isBRBOn = isBrbOn(metadata);
+ 
+   const hmsRoomStyles = useHMSRoomStyleSheet((theme) => ({
+     iconWrapper: {
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/Preview.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/Preview.tsx
 index e1545ce..483ead6 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/components/Preview.tsx
@@ -20,6 +430,142 @@ index e1545ce..483ead6 100644
      }
      setupAudioVideoOnPreview().then((r) => console.log(r));
    }, []);
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/RoomSettingsModalContent.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/RoomSettingsModalContent.tsx
+index 1da3e44..8791baf 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/RoomSettingsModalContent.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/RoomSettingsModalContent.tsx
+@@ -8,10 +8,12 @@ import {
+   TranscriptionsMode,
+ } from '@100mslive/react-native-hms';
+ import { useDispatch, useSelector } from 'react-redux';
++import Toast from 'react-native-simple-toast';
+ 
+ import type { RootState } from '../redux';
+ import { ModalTypes } from '../utils/types';
+-import { groupIntoTriplets, parseMetadata } from '../utils/functions';
++import { groupIntoTriplets, isBrbOn } from '../utils/functions';
++import { useMeetingToggles } from '../utils/meetingToggles';
+ import {
+   BRBIcon,
+   CCIcon,
+@@ -124,39 +126,21 @@ export const RoomSettingsModalContent: React.FC<
+     (state: RootState) => state.hmsStates.localPeer?.metadata
+   );
+ 
+-  const parsedMetadata = parseMetadata(localPeerMetadata);
+-
+-  const isBRBOn = !!parsedMetadata.isBRBOn;
++  const isBRBOn = isBrbOn(localPeerMetadata);
+   const isHandRaised = useSelector(
+     (state: RootState) => !!state.hmsStates.localPeer?.isHandRaised
+   );
++  const { toggleRaiseHand: raiseOrLowerHand, toggleBRB: setBRB } =
++    useMeetingToggles();
+ 
+   const toggleRaiseHand = async () => {
+     closeRoomSettingsModal();
+-    if (isBRBOn) {
+-      const newMetadata = {
+-        ...parsedMetadata,
+-        isBRBOn: false,
+-      };
+-      await hmsActions.changeMetadata(newMetadata);
+-    }
+-    if (isHandRaised) {
+-      await hmsActions.lowerLocalPeerHand();
+-    } else {
+-      await hmsActions.raiseLocalPeerHand();
+-    }
++    await raiseOrLowerHand();
+   };
+ 
+   const toggleBRB = async () => {
+-    const newMetadata = {
+-      ...parsedMetadata,
+-      isBRBOn: !isBRBOn,
+-    };
+     closeRoomSettingsModal();
+-    await hmsActions.changeMetadata(newMetadata);
+-    if (isHandRaised) {
+-      await hmsActions.lowerLocalPeerHand();
+-    }
++    await setBRB();
+   };
+   // #endregion
+ 
+@@ -368,6 +352,7 @@ export const RoomSettingsModalContent: React.FC<
+         })
+         .catch((error) => {
+           console.log('#stopWhiteboard error ', error);
++          Toast.show('Could not close whiteboard');
+         });
+     } else if (whiteboard && !whiteboard.isOwner) {
+       const uid = Math.random().toString(16).slice(2);
+@@ -398,6 +383,16 @@ export const RoomSettingsModalContent: React.FC<
+         })
+         .catch((error) => {
+           console.log('#startWhiteboard error ', error);
++          const message =
++            typeof error === 'string'
++              ? error
++              : error &&
++                  typeof error === 'object' &&
++                  'message' in error &&
++                  typeof (error as { message?: unknown }).message === 'string'
++                ? (error as { message: string }).message
++                : 'Could not open whiteboard';
++          Toast.show(message);
+         });
+     }
+ 
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/Whiteboard.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/Whiteboard.tsx
+index 5212ae7..5d6b7a8 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/Whiteboard.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/Whiteboard.tsx
+@@ -93,6 +93,12 @@ const _HMSWebView = React.forwardRef<
+       style={{ flex: 1 }}
+       javaScriptEnabled={true}
+       domStorageEnabled={true}
++      originWhitelist={['*']}
++      allowsInlineMediaPlayback={true}
++      mediaPlaybackRequiresUserAction={false}
++      sharedCookiesEnabled={true}
++      thirdPartyCookiesEnabled={true}
++      setSupportMultipleWindows={false}
+       {...props}
+     />
+   );
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/WhiteboardContainer.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/WhiteboardContainer.tsx
+index e3d1279..56a550d 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/WhiteboardContainer.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/WhiteboardContainer.tsx
+@@ -1,8 +1,7 @@
+ import * as React from 'react';
+-import { Platform, View } from 'react-native';
++import { View } from 'react-native';
+ import { useSelector } from 'react-redux';
+ import { WebView } from 'react-native-webview';
+-import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+ 
+ import type { RootState } from '../redux';
+ import { Whiteboard } from './Whiteboard';
+@@ -19,15 +18,7 @@ export const _WhiteboardContainer = React.forwardRef<
+ 
+   return (
+     <View style={{ flex: 1, marginBottom: 4 }}>
+-      {fullScreenWhiteboard ? null : Platform.OS === 'ios' ? (
+-        <GestureDetector gesture={Gesture.Tap()}>
+-          <View collapsable={false} style={{ flex: 1 }}>
+-            <Whiteboard ref={webviewRef} />
+-          </View>
+-        </GestureDetector>
+-      ) : (
+-        <Whiteboard ref={webviewRef} />
+-      )}
++      {fullScreenWhiteboard ? null : <Whiteboard ref={webviewRef} />}
+     </View>
+   );
+ });
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-sdk.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-sdk.ts
 index 9805ef5..a7a9d85 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-sdk.ts
@@ -46,10 +592,10 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..5aa875f 100644
+index 4d107f0..8d1752f 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-@@ -1,176 +1,176 @@
+@@ -1,176 +1,180 @@
  import type {
 -  HMSHLSPlayer,
 -  HMSPIPConfig,
@@ -343,7 +889,8 @@ index 4d107f0..5aa875f 100644
 +    useIsLandscapeOrientation,
 +    useIsPortraitOrientation,
  } from './utils/dimension';
--import {
++import { createPeerTrackNode, parseMetadata } from './utils/functions';
+ import {
 -  selectChatLayoutConfig,
 -  selectConferencingScreenConfig,
 -  selectIsHLSViewer,
@@ -353,7 +900,9 @@ index 4d107f0..5aa875f 100644
 -} from './hooks-util-selectors';
 -import type { GridViewRefAttrs } from './components/GridView';
 -import { getRoomLayout } from './modules/HMSManager';
-+import { createPeerTrackNode, parseMetadata } from './utils/functions';
++    emitEmojiReaction,
++    parseEmojiReactionMessage,
++} from './utils/emojiReactions';
  import { DEFAULT_THEME, DEFAULT_TYPOGRAPHY } from './utils/theme';
 -import { KeyboardState, useSharedValue } from 'react-native-reanimated';
 -import {
@@ -377,7 +926,52 @@ index 4d107f0..5aa875f 100644
  
  export const useHMSListeners = (
    setPeerTrackNodes: React.Dispatch<React.SetStateAction<PeerTrackNode[]>>
-@@ -1653,8 +1653,14 @@ export const useAutoPip = (oneToOneCall: boolean) => {
+@@ -337,7 +341,10 @@ const useHMSPeersUpdate = (
+         }
+         return;
+       }
+-      if (peer.isLocal) {
++      const localPeerId = store.getState().hmsStates.localPeer?.peerID;
++      // Peer-update payloads omit isLocal, so a metadata or hand event for this
++      // user was treated as remote and the button never saw the new flag.
++      if (peer.isLocal || (!!localPeerId && peer.peerID === localPeerId)) {
+         const reduxState = store.getState();
+         const fullScreenPeerTrackNode = reduxState.app.fullScreenPeerTrackNode;
+         const miniviewPeerTrackNode = reduxState.app.miniviewPeerTrackNode;
+@@ -1408,6 +1415,7 @@ export const useHMSSessionStore = () => {
+ export const useHMSMessages = () => {
+   const hmsInstance = useHMSInstance();
+   const dispatch = useDispatch();
++  const store = useStore<RootState>();
+   const canChangeRole = useSelector(
+     (state: RootState) =>
+       state.hmsStates.localPeer?.role?.permissions?.changeRole
+@@ -1429,7 +1437,14 @@ export const useHMSMessages = () => {
+           );
+         }
+       } else if (message.type === 'EMOJI_REACTION') {
+-        console.log('Ignoring Emoji Reaction Message: ', message);
++        const parsed = parseEmojiReactionMessage(message.message);
++        const senderId = parsed?.senderId || message.sender?.peerID;
++        const localId = store.getState().hmsStates.localPeer?.peerID;
++        if (parsed?.emojiId && senderId !== localId) {
++          emitEmojiReaction({ emojiId: parsed.emojiId, senderId });
++        } else if (parsed?.emojiId && !senderId && !localId) {
++          emitEmojiReaction({ emojiId: parsed.emojiId });
++        }
+       } else if (canShowChat) {
+         dispatch(addMessage(message));
+       }
+@@ -1444,7 +1459,7 @@ export const useHMSMessages = () => {
+       // TODO: Remove this listener when user leaves, removed or room is ended
+       hmsInstance.removeEventListener(HMSUpdateListenerActions.ON_MESSAGE);
+     };
+-  }, [canChangeRole, canShowChat, hmsInstance]);
++  }, [canChangeRole, canShowChat, hmsInstance, store]);
+ };
+ 
+ export const useHMSReconnection = () => {
+@@ -1653,8 +1668,14 @@ export const useAutoPip = (oneToOneCall: boolean) => {
      return room && room.peerCount !== null ? room.peerCount > 1 : false; // `peerCount` includes local peer
    });
  
@@ -393,7 +987,7 @@ index 4d107f0..5aa875f 100644
        enableAutoPip({
          scaleType: HMSVideoViewMode.ASPECT_FILL,
          aspectRatio: [numerator, denominator],
-@@ -1666,6 +1672,7 @@ export const useAutoPip = (oneToOneCall: boolean) => {
+@@ -1666,6 +1687,7 @@ export const useAutoPip = (oneToOneCall: boolean) => {
      }
    }, [
      remotePeersPresent,
@@ -401,3 +995,199 @@ index 4d107f0..5aa875f 100644
      numerator,
      denominator,
      autoEnterPipMode,
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts
+new file mode 100644
+index 0000000..638b2de
+--- /dev/null
++++ b/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts
+@@ -0,0 +1,71 @@
++export const EMOJI_REACTION_TYPE = 'EMOJI_REACTION';
++
++/** Same ids the web prebuilt sends. */
++export const EMOJI_REACTION_IDS = [
++  '+1',
++  '-1',
++  'wave',
++  'clap',
++  'fire',
++  'tada',
++  'heart_eyes',
++  'joy',
++  'open_mouth',
++  'sob',
++] as const;
++
++const EMOJI_GLYPH: Record<string, string> = {
++  '+1': '👍',
++  '-1': '👎',
++  wave: '👋',
++  clap: '👏',
++  fire: '🔥',
++  tada: '🎉',
++  heart_eyes: '😍',
++  joy: '😂',
++  open_mouth: '😮',
++  sob: '😭',
++};
++
++export const emojiGlyph = (emojiId: string) => EMOJI_GLYPH[emojiId] || '👍';
++
++export type EmojiReactionPayload = {
++  emojiId: string;
++  senderId?: string;
++};
++
++type Listener = (payload: EmojiReactionPayload) => void;
++
++const listeners = new Set<Listener>();
++
++export function emitEmojiReaction(payload: EmojiReactionPayload) {
++  listeners.forEach((listener) => listener(payload));
++}
++
++export function subscribeEmojiReactions(listener: Listener) {
++  listeners.add(listener);
++  return () => {
++    listeners.delete(listener);
++  };
++}
++
++export function parseEmojiReactionMessage(
++  body: string | undefined
++): { emojiId: string; senderId?: string } | null {
++  if (!body) return null;
++  try {
++    const parsed = JSON.parse(body);
++    if (parsed && typeof parsed.emojiId === 'string') {
++      return {
++        emojiId: parsed.emojiId,
++        senderId: typeof parsed.senderId === 'string' ? parsed.senderId : undefined,
++      };
++    }
++  } catch {
++    // Body may be the emoji id itself.
++  }
++  if (EMOJI_GLYPH[body]) {
++    return { emojiId: body };
++  }
++  return null;
++}
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx b/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
+index e122cc8..6bfd311 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
+@@ -55,13 +55,16 @@ export const getInitials = (name?: String): String => {
+ export const parseMetadata = (
+   metadata?: string
+ ): {
+-  isBRBOn?: boolean;
++  isBRBOn?: boolean | string;
+   prevRole?: string;
++  handRaisedAt?: number;
+ } => {
+   try {
+     if (metadata) {
+       const parsedMetadata = JSON.parse(metadata);
+-      return parsedMetadata;
++      if (parsedMetadata && typeof parsedMetadata === 'object') {
++        return parsedMetadata;
++      }
+     }
+   } catch (e) {
+     console.log(e);
+@@ -69,6 +72,12 @@ export const parseMetadata = (
+   return {};
+ };
+ 
++/** True only for a real on-flag. The string "false" must not count as on. */
++export const isBrbOn = (metadata?: string): boolean => {
++  const value = parseMetadata(metadata).isBRBOn;
++  return value === true || value === 'true';
++};
++
+ export const requestExternalStoragePermission = async (): Promise<boolean> => {
+   // Function to check the platform
+   // If Platform is Android then check for permissions.
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts
+new file mode 100644
+index 0000000..4b336c1
+--- /dev/null
++++ b/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts
+@@ -0,0 +1,77 @@
++import { useCallback } from 'react';
++import { useStore } from 'react-redux';
++import Toast from 'react-native-simple-toast';
++
++import type { RootState } from '../redux';
++import { useHMSActions } from '../hooks-sdk';
++import { isBrbOn, parseMetadata } from './functions';
++
++async function readLocalPeer(store: { getState(): RootState }) {
++  const state = store.getState();
++  const hms = state.user.hmsInstance;
++  if (hms) {
++    try {
++      const latest = await hms.getLocalPeer();
++      if (latest) return latest;
++    } catch (error) {
++      console.log('getLocalPeer failed', error);
++    }
++  }
++  return state.hmsStates.localPeer;
++}
++
++/**
++ * Hand raise and BRB, matching web prebuilt:
++ * read metadata at tap time, merge one field, and use the SDK hand APIs.
++ */
++export function useMeetingToggles() {
++  const hmsActions = useHMSActions();
++  const store = useStore<RootState>();
++
++  const toggleRaiseHand = useCallback(async () => {
++    try {
++      const localPeer = await readLocalPeer(store);
++      const meta = parseMetadata(localPeer?.metadata);
++      if (localPeer?.isHandRaised) {
++        await hmsActions.lowerLocalPeerHand();
++      } else {
++        await hmsActions.raiseLocalPeerHand();
++      }
++      try {
++        if (localPeer?.isHandRaised) {
++          const next = { ...meta, isBRBOn: false as const };
++          delete next.handRaisedAt;
++          await hmsActions.changeMetadata(next);
++        } else {
++          await hmsActions.changeMetadata({
++            ...meta,
++            isBRBOn: false,
++            handRaisedAt: Date.now(),
++          });
++        }
++      } catch (error) {
++        console.log('Hand metadata update failed', error);
++      }
++    } catch (error) {
++      console.log('Raise hand failed', error);
++      Toast.show('Could not change hand raise');
++    }
++  }, [hmsActions, store]);
++
++  const toggleBRB = useCallback(async () => {
++    try {
++      const localPeer = await readLocalPeer(store);
++      const meta = parseMetadata(localPeer?.metadata);
++      const next = !isBrbOn(localPeer?.metadata);
++      await hmsActions.changeMetadata({ ...meta, isBRBOn: next });
++      if (next && localPeer?.isHandRaised) {
++        await hmsActions.lowerLocalPeerHand();
++      }
++    } catch (error) {
++      console.log('BRB toggle failed', error);
++      Toast.show('Could not update Be Right Back');
++    }
++  }, [hmsActions, store]);
++
++  return { toggleRaiseHand, toggleBRB };
++}
