@@ -48,6 +48,7 @@ import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import GeneralFileViewerModal from '../../components/GeneralFileViewerModal';
 import SermonViewerModal from '../../components/SermonViewerModal';
 import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
+import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
@@ -814,8 +815,7 @@ export default function ChatsScreen() {
     if (isSheet || keyboardTop == null) return 0;
     return Math.max(0, Dimensions.get('window').height - keyboardTop - insets.bottom);
   }, [isSheet, keyboardTop, insets.bottom]);
-  /** Screen already ends above the tab bar, so the composer sits at the bottom of this view. */
-  const bottomNavInset = 0;
+  const bottomNavInset = persistentBottomNavInset(insets.bottom);
   const composerBottomInset = useMemo(() => {
     if (keyboardTop != null) return composerKeyboardLift;
     return bottomNavInset;
@@ -8193,7 +8193,7 @@ export default function ChatsScreen() {
               data={filteredChats}
               keyExtractor={(item, index) => item ? `history-${item.type}-${item.id}-${index}` : `history-${index}`}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingBottom: 88 }}
               onEndReached={() => {
                 if (!searchQuery.trim() && (hasMoreAiChats || hasMoreUserChats)) {
                   loadMoreChats();
@@ -8314,7 +8314,7 @@ export default function ChatsScreen() {
 
   const renderChatsList = () => {
     return (
-    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top']}>
+    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top', 'bottom']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {!isSheet && (
         <AnimatedHeaderContainer>
@@ -8425,7 +8425,7 @@ export default function ChatsScreen() {
       selectedChat ?? (openingComposerFromDeepLink ? DEFAULT_CHAT_ASSISTANT : undefined);
 
     return (
-    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top']}>
+    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top', 'bottom']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {/* Chat Header — hidden in sheet mode; sheet provides its own header.
           Memoized so typewriter setMessages re-renders do not drop Chat History taps. */}

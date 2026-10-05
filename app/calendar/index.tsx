@@ -25,7 +25,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import CalendarCreateChooser from '../../components/calendar/CalendarCreateChooser';
 import { STORAGE_KEYS } from '../../constants/Config';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
@@ -113,6 +114,7 @@ export default function CalendarHomeScreen() {
   const router = useRouter();
   const openChatGD = useOpenChatGD();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { profile, refresh: refreshProfile } = useCalendarProfile();
   const isAdmin = calendarIsCompanyAdmin(profile);
@@ -171,7 +173,7 @@ export default function CalendarHomeScreen() {
 
   const monthVerticalScrollRef = useRef<ScrollView>(null);
 
-  const calendarFabBottom = 16;
+  const calendarFabBottom = persistentBottomNavInset(insets.bottom) + 16;
   const calendarScrollBottomPad = calendarFabBottom + 56 + 16;
 
   const refreshConnections = useCallback(async () => {

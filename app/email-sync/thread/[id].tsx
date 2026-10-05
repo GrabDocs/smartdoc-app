@@ -1181,30 +1181,15 @@ export default function EmailThreadScreen() {
           flexShrink: 0,
         },
         draftPeek: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
           marginHorizontal: 12,
           marginBottom: 8,
-          paddingHorizontal: 14,
-          paddingVertical: 14,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: colors.isDark ? '#3B82F6' : '#93C5FD',
-          backgroundColor: colors.isDark ? '#1e3a5f' : '#DBEAFE',
+          paddingVertical: 10,
         },
-        draftPeekLabel: {
-          fontSize: 12,
-          fontWeight: '800',
-          letterSpacing: 0.3,
-          color: colors.isDark ? '#BFDBFE' : '#1D4ED8',
-          backgroundColor: colors.isDark ? '#172554' : '#FFFFFF',
-          overflow: 'hidden',
-          borderRadius: 8,
-          paddingHorizontal: 8,
-          paddingVertical: 3,
+        draftPeekText: {
+          fontSize: 15,
+          fontWeight: '700',
+          color: '#2563eb',
         },
-        draftPeekText: { flex: 1, minWidth: 0, fontSize: 15, fontWeight: '600', color: colors.text },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -1924,11 +1909,9 @@ export default function EmailThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Show conversation"
           >
-            <Text style={styles.draftPeekLabel}>Thread</Text>
             <Text style={styles.draftPeekText} numberOfLines={1}>
               {truncateAppHeaderTitle(thread?.subject || 'Conversation')}
             </Text>
-            <Ionicons name="chevron-down" size={22} color="#2563eb" />
           </TouchableOpacity>
         ) : (
         <View style={{ flex: 1, minHeight: 0 }}>
@@ -2000,11 +1983,9 @@ export default function EmailThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Open draft reply"
           >
-            <Text style={styles.draftPeekLabel}>{isNewCompose ? 'New message' : 'Draft'}</Text>
             <Text style={styles.draftPeekText} numberOfLines={1}>
               {draftPeekText}
             </Text>
-            <Ionicons name="chevron-up" size={22} color="#2563eb" />
           </TouchableOpacity>
         ) : !dismissed && !fullscreenMessage ? (
           <View

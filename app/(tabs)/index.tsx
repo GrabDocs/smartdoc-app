@@ -1009,7 +1009,7 @@ function DashboardScreen() {
   }), [colors]);
 
   return (
-    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+    <SafeAreaView style={dynamicStyles.container}>
       {/* Connection Status Banner */}
       {connectionStatus && !connectionStatus.success && (
         <View style={dynamicStyles.connectionBanner}>
@@ -1291,7 +1291,7 @@ function DashboardScreen() {
           )}
         </View>
 
-        <View style={{ height: 24 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <PendingTasksModal
