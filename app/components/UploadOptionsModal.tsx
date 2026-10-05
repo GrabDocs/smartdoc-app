@@ -78,7 +78,8 @@ export function UploadOptionsModal({
       onClose={onDismiss}
       expandNonce={expandNonce}
       title="Upload"
-      heightRatio={0.48}
+      fitContent
+      heightRatio={0.85}
       minimizedSubtitle="Swipe up to upload"
     >
       <TouchableOpacity

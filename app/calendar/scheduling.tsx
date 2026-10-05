@@ -59,6 +59,7 @@ type EventType = {
   form_id?: number | null;
   seat_limit?: number | null;
   add_reach_link?: boolean;
+  custom_meeting_url?: string | null;
 };
 type Signup = {
   id: number;
@@ -123,7 +124,8 @@ export default function CalendarSchedulingScreen() {
   const [slugEdited, setSlugEdited] = useState(false);
   const [duration, setDuration] = useState('30');
   const [seatLimit, setSeatLimit] = useState('5');
-  const [addReach, setAddReach] = useState(false);
+  const [addReach, setAddReach] = useState(true);
+  const [meetingLink, setMeetingLink] = useState('');
   const [kind, setKind] = useState<'one_on_one' | 'group'>('one_on_one');
   const [formId, setFormId] = useState<number | null>(null);
   const [formPickerOpen, setFormPickerOpen] = useState(false);
@@ -283,6 +285,10 @@ export default function CalendarSchedulingScreen() {
   };
 
   const createType = async () => {
+    if (!addReach && !meetingLink.trim()) {
+      setMessage('Could not create this event type. Enter a meeting link, or leave Reach on.');
+      return;
+    }
     setCreating(true);
     try {
       await bookingCreateEventType({
@@ -293,10 +299,13 @@ export default function CalendarSchedulingScreen() {
         seat_limit: kind === 'group' ? Number(seatLimit) || 1 : null,
         form_id: formId,
         add_reach_link: addReach,
+        custom_meeting_url: addReach ? '' : meetingLink.trim(),
       });
       setName('');
       setSlug('');
       setSlugEdited(false);
+      setAddReach(true);
+      setMeetingLink('');
       setMessage('Event type created.');
       await load();
     } catch (err: any) {
@@ -576,19 +585,34 @@ export default function CalendarSchedulingScreen() {
           {slugInvalid ? (
             <Text style={styles.slugError}>Use lowercase letters, numbers, and hyphens, like intro-call.</Text>
           ) : null}
-          <TouchableOpacity
-            style={styles.checkRow}
-            onPress={() => setAddReach((value) => !value)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: addReach }}
-          >
-            <Ionicons
-              name={addReach ? 'checkbox' : 'square-outline'}
-              size={18}
-              color={addReach ? '#2563eb' : colors.textSecondary}
-            />
-            <Text style={styles.checkLabel}>Add a Reach meeting link</Text>
-          </TouchableOpacity>
+          <View style={styles.checkRow}>
+            <TouchableOpacity
+              style={styles.checkRow}
+              onPress={() => setAddReach((value) => !value)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: addReach }}
+            >
+              <Ionicons
+                name={addReach ? 'checkbox' : 'square-outline'}
+                size={18}
+                color={addReach ? '#2563eb' : colors.textSecondary}
+              />
+              <Text style={styles.checkLabel}>Add a Reach meeting link</Text>
+            </TouchableOpacity>
+            {!addReach ? (
+              <TextInput
+                style={[styles.input, styles.meetingInput]}
+                value={meetingLink}
+                onChangeText={setMeetingLink}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder="https://example.com/meeting"
+                placeholderTextColor={colors.textSecondary}
+                onFocus={revealFocusedField}
+              />
+            ) : null}
+          </View>
           <TouchableOpacity
             style={[styles.button, (!name.trim() || !SLUG_RE.test(slug) || creating) && styles.buttonDisabled]}
             disabled={!name.trim() || !SLUG_RE.test(slug) || creating}
@@ -882,6 +906,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     pickerValue: { flex: 1, fontSize: 14, color: colors.text },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    meetingInput: { width: 180, maxWidth: '55%', flexGrow: 0 },
     checkLabel: { fontSize: 13, color: colors.text },
     listTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2 },
     empty: { fontSize: 13, color: colors.textSecondary },

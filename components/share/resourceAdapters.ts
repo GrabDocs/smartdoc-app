@@ -185,6 +185,7 @@ export function createBookingShareAdapter(eventTypeId: number): ShareAccessAdapt
       kind?: string;
       seat_limit?: number | null;
       add_reach_link?: boolean;
+      custom_meeting_url?: string | null;
       form_id?: number | null;
     }[];
     const eventType = types.find((item) => item.id === eventTypeId);
@@ -195,7 +196,11 @@ export function createBookingShareAdapter(eventTypeId: number): ShareAccessAdapt
     async getState() {
       const eventType = await load();
       const kind = eventType.kind === 'group' ? `Group · ${eventType.seat_limit || 1} seats` : 'One-on-one';
-      const reach = eventType.add_reach_link ? 'Reach link on.' : 'No Reach link.';
+      const reach = eventType.add_reach_link
+        ? 'Reach link on.'
+        : eventType.custom_meeting_url
+          ? 'Custom meeting link.'
+          : 'No meeting link.';
       return {
         title: eventType.name || 'Booking page',
         people: null,

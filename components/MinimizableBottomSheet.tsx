@@ -40,10 +40,12 @@ export interface MinimizableBottomSheetProps {
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  /** Fraction of screen height when expanded. Ignored if sheetHeight is set. */
+  /** Fraction of screen height when expanded. Ignored if sheetHeight is set. With fitContent, this is the max height. */
   heightRatio?: number;
-  /** Explicit sheet height in px. */
+  /** Explicit sheet height in px. Ignored when fitContent is set. */
   sheetHeight?: number;
+  /** Hug the options instead of filling heightRatio, so the panel sits on the nav bar. */
+  fitContent?: boolean;
   expandNonce?: number;
   minimizable?: boolean;
   minimizedPeek?: number;
@@ -68,6 +70,7 @@ export default function MinimizableBottomSheet({
   children,
   heightRatio = 0.55,
   sheetHeight: sheetHeightProp,
+  fitContent = false,
   expandNonce = 0,
   minimizable = true,
   minimizedPeek = MINIMIZED_PEEK,
@@ -88,15 +91,22 @@ export default function MinimizableBottomSheet({
   const pathname = usePathname();
   const { height: windowHeight } = useWindowDimensions();
   const [minimized, setMinimized] = useState(false);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
 
-  // Sheet is anchored to the bottom of its screen. Tab screens already end above the
-  // persistent bar, so only a small gap is needed there. Other screens still clear
-  // the system navigation inset.
-  const sheetHeight = sheetHeightProp ?? Math.round(windowHeight * heightRatio);
-  const defaultBottomPad = shouldShowPersistentBottomNav(pathname)
-    ? 8
-    : insets.bottom;
+  // Sheet is anchored to the bottom of its screen. Tab screens already end at the
+  // persistent bar, so the panel sits flush on that bar. Other screens still clear
+  // the system navigation inset so content sits directly on that bar.
+  const maxSheetHeight = sheetHeightProp ?? Math.round(windowHeight * heightRatio);
+  const defaultBottomPad = shouldShowPersistentBottomNav(pathname) ? 0 : insets.bottom;
   const paddingBottom = paddingBottomProp ?? defaultBottomPad;
+  // measuredHeight is chrome + options, before the sheet's bottom padding.
+  const fittedHeight =
+    measuredHeight > 0 ? Math.min(maxSheetHeight, measuredHeight + paddingBottom) : 0;
+  const sheetHeight = fitContent
+    ? fittedHeight > 0
+      ? fittedHeight
+      : maxSheetHeight
+    : maxSheetHeight;
   // Subtract paddingBottom so the minimized peek (header strip) sits above the tab / home
   // indicator, not hidden beneath it on edge-to-edge Android.
   const minimizedOffset = Math.max(0, sheetHeight - minimizedPeek - paddingBottom);
@@ -308,7 +318,7 @@ export default function MinimizableBottomSheet({
         style={[
           styles.sheet,
           {
-            height: sheetHeight,
+            height: fitContent ? (fittedHeight > 0 ? fittedHeight : undefined) : sheetHeight,
             backgroundColor: colors.card,
             paddingBottom,
           },
@@ -316,12 +326,27 @@ export default function MinimizableBottomSheet({
           sheetAnimatedStyle,
         ]}
       >
-        <View pointerEvents={minimized ? 'auto' : undefined}>
-          {dragChrome}
-          {showHeader ? (renderHeader ? renderHeader(headerCtx) : defaultHeader) : null}
-        </View>
-        <View style={styles.body} pointerEvents={minimized ? 'none' : 'auto'}>
-          {children}
+        <View
+          style={fitContent ? undefined : styles.bodyHost}
+          onLayout={
+            fitContent
+              ? (e) => {
+                  const next = Math.round(e.nativeEvent.layout.height);
+                  if (next > 0) setMeasuredHeight((prev) => (prev === next ? prev : next));
+                }
+              : undefined
+          }
+        >
+          <View pointerEvents={minimized ? 'auto' : undefined}>
+            {dragChrome}
+            {showHeader ? (renderHeader ? renderHeader(headerCtx) : defaultHeader) : null}
+          </View>
+          <View
+            style={fitContent ? undefined : styles.body}
+            pointerEvents={minimized ? 'none' : 'auto'}
+          >
+            {children}
+          </View>
         </View>
         {overlay && !minimized ? (
           <View style={styles.overlay} pointerEvents="box-none">
@@ -363,6 +388,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, marginTop: 2 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerActionBtn: { padding: 6 },
+  bodyHost: { flex: 1 },
   body: { flex: 1, overflow: 'hidden' },
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 20 },
 });
