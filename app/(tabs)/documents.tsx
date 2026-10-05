@@ -3391,7 +3391,7 @@ export default function QuickFilesScreen() {
     filterBy !== 'deleted'
   ) {
     return (
-      <SafeAreaView style={dynamicStyles.container}>
+      <SafeAreaView style={dynamicStyles.container} edges={['top']}>
         <TapToToggleHeaderView style={dynamicStyles.container}>
           <AnimatedHeaderContainer>
             <View style={dynamicStyles.header}>
@@ -3461,7 +3461,7 @@ export default function QuickFilesScreen() {
   }
 
   return (
-    <SafeAreaView style={dynamicStyles.container}>
+    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {/* Error message display */}
       {(error || (useFolderMode && folderSystem.error)) && (
@@ -3619,7 +3619,7 @@ export default function QuickFilesScreen() {
             : `${filterBy}-${gridView}-${preferences.display.show_file_sizes}-${preferences.display.show_upload_dates}`
         }
         style={dynamicStyles.documentsList}
-        contentContainerStyle={{ paddingBottom: 88 }}
+        contentContainerStyle={{ paddingBottom: 24 }}
         {...scrollRestoresHeaderProps}
         accessibilityRole="list"
         accessibilityLabel={filterBy === 'deleted' ? 'Deleted files' : 'Documents'}

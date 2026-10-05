@@ -25,7 +25,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import CalendarCreateChooser from '../../components/calendar/CalendarCreateChooser';
 import { STORAGE_KEYS } from '../../constants/Config';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
@@ -75,7 +75,6 @@ import {
     toLocalDateString,
 } from '../../utils/calendarTime';
 import { openMapsForLocationLabel } from '../../utils/openMapsQuery';
-import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import { useAuth } from '../context/auth';
 import { GoogleLogo } from '../../components/GoogleLogo';
 import { MicrosoftLogo } from '../../components/MicrosoftLogo';
@@ -113,7 +112,6 @@ const TABS: { key: ListTabFilter; label: string }[] = [
 export default function CalendarHomeScreen() {
   const router = useRouter();
   const openChatGD = useOpenChatGD();
-  const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const { user } = useAuth();
   const { profile, refresh: refreshProfile } = useCalendarProfile();
@@ -173,8 +171,7 @@ export default function CalendarHomeScreen() {
 
   const monthVerticalScrollRef = useRef<ScrollView>(null);
 
-  // Bottom nav overlays the screen; keep FAB / lists above it.
-  const calendarFabBottom = persistentBottomNavInset(insets.bottom) + 16;
+  const calendarFabBottom = 16;
   const calendarScrollBottomPad = calendarFabBottom + 56 + 16;
 
   const refreshConnections = useCallback(async () => {

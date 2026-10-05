@@ -71,7 +71,6 @@ import { getChatNetworkErrorMessage, isNetworkError, isRateLimitError } from '..
 import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import { screenCache } from '../../utils/screenCache';
-import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import {
   chatContextsStorageKey,
   chatListScreenKey,
@@ -815,11 +814,8 @@ export default function ChatsScreen() {
     if (isSheet || keyboardTop == null) return 0;
     return Math.max(0, Dimensions.get('window').height - keyboardTop - insets.bottom);
   }, [isSheet, keyboardTop, insets.bottom]);
-  /** Keep composer above PersistentBottomNavigation when keyboard is closed. */
-  const bottomNavInset = useMemo(
-    () => (isSheet ? 0 : persistentBottomNavInset(insets.bottom)),
-    [isSheet, insets.bottom]
-  );
+  /** Screen already ends above the tab bar, so the composer sits at the bottom of this view. */
+  const bottomNavInset = 0;
   const composerBottomInset = useMemo(() => {
     if (keyboardTop != null) return composerKeyboardLift;
     return bottomNavInset;
@@ -8197,7 +8193,7 @@ export default function ChatsScreen() {
               data={filteredChats}
               keyExtractor={(item, index) => item ? `history-${item.type}-${item.id}-${index}` : `history-${index}`}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 88 }}
+              contentContainerStyle={{ paddingBottom: 24 }}
               onEndReached={() => {
                 if (!searchQuery.trim() && (hasMoreAiChats || hasMoreUserChats)) {
                   loadMoreChats();
@@ -8429,7 +8425,7 @@ export default function ChatsScreen() {
       selectedChat ?? (openingComposerFromDeepLink ? DEFAULT_CHAT_ASSISTANT : undefined);
 
     return (
-    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top', 'bottom']}>
+    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {/* Chat Header — hidden in sheet mode; sheet provides its own header.
           Memoized so typewriter setMessages re-renders do not drop Chat History taps. */}

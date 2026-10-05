@@ -18,7 +18,6 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import FileNameText from '../FileNameText';
 import { useDraftsSplitOptional } from '../../contexts/DraftsSplitContext';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
@@ -39,7 +38,6 @@ import {
 import { CachedDraftMeta, draftsCache, isNetworkError } from '../../utils/draftsCache';
 import { flushAllPendingDraftOps } from '../../utils/draftsOfflineSync';
 import { saveLastOpenedDraft } from '../../utils/lastOpenedDraft';
-import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import { parseAsUTC, parseUtcMs } from '../../utils/timeFormatting';
 import { AnimatedHeaderContainer } from '../../app/components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../../app/components/TapToToggleHeaderView';
@@ -100,8 +98,7 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
   const { user } = useAuth();
   const colors = useThemeColors();
   const isDarkMode = colors.isDark;
-  const insets = useSafeAreaInsets();
-  const bottomNavPad = persistentBottomNavInset(insets.bottom) + 16;
+  const bottomNavPad = 24;
   const scrollRestoresHeaderProps = useScrollRestoresHeaderProps();
   const [drafts, setDrafts] = useState<DraftListItem[]>([]);
   const [loading, setLoading] = useState(true);

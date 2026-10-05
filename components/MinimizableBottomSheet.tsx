@@ -22,10 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../hooks/useThemeColors';
 import AppHeaderTitle from './AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../utils/chatTitleDisplay';
-import {
-    persistentBottomNavInset,
-    shouldShowPersistentBottomNav,
-} from '../utils/persistentBottomNavInset';
+import { shouldShowPersistentBottomNav } from '../utils/persistentBottomNavInset';
 
 const MINIMIZED_PEEK = 68;
 const SPRING = { damping: 24, stiffness: 320 };
@@ -92,13 +89,12 @@ export default function MinimizableBottomSheet({
   const { height: windowHeight } = useWindowDimensions();
   const [minimized, setMinimized] = useState(false);
 
-  // Match pre-Modal layout: sheet anchored to physical screen bottom (over tab bar).
+  // Sheet is anchored to the bottom of its screen. Tab screens already end above the
+  // persistent bar, so only a small gap is needed there. Other screens still clear
+  // the system navigation inset.
   const sheetHeight = sheetHeightProp ?? Math.round(windowHeight * heightRatio);
-  // On main tabs the persistent tab bar overlays the screen (zIndex 100). Sheets rendered
-  // inside tab screens must clear that bar or the minimized peek's expand/close controls
-  // sit under it and never receive taps.
   const defaultBottomPad = shouldShowPersistentBottomNav(pathname)
-    ? persistentBottomNavInset(insets.bottom)
+    ? 8
     : insets.bottom;
   const paddingBottom = paddingBottomProp ?? defaultBottomPad;
   // Subtract paddingBottom so the minimized peek (header strip) sits above the tab / home
