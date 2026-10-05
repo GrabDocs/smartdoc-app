@@ -145,3 +145,43 @@ index ad825c3..e64ffcf 100644
    }
  
    /**
+diff --git a/node_modules/@100mslive/react-native-hms/src/classes/HMSPeersCache.ts b/node_modules/@100mslive/react-native-hms/src/classes/HMSPeersCache.ts
+index 80304d5..7d92304 100644
+--- a/node_modules/@100mslive/react-native-hms/src/classes/HMSPeersCache.ts
++++ b/node_modules/@100mslive/react-native-hms/src/classes/HMSPeersCache.ts
+@@ -202,7 +202,11 @@ export class HMSPeersCache {
+         break;
+       }
+       case HMSPeerUpdate.METADATA_CHANGED: {
+-        updatedObj.metadata = data.metadata;
++        // Ignore a missing payload. Assigning undefined left the previous
++        // {"isBRBOn":true} string in place, so I'm Back wrote true again.
++        if (typeof data.metadata === 'string') {
++          updatedObj.metadata = data.metadata;
++        }
+         break;
+       }
+       case HMSPeerUpdate.NAME_CHANGED: {
+@@ -210,7 +214,9 @@ export class HMSPeersCache {
+         break;
+       }
+       case HMSPeerUpdate.HAND_RAISED_CHANGED: {
+-        updatedObj.isHandRaised = data.isHandRaised;
++        // A lowered hand often arrives without the boolean, which left the
++        // previous `true` in place and the next tap raised the hand again.
++        updatedObj.isHandRaised = data.isHandRaised === true;
+         break;
+       }
+       default: {
+diff --git a/node_modules/@100mslive/react-native-hms/src/index.ts b/node_modules/@100mslive/react-native-hms/src/index.ts
+index f749d9e..902f223 100644
+--- a/node_modules/@100mslive/react-native-hms/src/index.ts
++++ b/node_modules/@100mslive/react-native-hms/src/index.ts
+@@ -22,6 +22,7 @@ export * from './classes/HMSRemoteAudioTrack';
+ export * from './classes/HMSPublishSettings';
+ export * from './classes/HMSPermissions';
+ export * from './classes/HMSPeer';
++export { getHmsPeersCache } from './classes/HMSPeersCache';
+ export * from './classes/HMSPeerType';
+ export * from './classes/HMSLocalVideoTrack';
+ export * from './classes/HMSLocalPeer';

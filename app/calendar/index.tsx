@@ -26,9 +26,11 @@ import {
     View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import CalendarCreateChooser from '../../components/calendar/CalendarCreateChooser';
 import { STORAGE_KEYS } from '../../constants/Config';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalendarProfile';
+import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
     calendarAssetsMetadata,
@@ -199,6 +201,8 @@ export default function CalendarHomeScreen() {
     [calendarConnectionsList]
   );
   const viewUserActive = isAdmin && viewUserId != null;
+
+  const createChooser = useMinimizableSheet();
 
   const dismissCalendarOverlays = useCallback(() => {
     Keyboard.dismiss();
@@ -1114,6 +1118,11 @@ export default function CalendarHomeScreen() {
     router.push({ pathname: '/calendar/create', params } as any);
   }, [router, viewUserId, isAdmin, dismissCalendarOverlays, monthSelectedDay]);
 
+  const openCreateChooser = useCallback(() => {
+    dismissCalendarOverlays();
+    createChooser.open();
+  }, [createChooser, dismissCalendarOverlays]);
+
   const navigateToEventDetail = useCallback(
     (ev: EventRow) => {
       if (ev._offlinePendingCreate && ev._offlinePendingLocalId) {
@@ -1352,7 +1361,7 @@ export default function CalendarHomeScreen() {
             <Ionicons name="link-outline" size={22} color={colors.tint ?? '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={openCreate}
+            onPress={openCreateChooser}
             accessibilityLabel="New event"
             accessibilityRole="button"
             style={styles.headerIconBtn}
@@ -1736,9 +1745,17 @@ export default function CalendarHomeScreen() {
         </>
       )}
 
-      <TouchableOpacity style={[styles.fab, { bottom: calendarFabBottom }]} onPress={openCreate} accessibilityLabel="New event">
+      <TouchableOpacity style={[styles.fab, { bottom: calendarFabBottom }]} onPress={openCreateChooser} accessibilityLabel="New event">
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      <CalendarCreateChooser
+        visible={createChooser.visible}
+        expandNonce={createChooser.expandNonce}
+        onClose={createChooser.close}
+        onCreateEvent={openCreate}
+        onScheduleEvent={() => router.push('/calendar/scheduling')}
+      />
 
       <ConnectCalendarModal
         visible={connectModalOpen}

@@ -114,6 +114,8 @@ export default function CalendarSchedulingScreen() {
   const [message, setMessage] = useState('');
   const [savingHours, setSavingHours] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [tab, setTab] = useState<'events' | 'hours'>('events');
+  const [eventsView, setEventsView] = useState<'list' | 'create' | 'detail'>('list');
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -181,6 +183,7 @@ export default function CalendarSchedulingScreen() {
       setSlug('');
       setSlugEdited(false);
       setMessage('Event type created.');
+      setEventsView('list');
       await load();
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not create this event type.');
@@ -189,18 +192,62 @@ export default function CalendarSchedulingScreen() {
     }
   };
 
+  const selected = types.find((item) => item.id === selectedType) || null;
+  const showTabs = eventsView === 'list';
+  const title = eventsView === 'create' ? 'New event type' : eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
+
+  const openDetail = (item: EventType) => {
+    setSelectedType(item.id);
+    setSignups([]);
+    setEventsView('detail');
+    bookingListSignups(item.id)
+      .then((data) => setSignups(data.signups || []))
+      .catch(() => Alert.alert('Scheduling', 'Could not load signups.'));
+  };
+
+  const goBack = () => {
+    if (eventsView !== 'list') {
+      setEventsView('list');
+      return;
+    }
+    router.back();
+  };
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]} edges={['top']}>
       <View style={styles.header}>
-        <AppBackButton onPress={() => router.back()} />
-        <AppHeaderTitle>Scheduling</AppHeaderTitle>
+        <AppBackButton onPress={goBack} />
+        <AppHeaderTitle>{title}</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
+      {showTabs ? (
+        <View style={styles.tabs}>
+          {([
+            ['events', 'Events'],
+            ['hours', 'Hours'],
+          ] as const).map(([key, label]) => {
+            const on = tab === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={[styles.tab, on && styles.tabOn]}
+                onPress={() => setTab(key)}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+              >
+                <Text style={[styles.tabText, on && styles.tabTextOn]}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      ) : null}
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {message ? (
           <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
         ) : null}
 
+        {tab === 'hours' && eventsView === 'list' ? (
+        <>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Weekly hours</Text>
           <Text style={styles.sectionHint}>{timezone}</Text>
@@ -325,9 +372,11 @@ export default function CalendarSchedulingScreen() {
             <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save hours'}</Text>
           </TouchableOpacity>
         </View>
+        </>
+        ) : null}
 
+        {tab === 'events' && eventsView === 'create' ? (
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>New event type</Text>
           <View style={styles.grid}>
             <View style={styles.field}>
               <Text style={styles.label}>Name</Text>
@@ -427,13 +476,18 @@ export default function CalendarSchedulingScreen() {
             <Text style={styles.buttonText}>{creating ? 'Creating…' : 'Create event type'}</Text>
           </TouchableOpacity>
         </View>
+        ) : null}
 
+        {tab === 'events' && eventsView === 'list' ? (
+        <>
+        <TouchableOpacity style={styles.button} onPress={() => setEventsView('create')}>
+          <Text style={styles.buttonText}>New event type</Text>
+        </TouchableOpacity>
         <Text style={styles.listTitle}>Event types</Text>
         {types.length === 0 ? (
           <Text style={styles.empty}>No event types yet. Create one above to get a booking link.</Text>
         ) : (
           types.map((item) => {
-            const open = selectedType === item.id;
             return (
               <View key={item.id} style={styles.card}>
                 <View style={styles.typeHead}>
@@ -457,74 +511,89 @@ export default function CalendarSchedulingScreen() {
                   <TouchableOpacity style={styles.action} onPress={() => setAccessTypeId(item.id)}>
                     <Text style={styles.actionText}>Share</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.action}
-                    onPress={() => {
-                      if (open) {
-                        setSelectedType(null);
-                        setSignups([]);
-                        return;
-                      }
-                      setSelectedType(item.id);
-                      bookingListSignups(item.id)
-                        .then((data) => setSignups(data.signups || []))
-                        .catch(() => Alert.alert('Scheduling', 'Could not load signups.'));
-                    }}
-                  >
-                    <Text style={styles.actionText}>{open ? 'Hide' : 'Signups'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.action}
-                    onPress={() => {
-                      void bookingDeactivateEventType(item.id)
-                        .then(load)
-                        .catch((err: any) =>
-                          Alert.alert('Scheduling', err?.response?.data?.error || 'Could not deactivate this event type.'),
-                        );
-                    }}
-                  >
-                    <Text style={styles.actionDanger}>Deactivate</Text>
+                  <TouchableOpacity style={styles.action} onPress={() => openDetail(item)}>
+                    <Text style={styles.actionText}>Signups</Text>
                   </TouchableOpacity>
                 </View>
-                {open ? (
-                  <View style={styles.signupBox}>
-                    {signups.length === 0 ? (
-                      <Text style={styles.unavailable}>No signups yet.</Text>
-                    ) : (
-                      signups.map((row) => {
-                        const answers = answerLines(row.form_response);
-                        return (
-                          <View key={row.id} style={styles.signup}>
-                            <Text style={styles.signupName} numberOfLines={1}>
-                              {row.guest_name}
-                              <Text style={styles.signupMeta}> · {row.status}</Text>
-                            </Text>
-                            <Text style={styles.signupMeta} numberOfLines={1}>{row.guest_email}</Text>
-                            <Text style={styles.signupMeta}>{new Date(row.start_time).toLocaleString()}</Text>
-                            {answers.map((answer) => (
-                              <Text key={answer.key} style={styles.signupMeta} numberOfLines={2}>
-                                {answer.key}: {answer.text}
-                              </Text>
-                            ))}
-                            {row.form_response_id && item.form_id ? (
-                              <TouchableOpacity
-                                onPress={() =>
-                                  Linking.openURL(`${FRONTEND_URL}/form-builder/${item.form_id}?response=${row.form_response_id}`)
-                                }
-                              >
-                                <Text style={styles.link}>Form response</Text>
-                              </TouchableOpacity>
-                            ) : null}
-                          </View>
-                        );
-                      })
-                    )}
-                  </View>
-                ) : null}
               </View>
             );
           })
         )}
+        </>
+        ) : null}
+
+        {tab === 'events' && eventsView === 'detail' && selected ? (
+          <View style={styles.card}>
+            <View style={styles.typeHead}>
+              <Text style={styles.badge}>{selected.duration_minutes}m</Text>
+              <Text style={styles.badge}>{kindLabel(selected.kind)}</Text>
+              {!selected.active ? <Text style={styles.badgeMuted}>Inactive</Text> : null}
+            </View>
+            <Text style={styles.path}>{selected.public_path}</Text>
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.action}
+                onPress={async () => {
+                  const base = FRONTEND_URL.replace(/\/$/, '');
+                  await Clipboard.setStringAsync(`${base}${selected.public_path}`);
+                  setMessage('Link copied.');
+                }}
+              >
+                <Text style={styles.actionText}>Copy link</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.action} onPress={() => setAccessTypeId(selected.id)}>
+                <Text style={styles.actionText}>Share</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.action}
+                onPress={() => {
+                  void bookingDeactivateEventType(selected.id)
+                    .then(async () => {
+                      await load();
+                      setEventsView('list');
+                    })
+                    .catch((err: any) =>
+                      Alert.alert('Scheduling', err?.response?.data?.error || 'Could not deactivate this event type.'),
+                    );
+                }}
+              >
+                <Text style={styles.actionDanger}>Deactivate</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.sectionTitle}>Signups</Text>
+            {signups.length === 0 ? (
+              <Text style={styles.unavailable}>No signups yet.</Text>
+            ) : (
+              signups.map((row) => {
+                const answers = answerLines(row.form_response);
+                return (
+                  <View key={row.id} style={styles.signup}>
+                    <Text style={styles.signupName} numberOfLines={1}>
+                      {row.guest_name}
+                      <Text style={styles.signupMeta}> · {row.status}</Text>
+                    </Text>
+                    <Text style={styles.signupMeta} numberOfLines={1}>{row.guest_email}</Text>
+                    <Text style={styles.signupMeta}>{new Date(row.start_time).toLocaleString()}</Text>
+                    {answers.map((answer) => (
+                      <Text key={answer.key} style={styles.signupMeta} numberOfLines={2}>
+                        {answer.key}: {answer.text}
+                      </Text>
+                    ))}
+                    {row.form_response_id && selected.form_id ? (
+                      <TouchableOpacity
+                        onPress={() =>
+                          Linking.openURL(`${FRONTEND_URL}/form-builder/${selected.form_id}?response=${row.form_response_id}`)
+                        }
+                      >
+                        <Text style={styles.link}>Form response</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                );
+              })
+            )}
+          </View>
+        ) : null}
       </ScrollView>
 
       <AdaptiveListPickerModal
@@ -577,7 +646,19 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       paddingHorizontal: 8,
       paddingBottom: 4,
     },
-    body: { paddingHorizontal: 12, paddingBottom: 28, gap: 10 },
+    body: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
+    tabs: {
+      flexDirection: 'row',
+      marginHorizontal: 16,
+      marginBottom: 8,
+      padding: 3,
+      borderRadius: 10,
+      backgroundColor: colors.isDark ? '#1f2937' : '#f3f4f6',
+    },
+    tab: { flex: 1, alignItems: 'center', borderRadius: 8, paddingVertical: 8 },
+    tabOn: { backgroundColor: colors.surface },
+    tabText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
+    tabTextOn: { color: colors.text },
     banner: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13 },
     bannerOk: { backgroundColor: colors.isDark ? '#064e3b' : '#ecfdf5', color: colors.isDark ? '#a7f3d0' : '#065f46' },
     bannerError: { backgroundColor: colors.isDark ? '#450a0a' : '#fef2f2', color: colors.isDark ? '#fecaca' : '#991b1b' },

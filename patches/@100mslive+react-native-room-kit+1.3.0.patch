@@ -1073,7 +1073,7 @@ index 0000000..638b2de
 +  return null;
 +}
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx b/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
-index e122cc8..6bfd311 100644
+index e122cc8..2b9d3b9 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
 +++ b/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
 @@ -55,13 +55,16 @@ export const getInitials = (name?: String): String => {
@@ -1083,7 +1083,7 @@ index e122cc8..6bfd311 100644
 -  isBRBOn?: boolean;
 +  isBRBOn?: boolean | string;
    prevRole?: string;
-+  handRaisedAt?: number;
++  handRaisedAt?: number | null;
  } => {
    try {
      if (metadata) {
@@ -1110,30 +1110,54 @@ index e122cc8..6bfd311 100644
    // If Platform is Android then check for permissions.
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts
 new file mode 100644
-index 0000000..4b336c1
+index 0000000..6de5a18
 --- /dev/null
 +++ b/node_modules/@100mslive/react-native-room-kit/src/utils/meetingToggles.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,117 @@
 +import { useCallback } from 'react';
 +import { useStore } from 'react-redux';
 +import Toast from 'react-native-simple-toast';
++import { getHmsPeersCache, HMSPeerUpdate } from '@100mslive/react-native-hms';
 +
 +import type { RootState } from '../redux';
++import { setHMSLocalPeerState } from '../redux/actions';
 +import { useHMSActions } from '../hooks-sdk';
 +import { isBrbOn, parseMetadata } from './functions';
 +
-+async function readLocalPeer(store: { getState(): RootState }) {
-+  const state = store.getState();
-+  const hms = state.user.hmsInstance;
-+  if (hms) {
-+    try {
-+      const latest = await hms.getLocalPeer();
-+      if (latest) return latest;
-+    } catch (error) {
-+      console.log('getLocalPeer failed', error);
-+    }
-+  }
-+  return state.hmsStates.localPeer;
++/** Write the hand flag the footer button reads, then re-render that button. */
++function publishHandRaised(
++  store: {
++    getState(): RootState;
++    dispatch: (action: unknown) => void;
++  },
++  raised: boolean
++) {
++  const localPeer = store.getState().hmsStates.localPeer;
++  if (!localPeer?.peerID) return;
++  getHmsPeersCache()?.updatePeerCache(
++    localPeer.peerID,
++    { isHandRaised: raised },
++    HMSPeerUpdate.HAND_RAISED_CHANGED
++  );
++  store.dispatch(setHMSLocalPeerState(localPeer));
++}
++
++/** Write the metadata string the BRB button reads, then re-render that button. */
++function publishMetadata(
++  store: {
++    getState(): RootState;
++    dispatch: (action: unknown) => void;
++  },
++  metadata: string
++) {
++  const localPeer = store.getState().hmsStates.localPeer;
++  if (!localPeer?.peerID) return;
++  getHmsPeersCache()?.updatePeerCache(
++    localPeer.peerID,
++    { metadata },
++    HMSPeerUpdate.METADATA_CHANGED
++  );
++  store.dispatch(setHMSLocalPeerState(localPeer));
 +}
 +
 +/**
@@ -1145,43 +1169,59 @@ index 0000000..4b336c1
 +  const store = useStore<RootState>();
 +
 +  const toggleRaiseHand = useCallback(async () => {
++    // Use the same peer object the button highlights. A fresh getLocalPeer()
++    // can report the hand as down while that button still shows it raised,
++    // so the next tap called raise again.
++    const shownPeer = store.getState().hmsStates.localPeer;
++    const raised = !!shownPeer?.isHandRaised;
++    const meta = parseMetadata(shownPeer?.metadata);
 +    try {
-+      const localPeer = await readLocalPeer(store);
-+      const meta = parseMetadata(localPeer?.metadata);
-+      if (localPeer?.isHandRaised) {
++      if (raised) {
 +        await hmsActions.lowerLocalPeerHand();
 +      } else {
 +        await hmsActions.raiseLocalPeerHand();
 +      }
-+      try {
-+        if (localPeer?.isHandRaised) {
-+          const next = { ...meta, isBRBOn: false as const };
-+          delete next.handRaisedAt;
-+          await hmsActions.changeMetadata(next);
-+        } else {
-+          await hmsActions.changeMetadata({
-+            ...meta,
-+            isBRBOn: false,
-+            handRaisedAt: Date.now(),
-+          });
-+        }
-+      } catch (error) {
-+        console.log('Hand metadata update failed', error);
-+      }
++      publishHandRaised(store, !raised);
 +    } catch (error) {
 +      console.log('Raise hand failed', error);
 +      Toast.show('Could not change hand raise');
++      return;
++    }
++    try {
++      if (raised) {
++        await hmsActions.changeMetadata({
++          ...meta,
++          isBRBOn: false,
++          handRaisedAt: null,
++        });
++      } else {
++        await hmsActions.changeMetadata({
++          ...meta,
++          isBRBOn: false,
++          handRaisedAt: Date.now(),
++        });
++      }
++    } catch (error) {
++      console.log('Hand metadata update failed', error);
 +    }
 +  }, [hmsActions, store]);
 +
 +  const toggleBRB = useCallback(async () => {
++    // Same peer the menu highlights. getLocalPeer() can omit isBRBOn while
++    // the button still says I'm Back, so the next tap turned BRB on again.
++    const shownPeer = store.getState().hmsStates.localPeer;
++    const on = isBrbOn(shownPeer?.metadata);
++    const next = !on;
++    const nextMetadata = {
++      ...parseMetadata(shownPeer?.metadata),
++      isBRBOn: next,
++    };
 +    try {
-+      const localPeer = await readLocalPeer(store);
-+      const meta = parseMetadata(localPeer?.metadata);
-+      const next = !isBrbOn(localPeer?.metadata);
-+      await hmsActions.changeMetadata({ ...meta, isBRBOn: next });
-+      if (next && localPeer?.isHandRaised) {
++      await hmsActions.changeMetadata(nextMetadata);
++      publishMetadata(store, JSON.stringify(nextMetadata));
++      if (next && shownPeer?.isHandRaised) {
 +        await hmsActions.lowerLocalPeerHand();
++        publishHandRaised(store, false);
 +      }
 +    } catch (error) {
 +      console.log('BRB toggle failed', error);
