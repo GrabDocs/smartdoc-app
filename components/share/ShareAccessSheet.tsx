@@ -57,12 +57,14 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ShareRecipient[]>([]);
   const [emailDraft, setEmailDraft] = useState('');
+  const [copyNote, setCopyNote] = useState<string | null>(null);
   const [keyboardLift, setKeyboardLift] = useState(0);
   const pendingRef = useRef<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const sheetRef = useRef<View>(null);
   const emailFocusedRef = useRef(false);
   const keyboardLiftRef = useRef(0);
+  const copyNoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const adapterRef = useRef(adapter);
   adapterRef.current = adapter;
 
@@ -156,6 +158,12 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
     };
   }, [visible]);
 
+  useEffect(() => {
+    if (visible) return;
+    if (copyNoteTimer.current) clearTimeout(copyNoteTimer.current);
+    setCopyNote(null);
+  }, [visible]);
+
   const run = async (key: string, work: () => Promise<void>, reloadAfter = true) => {
     if (pendingRef.current) return;
     pendingRef.current = key;
@@ -178,18 +186,23 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
   const showLink = !!adapter?.getShareUrl && !!snapshot?.shareUrl;
   const showEmail = !!adapter?.sendLinkEmail && !!snapshot?.shareUrl;
 
-  const copyLink = () => {
+  const showCopyNote = (message: string) => {
+    if (copyNoteTimer.current) clearTimeout(copyNoteTimer.current);
+    setCopyNote(message);
+    copyNoteTimer.current = setTimeout(() => setCopyNote(null), 1600);
+  };
+
+  const copyLink = async () => {
     const current = adapterRef.current;
-    if (!current?.getShareUrl || pendingRef.current) return;
-    void run(
-      'copy',
-      async () => {
-        const url = await current.getShareUrl!();
-        if (!url) throw new Error('No share link yet.');
-        await Clipboard.setStringAsync(url);
-      },
-      false
-    );
+    if (!current?.getShareUrl) return;
+    try {
+      const url = snapshot?.shareUrl || (await current.getShareUrl());
+      if (!url) throw new Error('No share link yet.');
+      await Clipboard.setStringAsync(url);
+      showCopyNote('Link copied');
+    } catch (error) {
+      showCopyNote(shareErrorMessage(error, 'Could not copy link'));
+    }
   };
 
   /** Send link hands the URL to the OS share sheet. It does not change access. */
@@ -288,6 +301,17 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
     optionButtonTextSelected: { color: '#fff' },
     error: { color: '#F87171', fontSize: 14, marginBottom: 8 },
     note: { color: colors.textSecondary, fontSize: 13, marginBottom: 8 },
+    copyNote: {
+      position: 'absolute',
+      top: 56,
+      alignSelf: 'center',
+      zIndex: 2,
+      backgroundColor: colors.text,
+      borderRadius: 999,
+      paddingVertical: 8,
+      paddingHorizontal: 14,
+    },
+    copyNoteText: { color: colors.background, fontSize: 14, fontWeight: '600' },
   });
 
   return (
@@ -514,8 +538,8 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
                 : null}
               {showLink ? (
                 <View style={{ flexDirection: 'row', gap: 16 }}>
-                  <TouchableOpacity onPress={() => void copyLink()} disabled={!!pending} style={styles.button}>
-                    <Text style={styles.buttonText}>{pending === 'copy' ? 'Copied' : 'Copy link'}</Text>
+                  <TouchableOpacity onPress={() => void copyLink()} style={styles.button}>
+                    <Text style={styles.buttonText}>Copy link</Text>
                   </TouchableOpacity>
                   {Platform.OS !== 'web' ? (
                     <TouchableOpacity onPress={() => void sendLink()} disabled={!!pending} style={styles.button}>
@@ -576,6 +600,11 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
               >
                 <Text style={styles.emailButtonText}>{pending === 'email' ? 'Sending…' : 'Email link'}</Text>
               </TouchableOpacity>
+            </View>
+          ) : null}
+          {copyNote ? (
+            <View pointerEvents="none" style={styles.copyNote}>
+              <Text style={styles.copyNoteText}>{copyNote}</Text>
             </View>
           ) : null}
         </View>

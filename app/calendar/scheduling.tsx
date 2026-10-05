@@ -1,10 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Keyboard,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
+import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
 import { FRONTEND_URL } from '../../constants/Config';
@@ -79,6 +83,21 @@ function kindLabel(kind: string) {
   return kind === 'group' ? 'Group' : 'One-on-one';
 }
 
+type TimeTarget = { day: (typeof DAYS)[number]; index: number; field: 'start' | 'end' };
+
+function parseTime(value: string): Date {
+  const date = new Date();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  const hours = match ? Number(match[1]) : 9;
+  const minutes = match ? Number(match[2]) : 0;
+  date.setHours(Number.isFinite(hours) ? hours : 9, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  return date;
+}
+
+function formatTime(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 function answerLines(response: Record<string, unknown> | null | undefined) {
   if (!response) return [];
   return Object.entries(response).map(([key, value]) => {
@@ -108,6 +127,9 @@ export default function CalendarSchedulingScreen() {
   const [kind, setKind] = useState<'one_on_one' | 'group'>('one_on_one');
   const [formId, setFormId] = useState<number | null>(null);
   const [formPickerOpen, setFormPickerOpen] = useState(false);
+  const [timeTarget, setTimeTarget] = useState<TimeTarget | null>(null);
+  const [timePickerNonce, setTimePickerNonce] = useState(0);
+  const [pickerDate, setPickerDate] = useState(() => new Date());
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [accessTypeId, setAccessTypeId] = useState<number | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
@@ -115,7 +137,14 @@ export default function CalendarSchedulingScreen() {
   const [savingHours, setSavingHours] = useState(false);
   const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState<'events' | 'hours'>('events');
-  const [eventsView, setEventsView] = useState<'list' | 'create' | 'detail'>('list');
+  const [eventsView, setEventsView] = useState<'list' | 'detail'>('list');
+  const [kbInset, setKbInset] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollHostRef = useRef<View>(null);
+  const scrollYRef = useRef(0);
+  const keyboardTopRef = useRef(0);
+  const kbInsetRef = useRef(0);
+  kbInsetRef.current = kbInset;
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
@@ -141,7 +170,93 @@ export default function CalendarSchedulingScreen() {
     load().catch(() => setMessage('Could not load scheduling.'));
   }, [load]);
 
+  const revealFocusedField = useCallback(() => {
+    const delay = kbInsetRef.current > 0 ? 40 : 280;
+    setTimeout(() => {
+      const focused = TextInput.State.currentlyFocusedInput() as {
+        measureInWindow?: (cb: (x: number, y: number, width: number, height: number) => void) => void;
+      } | null;
+      const keyboardTop = keyboardTopRef.current;
+      if (!focused?.measureInWindow || keyboardTop <= 0) return;
+      focused.measureInWindow((_x, y, _width, height) => {
+        const overlap = y + height + 24 - keyboardTop;
+        if (overlap > 1) {
+          scrollRef.current?.scrollTo({ y: scrollYRef.current + overlap, animated: true });
+        }
+      });
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const onShow = (event: { endCoordinates: { screenY: number; height: number } }) => {
+      const screenY = event.endCoordinates.screenY;
+      const height = event.endCoordinates.height;
+      keyboardTopRef.current = screenY;
+      const host = scrollHostRef.current;
+      if (!host) {
+        setKbInset(Math.max(0, Math.round(height)));
+        return;
+      }
+      host.measureInWindow((_x, y, _w, h) => {
+        const bottom = y + h;
+        let inset = bottom > 0 && screenY > 0 ? bottom - screenY : height;
+        if (height > 0) inset = Math.min(Math.max(0, inset), height);
+        setKbInset(Math.max(0, Math.round(inset)));
+      });
+    };
+    const onHide = () => {
+      keyboardTopRef.current = 0;
+      setKbInset(0);
+    };
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (kbInset <= 0) return;
+    const timer = setTimeout(() => revealFocusedField(), 60);
+    return () => clearTimeout(timer);
+  }, [kbInset, revealFocusedField]);
+
   const setDayIntervals = (day: string, next: Interval[]) => setHours({ ...hours, [day]: next });
+
+  const applyPickedTime = useCallback((target: TimeTarget, date: Date) => {
+    const next = formatTime(date);
+    setHours((current) => {
+      const intervals = current[target.day] || [];
+      return {
+        ...current,
+        [target.day]: intervals.map((item, itemIndex) =>
+          itemIndex === target.index ? { ...item, [target.field]: next } : item,
+        ),
+      };
+    });
+  }, []);
+
+  const openTimePicker = (day: (typeof DAYS)[number], index: number, field: 'start' | 'end', value: string) => {
+    const target = { day, index, field };
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: parseTime(value),
+        mode: 'time',
+        is24Hour: true,
+        onChange: (event, date) => {
+          if (event.type !== 'set' || !date) return;
+          applyPickedTime(target, date);
+        },
+      });
+      return;
+    }
+    setPickerDate(parseTime(value));
+    setTimeTarget(target);
+    setTimePickerNonce((nonce) => nonce + 1);
+  };
 
   const formTitle = forms.find((form) => form.id === formId)?.title || 'No form';
   const slugInvalid = !!slug && !SLUG_RE.test(slug);
@@ -183,7 +298,6 @@ export default function CalendarSchedulingScreen() {
       setSlug('');
       setSlugEdited(false);
       setMessage('Event type created.');
-      setEventsView('list');
       await load();
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not create this event type.');
@@ -194,7 +308,7 @@ export default function CalendarSchedulingScreen() {
 
   const selected = types.find((item) => item.id === selectedType) || null;
   const showTabs = eventsView === 'list';
-  const title = eventsView === 'create' ? 'New event type' : eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
+  const title = eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
 
   const openDetail = (item: EventType) => {
     setSelectedType(item.id);
@@ -241,7 +355,19 @@ export default function CalendarSchedulingScreen() {
           })}
         </View>
       ) : null}
-      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <View ref={scrollHostRef} style={styles.scrollHost}>
+      <ScrollView
+        ref={scrollRef}
+        style={styles.scroll}
+        contentContainerStyle={[styles.body, { paddingBottom: 48 + kbInset }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        nestedScrollEnabled
+        scrollEventThrottle={16}
+        onScroll={(event) => {
+          scrollYRef.current = event.nativeEvent.contentOffset.y;
+        }}
+      >
         {message ? (
           <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
         ) : null}
@@ -279,31 +405,23 @@ export default function CalendarSchedulingScreen() {
                   <View style={styles.intervalCol}>
                     {intervals.map((row, index) => (
                       <View key={`${day}-${index}`} style={styles.intervalRow}>
-                        <TextInput
+                        <TouchableOpacity
                           style={styles.time}
-                          value={row.start}
-                          onChangeText={(start) =>
-                            setDayIntervals(
-                              day,
-                              intervals.map((item, itemIndex) => (itemIndex === index ? { ...item, start } : item)),
-                            )
-                          }
-                          autoCapitalize="none"
+                          onPress={() => openTimePicker(day, index, 'start', row.start)}
+                          accessibilityRole="button"
                           accessibilityLabel={`${DAY_LABELS[day]} start`}
-                        />
+                        >
+                          <Text style={styles.timeText}>{row.start}</Text>
+                        </TouchableOpacity>
                         <Text style={styles.dash}>–</Text>
-                        <TextInput
+                        <TouchableOpacity
                           style={styles.time}
-                          value={row.end}
-                          onChangeText={(end) =>
-                            setDayIntervals(
-                              day,
-                              intervals.map((item, itemIndex) => (itemIndex === index ? { ...item, end } : item)),
-                            )
-                          }
-                          autoCapitalize="none"
+                          onPress={() => openTimePicker(day, index, 'end', row.end)}
+                          accessibilityRole="button"
                           accessibilityLabel={`${DAY_LABELS[day]} end`}
-                        />
+                        >
+                          <Text style={styles.timeText}>{row.end}</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity
                           onPress={() => setDayIntervals(day, intervals.filter((_, itemIndex) => itemIndex !== index))}
                           hitSlop={8}
@@ -332,7 +450,7 @@ export default function CalendarSchedulingScreen() {
           <View style={styles.grid}>
             <View style={styles.field}>
               <Text style={styles.label}>Timezone</Text>
-              <TextInput style={styles.input} value={timezone} onChangeText={setTimezone} autoCapitalize="none" />
+              <TextInput style={styles.input} value={timezone} onChangeText={setTimezone} autoCapitalize="none" onFocus={revealFocusedField} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Slot interval</Text>
@@ -353,19 +471,19 @@ export default function CalendarSchedulingScreen() {
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Min notice (min)</Text>
-              <TextInput style={styles.input} value={notice} onChangeText={setNotice} keyboardType="number-pad" />
+              <TextInput style={styles.input} value={notice} onChangeText={setNotice} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Window (days)</Text>
-              <TextInput style={styles.input} value={windowDays} onChangeText={setWindowDays} keyboardType="number-pad" />
+              <TextInput style={styles.input} value={windowDays} onChangeText={setWindowDays} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
             <View style={styles.field}>
-              <Text style={styles.label}>Buffer before</Text>
-              <TextInput style={styles.input} value={bufferBefore} onChangeText={setBufferBefore} keyboardType="number-pad" />
+              <Text style={styles.label}>Buffer before (min)</Text>
+              <TextInput style={styles.input} value={bufferBefore} onChangeText={setBufferBefore} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
             <View style={styles.field}>
-              <Text style={styles.label}>Buffer after</Text>
-              <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" />
+              <Text style={styles.label}>Buffer after (min)</Text>
+              <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
           </View>
           <TouchableOpacity style={styles.button} onPress={() => void saveHours()} disabled={savingHours}>
@@ -375,7 +493,8 @@ export default function CalendarSchedulingScreen() {
         </>
         ) : null}
 
-        {tab === 'events' && eventsView === 'create' ? (
+        {tab === 'events' && eventsView === 'list' ? (
+        <>
         <View style={styles.card}>
           <View style={styles.grid}>
             <View style={styles.field}>
@@ -389,6 +508,7 @@ export default function CalendarSchedulingScreen() {
                   setName(value);
                   if (!slugEdited) setSlug(slugFromName(value));
                 }}
+                onFocus={revealFocusedField}
               />
             </View>
             <View style={styles.field}>
@@ -409,18 +529,19 @@ export default function CalendarSchedulingScreen() {
                   setSlugEdited(true);
                   setSlug(next);
                 }}
+                onFocus={revealFocusedField}
               />
             </View>
           </View>
           <View style={styles.pair}>
             <View style={styles.pairField}>
               <Text style={styles.label}>Duration (min)</Text>
-              <TextInput style={styles.input} value={duration} onChangeText={setDuration} keyboardType="number-pad" />
+              <TextInput style={styles.input} value={duration} onChangeText={setDuration} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
             {kind === 'group' ? (
               <View style={styles.pairField}>
                 <Text style={styles.label}>Seats</Text>
-                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" />
+                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" onFocus={revealFocusedField} />
               </View>
             ) : (
               <View style={styles.pairField} />
@@ -476,13 +597,6 @@ export default function CalendarSchedulingScreen() {
             <Text style={styles.buttonText}>{creating ? 'Creating…' : 'Create event type'}</Text>
           </TouchableOpacity>
         </View>
-        ) : null}
-
-        {tab === 'events' && eventsView === 'list' ? (
-        <>
-        <TouchableOpacity style={styles.button} onPress={() => setEventsView('create')}>
-          <Text style={styles.buttonText}>New event type</Text>
-        </TouchableOpacity>
         <Text style={styles.listTitle}>Event types</Text>
         {types.length === 0 ? (
           <Text style={styles.empty}>No event types yet. Create one above to get a booking link.</Text>
@@ -595,6 +709,7 @@ export default function CalendarSchedulingScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </View>
 
       <AdaptiveListPickerModal
         visible={formPickerOpen}
@@ -627,6 +742,29 @@ export default function CalendarSchedulingScreen() {
         ))}
       </AdaptiveListPickerModal>
 
+      {timeTarget && Platform.OS === 'ios' ? (
+        <MinimizableBottomSheet
+          visible
+          minimizable={false}
+          expandNonce={timePickerNonce}
+          onClose={() => setTimeTarget(null)}
+          title={timeTarget.field === 'start' ? 'Start' : 'End'}
+          sheetHeight={300}
+        >
+          <DateTimePicker
+            value={pickerDate}
+            mode="time"
+            display="spinner"
+            themeVariant={colors.isDark ? 'dark' : 'light'}
+            onChange={(_, date) => {
+              if (!date) return;
+              setPickerDate(date);
+              applyPickedTime(timeTarget, date);
+            }}
+          />
+        </MinimizableBottomSheet>
+      ) : null}
+
       <ShareAccessSheet
         visible={accessTypeId != null}
         adapter={accessTypeId != null ? createBookingShareAdapter(accessTypeId) : null}
@@ -646,6 +784,8 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       paddingHorizontal: 8,
       paddingBottom: 4,
     },
+    scrollHost: { flex: 1 },
+    scroll: { flex: 1 },
     body: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
     tabs: {
       flexDirection: 'row',
@@ -686,9 +826,13 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       borderRadius: 6,
       paddingHorizontal: 6,
       paddingVertical: 4,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    timeText: {
       fontSize: 13,
       color: colors.text,
-      backgroundColor: colors.background,
       textAlign: 'center',
     },
     dash: { fontSize: 12, color: colors.textSecondary },

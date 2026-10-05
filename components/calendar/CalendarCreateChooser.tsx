@@ -112,13 +112,13 @@ export default function CalendarCreateChooser({
             onScheduleEvent();
           }}
           accessibilityRole="button"
-          accessibilityLabel="Schedule event"
+          accessibilityLabel="Booking page"
         >
           <View style={[styles.optionIcon, { backgroundColor: '#EDE9FE' }]}>
             <Ionicons name="link-outline" size={24} color="#6D28D9" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.optionTitle}>Schedule event</Text>
+            <Text style={styles.optionTitle}>Booking page</Text>
             <Text style={styles.optionDesc}>
               Open a booking page so someone else can pick a time.
             </Text>
