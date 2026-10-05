@@ -21,7 +21,10 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { truncateAppHeaderTitle } from '../utils/chatTitleDisplay';
-import { shouldShowPersistentBottomNav } from '../utils/persistentBottomNavInset';
+import {
+  persistentBottomNavInset,
+  shouldShowPersistentBottomNav,
+} from '../utils/persistentBottomNavInset';
 import AppHeaderTitle from './AppHeaderTitle';
 
 const MINIMIZED_PEEK = 68;
@@ -93,11 +96,12 @@ export default function MinimizableBottomSheet({
   const [minimized, setMinimized] = useState(false);
   const [measuredHeight, setMeasuredHeight] = useState(0);
 
-  // Sheet is anchored to the bottom of its screen. Tab screens already end at the
-  // persistent bar, so the panel sits flush on that bar. Other screens still clear
-  // the system navigation inset so content sits directly on that bar.
+  // On main tabs the persistent tab bar overlays the screen. Sheets inside those
+  // screens clear that bar so the minimized peek stays tappable.
   const maxSheetHeight = sheetHeightProp ?? Math.round(windowHeight * heightRatio);
-  const defaultBottomPad = shouldShowPersistentBottomNav(pathname) ? 0 : insets.bottom;
+  const defaultBottomPad = shouldShowPersistentBottomNav(pathname)
+    ? persistentBottomNavInset(insets.bottom)
+    : insets.bottom;
   const paddingBottom = paddingBottomProp ?? defaultBottomPad;
   // measuredHeight is chrome + options, before the sheet's bottom padding.
   const fittedHeight =

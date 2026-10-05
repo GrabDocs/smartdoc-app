@@ -1180,16 +1180,25 @@ export default function EmailThreadScreen() {
           paddingTop: 0,
           flexShrink: 0,
         },
-        draftPeek: {
-          marginHorizontal: 12,
-          marginBottom: 8,
+        sectionPeek: {
+          paddingHorizontal: 16,
           paddingVertical: 10,
+          backgroundColor: colors.headerBackground,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
         },
-        draftPeekText: {
-          fontSize: 15,
-          fontWeight: '700',
-          color: '#2563eb',
+        sectionPeekText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+        draftPeek: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          backgroundColor: colors.background,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
         },
+        draftPeekText: { flex: 1, minWidth: 0, fontSize: 14, color: colors.text },
         chip: {
           paddingHorizontal: 10,
           paddingVertical: 6,
@@ -1402,10 +1411,7 @@ export default function EmailThreadScreen() {
     Platform.OS !== 'web' && !!draft && !composing && !isNewCompose && !dismissed && !fullscreenMessage;
   const draftPeekText = (() => {
     const preview = (body || '').replace(/\s+/g, ' ').trim();
-    if (preview) return preview;
-    const who = (to || '').replace(/\s+/g, ' ').trim();
-    if (isNewCompose && who) return who;
-    return isNewCompose ? 'Tap to continue writing' : 'Tap to open your reply';
+    return preview ? `Draft · ${preview}` : 'Draft reply';
   })();
   const drafting = !!generatingMessage;
   const workspaceGenerating = researchPhase === 'searching' || researchPhase === 'writing';
@@ -1899,7 +1905,7 @@ export default function EmailThreadScreen() {
           </View>
         ) : threadCollapsedForCompose ? (
           <TouchableOpacity
-            style={[styles.draftPeek, { marginBottom: 0, marginTop: 8 }]}
+            style={styles.sectionPeek}
             onPress={() => {
               setComposeFullscreen(false);
               setThreadCollapsedForCompose(false);
@@ -1909,7 +1915,7 @@ export default function EmailThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Show conversation"
           >
-            <Text style={styles.draftPeekText} numberOfLines={1}>
+            <Text style={styles.sectionPeekText} numberOfLines={1}>
               {truncateAppHeaderTitle(thread?.subject || 'Conversation')}
             </Text>
           </TouchableOpacity>
@@ -1983,9 +1989,11 @@ export default function EmailThreadScreen() {
             accessibilityRole="button"
             accessibilityLabel="Open draft reply"
           >
+            <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
             <Text style={styles.draftPeekText} numberOfLines={1}>
               {draftPeekText}
             </Text>
+            <Ionicons name="chevron-up" size={16} color={colors.textSecondary} />
           </TouchableOpacity>
         ) : !dismissed && !fullscreenMessage ? (
           <View
@@ -1997,9 +2005,6 @@ export default function EmailThreadScreen() {
                     flexGrow: 0,
                     flexShrink: 0,
                     maxHeight: Math.round(windowHeight * 0.58),
-                    borderTopWidth: 3,
-                    borderTopColor: '#2563eb',
-                    backgroundColor: colors.isDark ? '#1e3a5f' : '#EFF6FF',
                   },
             ]}
           >

@@ -1,8 +1,8 @@
 import {
-    flushPendingCalendarCreates,
-    getPendingCalendarCreates,
-    pendingCreatesToEventRows,
-    type FlushResult
+  flushPendingCalendarCreates,
+  getPendingCalendarCreates,
+  pendingCreatesToEventRows,
+  type FlushResult
 } from '@/utils/calendarPendingCreates';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -10,74 +10,75 @@ import { addNetworkStateListener, useNetworkState } from 'expo-network';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Keyboard,
-    ListRenderItem,
-    Platform,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  Keyboard,
+  ListRenderItem,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import CalendarCreateChooser from '../../components/calendar/CalendarCreateChooser';
+import { GoogleLogo } from '../../components/GoogleLogo';
+import { MicrosoftLogo } from '../../components/MicrosoftLogo';
 import { STORAGE_KEYS } from '../../constants/Config';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalendarProfile';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
-    calendarAssetsMetadata,
-    calendarConnections,
-    calendarIdentityEmails,
-    calendarDeleteConnection,
-    calendarGetStats,
-    calendarListEvents,
-    calendarSearchCompanyMembers,
-    calendarSetDefaultConnection,
-    calendarSyncGoogleWithStaleConnectionRecovery,
-    formatCalendarSyncMessage,
-    type CalendarConnection,
-    type CalendarProvider,
+  calendarAssetsMetadata,
+  calendarConnections,
+  calendarDeleteConnection,
+  calendarGetStats,
+  calendarIdentityEmails,
+  calendarListEvents,
+  calendarSearchCompanyMembers,
+  calendarSetDefaultConnection,
+  calendarSyncGoogleWithStaleConnectionRecovery,
+  formatCalendarSyncMessage,
+  type CalendarConnection,
+  type CalendarProvider,
 } from '../../services/calendarApi';
 import {
+  buildCalendarListStorageKey,
+  getCalendarListCache,
+  getCalendarListFallback,
+  isCalendarFetchOfflineError,
+  saveCalendarIdentityEmails,
+  saveCalendarListCache,
+} from '../../utils/calendarCache';
+import {
+  calendarConnectionProvider,
   canConnectMoreCalendarProviders,
   connectionDisplayLabel,
-  calendarConnectionProvider,
 } from '../../utils/calendarConnections';
-import {
-    buildCalendarListStorageKey,
-    getCalendarListCache,
-    getCalendarListFallback,
-    isCalendarFetchOfflineError,
-    saveCalendarListCache,
-    saveCalendarIdentityEmails,
-} from '../../utils/calendarCache';
 import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { addCalendarPeriod, formatCalendarTitle, type CalendarSubView } from '../../utils/calendarRange';
 import { navigateReachJoinFromCalendarListRow } from '../../utils/calendarReachJoin';
 import {
-    calendarDisplayLocation,
-    calendarEventMatchesLocalSearch,
-    defaultCalendarListWindow,
-    eventHasReachMeeting,
-    filterEventsByTab,
-    formatEventWhen,
-    ListTabFilter,
-    sortCalendarEventsByStartAsc,
-    sortCalendarEventsByStartDesc,
-    toLocalDateString,
+  calendarDisplayLocation,
+  calendarEventMatchesLocalSearch,
+  defaultCalendarListWindow,
+  eventHasReachMeeting,
+  filterEventsByTab,
+  formatEventWhen,
+  ListTabFilter,
+  sortCalendarEventsByStartAsc,
+  sortCalendarEventsByStartDesc,
+  toLocalDateString,
 } from '../../utils/calendarTime';
 import { openMapsForLocationLabel } from '../../utils/openMapsQuery';
+import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import { useAuth } from '../context/auth';
-import { GoogleLogo } from '../../components/GoogleLogo';
-import { MicrosoftLogo } from '../../components/MicrosoftLogo';
 import { CalendarOAuthWebView } from './_components/CalendarOAuthWebView';
 import { CalendarReachPill } from './_components/CalendarReachIndicator';
 import { CalendarVisualPane } from './_components/CalendarVisualPane';
@@ -113,6 +114,7 @@ export default function CalendarHomeScreen() {
   const router = useRouter();
   const openChatGD = useOpenChatGD();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { profile, refresh: refreshProfile } = useCalendarProfile();
   const isAdmin = calendarIsCompanyAdmin(profile);
@@ -171,7 +173,7 @@ export default function CalendarHomeScreen() {
 
   const monthVerticalScrollRef = useRef<ScrollView>(null);
 
-  const calendarFabBottom = 16;
+  const calendarFabBottom = persistentBottomNavInset(insets.bottom) + 16;
   const calendarScrollBottomPad = calendarFabBottom + 56 + 16;
 
   const refreshConnections = useCallback(async () => {

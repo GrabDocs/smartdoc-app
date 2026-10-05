@@ -1711,7 +1711,7 @@ export default function SettingsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+      <SafeAreaView style={dynamicStyles.container}>
         <View style={dynamicStyles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
           <Text style={dynamicStyles.loadingText}>Loading settings...</Text>
@@ -1721,7 +1721,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+    <SafeAreaView style={dynamicStyles.container}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       <AnimatedHeaderContainer>
         <View style={dynamicStyles.header}>
@@ -1732,7 +1732,7 @@ export default function SettingsScreen() {
 
       <ScrollView
         style={dynamicStyles.scrollView}
-        contentContainerStyle={{ paddingBottom: 24 }}
+        contentContainerStyle={{ paddingBottom: 96 }}
         showsVerticalScrollIndicator={false}
         {...scrollRestoresHeaderProps}
       >

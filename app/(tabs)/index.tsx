@@ -1,5 +1,5 @@
-import { SpaceGrotesk_500Medium, useFonts } from '@expo-google-fonts/space-grotesk';
 import { Ionicons } from '@expo/vector-icons';
+import { SpaceGrotesk_500Medium, useFonts } from '@expo-google-fonts/space-grotesk';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,22 +11,22 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     useWindowDimensions,
     View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import PendingTasksModal from '../../components/clients/PendingTasksModal';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { SignatureIcon } from '../../components/SignatureIcon';
-import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import { apiClient } from '../../services/api';
 import {
-    getAttentionQueue,
-    getClientsCount,
-    type AttentionQueueItem,
+  getAttentionQueue,
+  getClientsCount,
+  type AttentionQueueItem,
 } from '../../services/clientsApi';
 import { useProgressStore } from '../../services/progressService';
 import { dashboardScreenKey } from '../../services/userScopedCache';
@@ -39,6 +39,7 @@ import { QUICK_ACTION_APP_KEY_SET } from '../../utils/visibleApps';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
+import PendingTasksModal from '../../components/clients/PendingTasksModal';
 import { useAuth } from '../context/auth';
 import { pushNotificationService } from '../services/pushNotifications';
 
@@ -1008,7 +1009,7 @@ function DashboardScreen() {
   }), [colors]);
 
   return (
-    <SafeAreaView style={dynamicStyles.container} edges={['top']}>
+    <SafeAreaView style={dynamicStyles.container}>
       {/* Connection Status Banner */}
       {connectionStatus && !connectionStatus.success && (
         <View style={dynamicStyles.connectionBanner}>
@@ -1290,7 +1291,7 @@ function DashboardScreen() {
           )}
         </View>
 
-        <View style={{ height: 24 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <PendingTasksModal
