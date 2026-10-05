@@ -2,30 +2,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    BackHandler,
-    Keyboard,
-    Pressable,
-    StyleSheet,
-    Text,
-    View,
-    useWindowDimensions,
-    type ViewStyle,
+  BackHandler,
+  Keyboard,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type ViewStyle,
 } from 'react-native';
 import { Gesture, GestureDetector, TouchableOpacity } from 'react-native-gesture-handler';
 import Animated, {
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../hooks/useThemeColors';
-import AppHeaderTitle from './AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../utils/chatTitleDisplay';
-import {
-    persistentBottomNavInset,
-    shouldShowPersistentBottomNav,
-} from '../utils/persistentBottomNavInset';
+import { shouldShowPersistentBottomNav } from '../utils/persistentBottomNavInset';
+import AppHeaderTitle from './AppHeaderTitle';
 
 const MINIMIZED_PEEK = 68;
 const SPRING = { damping: 24, stiffness: 320 };
@@ -96,12 +93,11 @@ export default function MinimizableBottomSheet({
   const [minimized, setMinimized] = useState(false);
   const [measuredHeight, setMeasuredHeight] = useState(0);
 
-  // On main tabs the persistent tab bar overlays the screen. Sheets inside those
-  // screens clear that bar so the minimized peek stays tappable.
+  // Sheet is anchored to the bottom of its screen. Tab screens already end at the
+  // persistent bar, so the panel sits flush on that bar. Other screens still clear
+  // the system navigation inset so content sits directly on that bar.
   const maxSheetHeight = sheetHeightProp ?? Math.round(windowHeight * heightRatio);
-  const defaultBottomPad = shouldShowPersistentBottomNav(pathname)
-    ? persistentBottomNavInset(insets.bottom)
-    : insets.bottom;
+  const defaultBottomPad = shouldShowPersistentBottomNav(pathname) ? 0 : insets.bottom;
   const paddingBottom = paddingBottomProp ?? defaultBottomPad;
   // measuredHeight is chrome + options, before the sheet's bottom padding.
   const fittedHeight =

@@ -573,6 +573,7 @@ function RootLayoutNav() {
       )}
       <ChatGDSheetProvider>
       <View ref={mainContentRef} style={[styles.mainContainer, { backgroundColor: isDark ? '#151718' : '#fff' }]} accessibilityLabel="Main content">
+        <View style={styles.stackHost}>
         <HeaderVisibilityProvider>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
@@ -604,9 +605,8 @@ function RootLayoutNav() {
           <Stack.Screen name="workspace-invite" options={{ headerShown: false }} />
         </Stack>
         </HeaderVisibilityProvider>
-        <View style={styles.bottomNavContainer}>
-          <PersistentBottomNavigation />
         </View>
+        <PersistentBottomNavigation />
       </View>
       <ChatGDBottomSheetHost />
       </ChatGDSheetProvider>
@@ -866,6 +866,9 @@ const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
   },
+  stackHost: {
+    flex: 1,
+  },
   networkIndicatorContainer: {
     position: 'absolute',
     top: 0,
@@ -876,12 +879,5 @@ const styles = StyleSheet.create({
     marginTop: -4,
     paddingTop: 0,
     paddingRight: 8,
-  },
-  bottomNavContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
   },
 }); 

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Dimensions,
@@ -16,6 +16,11 @@ import {
   useChatGDSheet,
 } from '../../contexts/ChatGDSheetContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  persistentBottomNavInset,
+  shouldShowPersistentBottomNav,
+} from '../../utils/persistentBottomNavInset';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
 import AppHeaderTitle from '../AppHeaderTitle';
 import ChatsScreen from '../../app/(tabs)/chats';
@@ -35,6 +40,8 @@ export default function ChatGDBottomSheetHost({
 }) {
   const colors = useThemeColors();
   const router = useRouter();
+  const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { visible, expandNonce, params, closeChatGD, nestedHostCount, registerNestedHost, beginOpenFull } =
     useChatGDSheet();
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
@@ -83,10 +90,13 @@ export default function ChatGDBottomSheetHost({
     };
   }, [visible]);
 
+  const closedInset = shouldShowPersistentBottomNav(pathname)
+    ? persistentBottomNavInset(insets.bottom)
+    : insets.bottom;
   const keyboardInset =
     keyboardTop != null
       ? Math.max(0, Dimensions.get('window').height - keyboardTop + KEYBOARD_EXTRA_INSET)
-      : undefined;
+      : closedInset;
 
   if (!nested && nestedHostCount > 0) return null;
   if (!visible) return null;

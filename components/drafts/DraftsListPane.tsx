@@ -23,8 +23,6 @@ import { useDraftsSplitOptional } from '../../contexts/DraftsSplitContext';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
 import { apiClient } from '../../services/api';
 import { toAlertMessage } from '../../utils/alertUtils';
 import {
@@ -99,9 +97,8 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
   const split = useDraftsSplitOptional();
   const { user } = useAuth();
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const isDarkMode = colors.isDark;
-  const bottomNavPad = persistentBottomNavInset(insets.bottom) + 16;
+  const bottomNavPad = 24;
   const scrollRestoresHeaderProps = useScrollRestoresHeaderProps();
   const [drafts, setDrafts] = useState<DraftListItem[]>([]);
   const [loading, setLoading] = useState(true);

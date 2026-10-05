@@ -224,7 +224,7 @@ export default function HelpScreen() {
       >
         <ScrollView
           style={dynamicStyles.content}
-          contentContainerStyle={{ paddingBottom: 96 }}
+          contentContainerStyle={{ paddingBottom: 24 }}
           showsVerticalScrollIndicator={false}
           {...scrollRestoresHeaderProps}
         >

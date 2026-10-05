@@ -4,7 +4,6 @@ import 'react-native-url-polyfill/auto';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useChatGDSheetHostParams, useChatGDSheetOptional } from '../../contexts/ChatGDSheetContext';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
     AccessibilityInfo,
@@ -31,52 +30,50 @@ import {
     View
 } from 'react-native';
 import {
-    GestureHandlerRootView,
-    RectButton,
-    Swipeable,
     TouchableOpacity as GHTouchableOpacity,
+    RectButton,
+    Swipeable
 } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import { io, Socket } from 'socket.io-client';
 import AssistantMessageBody from '../../components/AssistantMessageBody';
 import ChartImageModal from '../../components/ChartImageModal';
+import ChatComposerInput from '../../components/ChatComposerInput';
 import ChatConnectivityBanner from '../../components/ChatConnectivityBanner';
 import ExtraAiCreditsBanner from '../../components/ExtraAiCreditsBanner';
+import GeneralFileViewerModal from '../../components/GeneralFileViewerModal';
 import InAppWebViewModal, { shouldUseExternalLinking } from '../../components/InAppWebViewModal';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
-import GeneralFileViewerModal from '../../components/GeneralFileViewerModal';
 import SermonViewerModal from '../../components/SermonViewerModal';
 import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
-import { persistentBottomNavInset } from '../../utils/persistentBottomNavInset';
+import { useChatGDSheetHostParams, useChatGDSheetOptional } from '../../contexts/ChatGDSheetContext';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useLimitError } from '../../contexts/LimitErrorContext';
-import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useChatConnectivity } from '../../hooks/useChatConnectivity';
+import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService as api } from '../../services/api';
 import { errorLogger } from '../../services/errorLogger';
+import {
+    chatContextsStorageKey,
+    chatListScreenKey,
+    favoriteChatsStorageKey,
+} from '../../services/userScopedCache';
 import { useChatStore } from '../../stores/chatStore';
 import type { ChatHistory } from '../../types';
-import { parseGrabDocsFileViewUrl } from '../../utils/chatFileLinks';
-import { isSermonFile } from '../../utils/isSermonFile';
-import { localizeUtcDatesInAssistantText } from '../../utils/chatUtcDisplay';
-import { truncateAskClientName, truncateChatHeaderTitle } from '../../utils/chatTitleDisplay';
-import { removeFileExtension } from '../../utils/fileUtils';
 import {
-  CHAT_COMPOSER_MAX_HEIGHT,
-  CHAT_COMPOSER_MIN_HEIGHT,
+    CHAT_COMPOSER_MIN_HEIGHT
 } from '../../utils/chatComposerMetrics';
-import ChatComposerInput from '../../components/ChatComposerInput';
-import { getChatNetworkErrorMessage, isNetworkError, isRateLimitError } from '../../utils/networkErrors';
-import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
+import { parseGrabDocsFileViewUrl } from '../../utils/chatFileLinks';
+import { truncateAskClientName, truncateChatHeaderTitle } from '../../utils/chatTitleDisplay';
+import { localizeUtcDatesInAssistantText } from '../../utils/chatUtcDisplay';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
+import { removeFileExtension } from '../../utils/fileUtils';
+import { isSermonFile } from '../../utils/isSermonFile';
+import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
+import { getChatNetworkErrorMessage, isNetworkError, isRateLimitError } from '../../utils/networkErrors';
 import { screenCache } from '../../utils/screenCache';
-import {
-  chatContextsStorageKey,
-  chatListScreenKey,
-  favoriteChatsStorageKey,
-} from '../../services/userScopedCache';
 import { secureStorage } from '../../utils/storage';
 import {
     WORKSPACE_MEMBERS_CACHE_MS,
@@ -93,8 +90,8 @@ import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ClientsButton from '../../components/clients/ClientsButton';
 import {
-  getClientsForItem,
-  setItemClients,
+    getClientsForItem,
+    setItemClients,
 } from '../../services/clientsApi';
 
 const DEFAULT_ASK_CHIPS = ["What's missing?", 'Have they signed?', 'When was last contact?'];
@@ -815,7 +812,8 @@ export default function ChatsScreen() {
     if (isSheet || keyboardTop == null) return 0;
     return Math.max(0, Dimensions.get('window').height - keyboardTop - insets.bottom);
   }, [isSheet, keyboardTop, insets.bottom]);
-  const bottomNavInset = persistentBottomNavInset(insets.bottom);
+  /** Screen already ends above the tab bar, so the composer sits at the bottom of this view. */
+  const bottomNavInset = 0;
   const composerBottomInset = useMemo(() => {
     if (keyboardTop != null) return composerKeyboardLift;
     return bottomNavInset;
@@ -8193,7 +8191,7 @@ export default function ChatsScreen() {
               data={filteredChats}
               keyExtractor={(item, index) => item ? `history-${item.type}-${item.id}-${index}` : `history-${index}`}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 88 }}
+              contentContainerStyle={{ paddingBottom: 24 }}
               onEndReached={() => {
                 if (!searchQuery.trim() && (hasMoreAiChats || hasMoreUserChats)) {
                   loadMoreChats();
@@ -8314,7 +8312,7 @@ export default function ChatsScreen() {
 
   const renderChatsList = () => {
     return (
-    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top', 'bottom']}>
+    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {!isSheet && (
         <AnimatedHeaderContainer>
@@ -8425,7 +8423,7 @@ export default function ChatsScreen() {
       selectedChat ?? (openingComposerFromDeepLink ? DEFAULT_CHAT_ASSISTANT : undefined);
 
     return (
-    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top', 'bottom']}>
+    <SafeAreaView style={dynamicStyles.container} edges={isSheet ? [] : ['top']}>
       <TapToToggleHeaderView style={dynamicStyles.container}>
       {/* Chat Header — hidden in sheet mode; sheet provides its own header.
           Memoized so typewriter setMessages re-renders do not drop Chat History taps. */}
