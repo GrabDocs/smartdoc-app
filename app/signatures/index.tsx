@@ -37,7 +37,8 @@ import {
 } from '../../utils/envelopeActions';
 import { submissionDisplayTitle } from '../../utils/signatureActivity';
 import { envelopeDisplayId } from '../../utils/signatureRuntime';
-import { shareDocumentFile } from '../../utils/shareDocumentFile';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
+import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import {
   hubDetailRoute,
   hubFillEditorRoute,
@@ -334,18 +335,17 @@ export default function SignaturesHubScreen() {
     }
   }, [allHasMoreLocal, hasMore, isAllTab, loadMore, loading, loadingMore]);
 
-  /** Send/export the completed signature PDF. Not an access change. */
+  const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
+
+  /** GrabDocs share link for this file. Not a phone share-sheet export. */
   const handleShareFile = useCallback(
-    async (fileId: number | string | null | undefined, name: string) => {
-      if (fileId == null) {
+    (fileId: number | string | null | undefined, name: string) => {
+      const id = Number(fileId);
+      if (fileId == null || !Number.isFinite(id) || id <= 0) {
         Alert.alert('Cannot share', 'No file is available to share yet.');
         return;
       }
-      try {
-        await shareDocumentFile(fileId, name);
-      } catch (e: unknown) {
-        Alert.alert('Could not share', e instanceof Error ? e.message : 'Try again.');
-      }
+      setAccessShare({ id, name: name || 'Document' });
     },
     [],
   );
@@ -717,6 +717,11 @@ export default function SignaturesHubScreen() {
           onClose={() => setViewerFile(null)}
         />
       ) : null}
+      <ShareAccessSheet
+        visible={accessShare != null}
+        adapter={accessShare ? createFileShareAdapter(accessShare) : null}
+        onClose={() => setAccessShare(null)}
+      />
     </SafeAreaView>
   );
 }

@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DocumentViewer from '../../../../components/DocumentViewer';
+import ShareAccessSheet from '../../../../components/share/ShareAccessSheet';
+import { createFileShareAdapter } from '../../../../components/share/fileShareAdapter';
 import FileNameText from '../../../../components/FileNameText';
 import { useThemeColors } from '../../../../hooks/useThemeColors';
 import { listTemplateSubmissions, type FillSubmission } from '../../../../services/fillApi';
@@ -30,6 +32,7 @@ export default function TemplateSubmissionsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [viewerFile, setViewerFile] = useState<{ id: string; name: string } | null>(null);
+  const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
 
   const load = useCallback(
     async (opts?: { background?: boolean }) => {
@@ -75,6 +78,10 @@ export default function TemplateSubmissionsScreen() {
           borderWidth: 1,
           backgroundColor: colors.card,
           borderColor: colors.border,
+          gap: 8,
+        },
+        shareBtn: {
+          padding: 8,
         },
         rowBody: { flex: 1, minWidth: 0 },
         rowTitle: { fontSize: 15, fontWeight: '600', color: colors.text, marginBottom: 4 },
@@ -141,33 +148,41 @@ export default function TemplateSubmissionsScreen() {
               .join(' · ');
             const canView = item.filled_file_id != null;
 
+            const title = submissionDisplayTitle(item);
             return (
-              <TouchableOpacity
-                style={styles.row}
-                disabled={!canView}
-                onPress={() => {
-                  if (item.filled_file_id == null) return;
-                  setViewerFile({
-                    id: String(item.filled_file_id),
-                    name: submissionDisplayTitle(item),
-                  });
-                }}
-              >
-                <View style={styles.rowBody}>
+              <View style={styles.row}>
+                <TouchableOpacity
+                  style={styles.rowBody}
+                  disabled={!canView}
+                  onPress={() => {
+                    if (item.filled_file_id == null) return;
+                    setViewerFile({
+                      id: String(item.filled_file_id),
+                      name: title,
+                    });
+                  }}
+                >
                   <View style={styles.badge}>
                     <Text style={styles.badgeText}>Completed</Text>
                   </View>
                   <FileNameText
-                    name={submissionDisplayTitle(item)}
+                    name={title}
                     style={styles.rowTitle}
                     sanitize={false}
                   />
                   {meta ? <Text style={styles.rowMeta}>{meta}</Text> : null}
-                </View>
+                </TouchableOpacity>
                 {canView ? (
-                  <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                  <TouchableOpacity
+                    style={styles.shareBtn}
+                    accessibilityLabel="Share"
+                    accessibilityRole="button"
+                    onPress={() => setAccessShare({ id: item.filled_file_id as number, name: title })}
+                  >
+                    <Ionicons name="share-outline" size={22} color={colors.primary || '#007AFF'} />
+                  </TouchableOpacity>
                 ) : null}
-              </TouchableOpacity>
+              </View>
             );
           }}
           contentContainerStyle={
@@ -184,6 +199,11 @@ export default function TemplateSubmissionsScreen() {
           onClose={() => setViewerFile(null)}
         />
       ) : null}
+      <ShareAccessSheet
+        visible={accessShare != null}
+        adapter={accessShare ? createFileShareAdapter(accessShare) : null}
+        onClose={() => setAccessShare(null)}
+      />
     </SafeAreaView>
   );
 }
