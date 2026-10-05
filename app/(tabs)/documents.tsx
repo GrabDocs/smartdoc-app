@@ -53,6 +53,7 @@ import { useFileStore } from '../../stores/fileStore';
 import type { DeletedFolderGroup, FolderRowModel } from '../../types/folder';
 import { toAlertMessage } from '../../utils/alertUtils';
 import {
+  cleanupReprocessingTracking,
   docNeedsClassificationPollFromRow,
   isFileKindPending,
   resolveDocumentListStatus,
@@ -463,6 +464,7 @@ export default function QuickFilesScreen() {
   const lockedFileIdsRef = React.useRef<Set<string>>(new Set());
   /** User-triggered reprocess/retry — keep spinner until processing_status clears (matches web). */
   const reprocessingFileIdsRef = React.useRef<Set<number>>(new Set());
+  const reprocessingPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     apiCacheRef.current = null;
@@ -803,11 +805,12 @@ export default function QuickFilesScreen() {
       .filter(
         (f) => !isLockedBookmarkFile(f.id, fileIdsInLockedBookmarks, f.in_locked_bookmark)
       )
-      .map((f) =>
-        mapFileRowToDocument(f, {
+      .map((f) => {
+        cleanupReprocessingTracking(f, reprocessingFileIdsRef.current);
+        return mapFileRowToDocument(f, {
           isUserReprocessing: reprocessingFileIdsRef.current.has(f.id),
-        }) as Document
-      );
+        }) as Document;
+      });
     setDocuments(filterPendingTrash(mapped));
     hasMoreRef.current = folderSystem.filesHasMore;
     setHasMore(folderSystem.filesHasMore);
@@ -1372,6 +1375,7 @@ export default function QuickFilesScreen() {
                   if (!Number.isNaN(parsed)) totalAmount = parsed;
                 }
               }
+              cleanupReprocessingTracking(doc, reprocessingFileIdsRef.current);
               const fileIdNum = Number(doc.id);
               const status = resolveDocumentListStatus(doc, {
                 isUserReprocessing:
@@ -1928,6 +1932,66 @@ export default function QuickFilesScreen() {
 
     setSelectedDocument(document);
     setShowDocumentViewer(true);
+  };
+
+  const fileFailedProcessing = (doc: Document | null | undefined) =>
+    doc?.listKind !== 'bookmark' && doc?.status === 'error';
+
+  const startReprocessingPoll = useCallback(() => {
+    if (reprocessingPollRef.current) return;
+    let pollCount = 0;
+    reprocessingPollRef.current = setInterval(() => {
+      pollCount += 1;
+      if (reprocessingFileIdsRef.current.size === 0 || pollCount >= 120) {
+        if (reprocessingPollRef.current) {
+          clearInterval(reprocessingPollRef.current);
+          reprocessingPollRef.current = null;
+        }
+        if (pollCount >= 120) reprocessingFileIdsRef.current.clear();
+        return;
+      }
+      loadDocuments(true, 1, false, true);
+    }, 2500);
+  }, [loadDocuments]);
+
+  useEffect(() => {
+    return () => {
+      if (reprocessingPollRef.current) {
+        clearInterval(reprocessingPollRef.current);
+        reprocessingPollRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleReprocessFile = async () => {
+    const doc = selectedDocumentForMenu;
+    setShowKebabMenu(false);
+    if (!fileFailedProcessing(doc) || !doc) return;
+    const fileId = Number(doc.id);
+    if (!Number.isFinite(fileId)) return;
+    try {
+      const result = await apiClient.retryFileProcessing(fileId);
+      if (result?.success === false) {
+        Alert.alert(
+          'Reprocess failed',
+          toAlertMessage(result.message || result.error, 'Could not reprocess this file.')
+        );
+        return;
+      }
+      reprocessingFileIdsRef.current.add(fileId);
+      setDocuments((prev) =>
+        prev.map((d) => (d.id === doc.id ? { ...d, status: 'processing' as const } : d))
+      );
+      startReprocessingPoll();
+      loadDocuments(true, 1, false, true);
+    } catch (error: any) {
+      const data = error?.response?.data;
+      const message =
+        data?.error === 'insufficient_tokens'
+          ? data?.message || 'Insufficient tokens. Processing could not continue. Please upgrade your plan or add credits.'
+          : data?.message || data?.error || error?.message;
+      Alert.alert('Reprocess failed', toAlertMessage(message, 'Could not reprocess this file.'));
+    }
   };
 
   const handleKebabMenuPress = (document: Document, event: any) => {
@@ -3863,6 +3927,19 @@ export default function QuickFilesScreen() {
                   allowCreate
                 />
               </View>
+            ) : null}
+            {fileFailedProcessing(selectedDocumentForMenu) ? (
+              <TouchableOpacity
+                style={dynamicStyles.kebabMenuItem}
+                onPress={() => {
+                  void handleReprocessFile();
+                }}
+                accessibilityLabel="Reprocess"
+                accessibilityRole="button"
+              >
+                <Ionicons name="refresh-outline" size={20} color="#007AFF" />
+                <Text style={dynamicStyles.kebabMenuText}>Reprocess</Text>
+              </TouchableOpacity>
             ) : null}
             <TouchableOpacity
               style={dynamicStyles.kebabMenuItem}

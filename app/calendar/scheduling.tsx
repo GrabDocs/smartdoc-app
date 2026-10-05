@@ -585,23 +585,24 @@ export default function CalendarSchedulingScreen() {
           {slugInvalid ? (
             <Text style={styles.slugError}>Use lowercase letters, numbers, and hyphens, like intro-call.</Text>
           ) : null}
-          <View style={styles.checkRow}>
-            <TouchableOpacity
-              style={styles.checkRow}
-              onPress={() => setAddReach((value) => !value)}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: addReach }}
-            >
-              <Ionicons
-                name={addReach ? 'checkbox' : 'square-outline'}
-                size={18}
-                color={addReach ? '#2563eb' : colors.textSecondary}
-              />
-              <Text style={styles.checkLabel}>Add a Reach meeting link</Text>
-            </TouchableOpacity>
-            {!addReach ? (
+          <TouchableOpacity
+            style={styles.checkRow}
+            onPress={() => setAddReach((value) => !value)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: addReach }}
+          >
+            <Ionicons
+              name={addReach ? 'checkbox' : 'square-outline'}
+              size={18}
+              color={addReach ? '#2563eb' : colors.textSecondary}
+            />
+            <Text style={styles.checkLabel}>Add a Reach meeting link</Text>
+          </TouchableOpacity>
+          {!addReach ? (
+            <View style={styles.meetingField}>
+              <Text style={styles.label}>External meeting link</Text>
               <TextInput
-                style={[styles.input, styles.meetingInput]}
+                style={styles.input}
                 value={meetingLink}
                 onChangeText={setMeetingLink}
                 autoCapitalize="none"
@@ -611,8 +612,8 @@ export default function CalendarSchedulingScreen() {
                 placeholderTextColor={colors.textSecondary}
                 onFocus={revealFocusedField}
               />
-            ) : null}
-          </View>
+            </View>
+          ) : null}
           <TouchableOpacity
             style={[styles.button, (!name.trim() || !SLUG_RE.test(slug) || creating) && styles.buttonDisabled]}
             disabled={!name.trim() || !SLUG_RE.test(slug) || creating}
@@ -906,7 +907,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     pickerValue: { flex: 1, fontSize: 14, color: colors.text },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    meetingInput: { width: 180, maxWidth: '55%', flexGrow: 0 },
+    meetingField: { width: '100%', gap: 2 },
     checkLabel: { fontSize: 13, color: colors.text },
     listTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2 },
     empty: { fontSize: 13, color: colors.textSecondary },

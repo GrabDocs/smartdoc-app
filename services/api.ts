@@ -1810,6 +1810,15 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * Reprocess a failed file. POST /api/v1/web/upload/retry/:id
+   * Same endpoint the web Files page uses for Retry.
+   */
+  async retryFileProcessing(fileId: number): Promise<ApiResponse> {
+    const response = await this.client.post(`/api/v1/web/upload/retry/${fileId}`, {});
+    return response.data;
+  }
+
   // ==================== DRAFT API (web endpoints, Bearer auth) ====================
 
   /**
