@@ -14,8 +14,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { workspacesListScreenKey } from '../../services/userScopedCache';
 import { screenCache } from '../../utils/screenCache';
 import { useAuth } from '../context/auth';
@@ -27,6 +29,7 @@ export default function CreateWorkspaceScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const colors = useThemeColors();
+  const { showLimitError } = useLimitError();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [slug, setSlug] = useState('');
@@ -194,11 +197,15 @@ export default function CreateWorkspaceScreen() {
           { text: 'OK', onPress: () => router.back() }
         ]);
       } else {
-        Alert.alert('Error', response.message || 'Failed to create workspace');
+        const limitData = extractLimitErrorData(response);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.message || 'Failed to create workspace');
       }
     } catch (error: any) {
       console.error('Create workspace error:', error);
-      Alert.alert('Error', error.message || 'Failed to create workspace');
+      const limitData = limitErrorFromCaught(error);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Error', error.message || 'Failed to create workspace');
     } finally {
       setLoading(false);
     }

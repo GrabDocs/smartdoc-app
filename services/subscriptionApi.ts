@@ -2,8 +2,13 @@ import { apiClient } from './api';
 
 const client = () => apiClient.client;
 
-export const PRICING_URL = 'https://grabdocs.com/pricing';
 export const STRIPE_PORTAL_RETURN_URL = 'grabdocs://billing';
+
+export const PLAN_CHANGE_KEYS = ['starter', 'pro', 'premium'] as const;
+export const PLAN_CHANGE_CYCLES = ['monthly', 'yearly'] as const;
+
+export type PlanChangeKey = (typeof PLAN_CHANGE_KEYS)[number];
+export type PlanChangeCycle = (typeof PLAN_CHANGE_CYCLES)[number];
 
 export type ExtraAiCreditsInfo = {
   in_extra_credits?: boolean;
@@ -136,6 +141,22 @@ export async function createTopupIntent(packId: string): Promise<{ intent_id?: s
     return data;
   } catch (error: any) {
     throw new Error(apiErrorMessage(error, 'Failed to start top-up'));
+  }
+}
+
+/** Create the website payment row at tap time. Body is plan and cycle only. */
+export async function createPlanChangeIntent(
+  planKey: PlanChangeKey,
+  billingCycle: PlanChangeCycle,
+): Promise<{ intent_id?: string; redirect_url?: string }> {
+  try {
+    const { data } = await client().post('/api/subscription/plan-change-intents', {
+      plan_key: planKey,
+      billing_cycle: billingCycle,
+    });
+    return data;
+  } catch (error: any) {
+    throw new Error(apiErrorMessage(error, 'Could not start checkout'));
   }
 }
 

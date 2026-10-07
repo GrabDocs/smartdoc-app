@@ -8,6 +8,8 @@ import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
 import { useNavigation } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLimitError } from '../../contexts/LimitErrorContext';
+import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import React, {
     Component,
@@ -154,6 +156,7 @@ function PrejoinBackButton({ onPress, topInset }: { onPress: () => void; topInse
 
 export default function HMSMeetingInterfaceScreen() {
   const router = useRouter();
+  const { showLimitError } = useLimitError();
   const navigation = useNavigation();
   const params = useLocalSearchParams();
   const { meetingId, title, userName, passcode, passcode_token: passcodeToken, force_join: forceJoinParam, returnTo: returnToParam } = params;
@@ -978,6 +981,13 @@ export default function HMSMeetingInterfaceScreen() {
         setJoinConfig(joinConfigData);
         setHmsMountKey((k) => k + 1);
       } catch (joinError: any) {
+        const limitData = limitErrorFromCaught(joinError);
+        if (limitData) {
+          showLimitError(limitData);
+          setError(limitData.message || 'Meeting limit reached');
+          setIsLoading(false);
+          return;
+        }
         const status = joinError?.response?.status;
         const errData = joinError?.response?.data || {};
         const errMsg = errData.message || errData.error || joinError?.message || 'Unknown error';

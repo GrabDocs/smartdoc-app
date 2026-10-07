@@ -11,6 +11,7 @@ import {
     validateFileAgainstUploadSettings,
 } from '../utils/userPreferences';
 import { assertUploadAllowedForCurrentNetwork } from '../utils/wifiOnlyUpload';
+import { isLimitErrorResponse } from '../utils/limitErrorUtils';
 import { createSmoothProgressEmitter } from './uploadProgressSmooth';
 import {
     isAppBackgrounded,
@@ -1396,7 +1397,8 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       console.error('❌ Upload failed:', error);
-      let errorMessage = error.response?.data?.message || error.message || 'Upload failed';
+      if (isLimitErrorResponse(error.response?.data)) throw error;
+      const errorMessage = error.response?.data?.message || error.message || 'Upload failed';
       throw new Error(errorMessage);
     }
   }
@@ -1472,7 +1474,10 @@ class ApiService {
           } catch {
             errData = { message: xhr.statusText };
           }
-          finish(() => reject(new Error(errData.message || `Upload failed with status ${xhr.status}`)));
+          finish(() => reject(Object.assign(new Error(errData.message || `Upload failed with status ${xhr.status}`), {
+            response: { status: xhr.status, data: errData },
+            responseData: errData,
+          })));
         }
       };
 
@@ -2034,6 +2039,30 @@ class ApiService {
     return response.data;
   }
 
+  async matchFileShareSet(fileIds: number[]): Promise<ApiResponse> {
+    const response = await this.client.get(`/api/v1/web/files/share-sets/match`, {
+      params: { ids: fileIds.join(',') },
+    });
+    return response.data;
+  }
+
+  async saveFileShareSet(body: {
+    file_ids: number[];
+    role?: 'viewer' | 'member' | 'admin';
+    general_access?: 'anyone' | 'restricted';
+  }): Promise<ApiResponse> {
+    const response = await this.client.post(`/api/v1/web/files/share-sets`, body);
+    return response.data;
+  }
+
+  async updateFileShareSet(
+    setId: number,
+    body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin' }
+  ): Promise<ApiResponse> {
+    const response = await this.client.patch(`/api/v1/web/files/share-sets/${setId}`, body);
+    return response.data;
+  }
+
   async updateFileLinkShare(fileId: number, shareId: number, body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin' }): Promise<ApiResponse> {
     const response = await this.client.patch(`/api/v1/web/files/${fileId}/external-shares/${shareId}`, body);
     return response.data;
@@ -2155,6 +2184,7 @@ class ApiService {
       });
       return response.data;
     } catch (error: any) {
+      if (isLimitErrorResponse(error.response?.data)) throw error;
       throw new Error(error.response?.data?.message || 'Failed to complete upload');
     }
   }
@@ -2700,6 +2730,9 @@ class ApiService {
       if (error.name === 'AbortError') {
         throw error; // Re-throw abort errors to be handled by caller
       }
+      if (isLimitErrorResponse(error.response?.data)) {
+        throw error;
+      }
       throw new Error(error.response?.data?.message || 'Chat failed');
     }
   }
@@ -3064,7 +3097,22 @@ class ApiService {
         });
         
         if (!response.ok) {
-          // Handle specific HTTP status codes
+          let body: unknown = null;
+          try {
+            body = await response.json();
+          } catch {
+            body = null;
+          }
+          if (isLimitErrorResponse(body)) {
+            const limitError: any = new Error(
+              typeof (body as { message?: string }).message === 'string'
+                ? (body as { message: string }).message
+                : 'Credit limit exceeded',
+            );
+            limitError.response = { status: response.status, data: body };
+            limitError.responseData = body;
+            throw limitError;
+          }
           if (response.status === 429) {
             throw new Error(`Rate limit exceeded. Please wait a moment before sending another message.`);
           }
@@ -3284,6 +3332,9 @@ class ApiService {
       if (error.name === 'AbortError') {
         throw error; // Re-throw abort errors to be handled by caller
       }
+      if (isLimitErrorResponse(error.response?.data) || isLimitErrorResponse(error.responseData)) {
+        throw error;
+      }
       
       console.error('❌ [MOBILE] Chat stream failed:', error);
       
@@ -3454,8 +3505,9 @@ class ApiService {
       ) {
         throw error;
       }
-      // Preserve 409 (e.g. additional_limit) for callers that remove placeholder rows
-      if (error.response?.status === 409) {
+      // Preserve 409 (e.g. additional_limit) and credit/storage/meeting limit bodies
+      // so the screen can show the plan picker instead of a plain message.
+      if (error.response?.status === 409 || isLimitErrorResponse(error.response?.data)) {
         throw error;
       }
       // Handle network errors (connection refused, DNS failure, etc.)
@@ -3557,6 +3609,9 @@ class ApiService {
         if (isAbortError(startError)) {
           console.log('🛑 [POLLING] Start aborted by user');
           return;
+        }
+        if (isLimitErrorResponse(startError.response?.data) || isLimitErrorResponse(startError.responseData)) {
+          throw startError;
         }
         // Network errors or other start failures - don't continue
         console.error('❌ [POLLING] Failed to start chat job, aborting:', startError);
@@ -5254,6 +5309,7 @@ class ApiService {
       const response = await this.client.post(`${MOBILE_ENDPOINTS.BOOKMARKS}/${bookmarkId}/files/${fileId}`);
       return response.data;
     } catch (error: any) {
+      if (isLimitErrorResponse(error.response?.data)) throw error;
       throw new Error(error.response?.data?.message || 'Failed to add file to bookmark');
     }
   }
@@ -5263,6 +5319,7 @@ class ApiService {
       const response = await this.client.post(`${MOBILE_ENDPOINTS.BOOKMARKS}/${bookmarkId}/files/bulk`, { file_ids: fileIds });
       return response.data;
     } catch (error: any) {
+      if (isLimitErrorResponse(error.response?.data)) throw error;
       if (error.response?.status === 404) {
         try {
           for (const fileId of fileIds) {
@@ -5270,6 +5327,7 @@ class ApiService {
           }
           return { success: true, message: `${fileIds.length} file(s) added to bookmark successfully` };
         } catch (fallbackError: any) {
+          if (isLimitErrorResponse(fallbackError.response?.data)) throw fallbackError;
           throw new Error(fallbackError.response?.data?.message || 'Failed to add files to bookmark');
         }
       }
@@ -5387,6 +5445,7 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       console.error('Create workspace error:', error);
+      if (isLimitErrorResponse(error.response?.data)) throw error;
       throw new Error(error.response?.data?.message || 'Failed to create workspace');
     }
   }
@@ -5537,6 +5596,7 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       console.error('Invite to workspace error:', error);
+      if (isLimitErrorResponse(error.response?.data)) throw error;
       throw new Error(error.response?.data?.message || 'Failed to invite user to workspace');
     }
   }
@@ -6303,6 +6363,7 @@ class ApiService {
         } as ApiResponse;
       }
       console.error('Join meeting failed:', error);
+      if (isLimitErrorResponse(responseData)) throw error;
       throw new Error(responseData?.message || error.response?.data?.message || 'Failed to join meeting');
     }
   }

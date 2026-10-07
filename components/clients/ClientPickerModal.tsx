@@ -62,7 +62,11 @@ export default function ClientPickerModal({
     if (isOpen) {
       setLocalIds(selectedClientIds);
       setQ('');
+      return;
     }
+    setShowCreate(false);
+    setCreateName('');
+    setCreateEmail('');
   }, [isOpen, selectedClientIds]);
 
   useEffect(() => {
@@ -178,7 +182,8 @@ export default function ClientPickerModal({
   const searching = !!q.trim();
   const recentIds = new Set(recent.map((c) => c.id));
   const otherClients = searching ? clients : clients.filter((c) => !recentIds.has(c.id));
-  const rowCount = recent.length + otherClients.length + (showCreate ? 2 : 0);
+  const rowCount = showCreate ? 1 : recent.length + otherClients.length;
+  const canReturnToList = (count ?? 0) > 0 || recent.length > 0 || clients.length > 0;
 
   if (!isOpen) return null;
   if (count === 0 && !allowCreate && !forceShow) return null;
@@ -215,11 +220,20 @@ export default function ClientPickerModal({
     <AdaptiveListPickerModal
       visible={isOpen}
       onClose={onClose}
-      title={multi ? 'Select clients' : 'Select client'}
+      title={showCreate ? 'New client' : multi ? 'Select clients' : 'Select client'}
       itemCount={Math.max(rowCount, 1)}
       footer={
         <View style={styles.footer}>
-          {allowCreate && !showCreate ? (
+          {showCreate ? (
+            <TouchableOpacity
+              onPress={() => (canReturnToList ? setShowCreate(false) : onClose())}
+              style={styles.createLink}
+            >
+              <Text style={{ color: colors.textSecondary, fontSize: 14 }}>
+                {canReturnToList ? 'Back' : 'Cancel'}
+              </Text>
+            </TouchableOpacity>
+          ) : allowCreate ? (
             <TouchableOpacity
               onPress={() => setShowCreate(true)}
               style={styles.createLink}
@@ -230,36 +244,37 @@ export default function ClientPickerModal({
           ) : (
             <View />
           )}
-          <TouchableOpacity
-            style={[styles.doneBtn, { opacity: saving ? 0.6 : 1 }]}
-            onPress={() => void handleConfirm()}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.doneBtnText}>{onSave ? 'Save' : 'Done'}</Text>
-            )}
-          </TouchableOpacity>
+          {showCreate ? (
+            <TouchableOpacity
+              style={[styles.doneBtn, { opacity: creating ? 0.6 : 1 }]}
+              onPress={() => void handleCreate()}
+              disabled={creating}
+            >
+              {creating ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.doneBtnText}>Create</Text>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.doneBtn, { opacity: saving ? 0.6 : 1 }]}
+              onPress={() => void handleConfirm()}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.doneBtnText}>{onSave ? 'Save' : 'Done'}</Text>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
       }
     >
       <View style={styles.body}>
-        <View style={[styles.searchWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Ionicons name="search" size={18} color={colors.textSecondary} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search clients…"
-            placeholderTextColor={colors.textSecondary}
-            value={q}
-            onChangeText={setQ}
-            autoCorrect={false}
-          />
-        </View>
-
         {showCreate ? (
-          <View style={[styles.createBox, { borderColor: colors.border }]}>
-            <Text style={[styles.createTitle, { color: colors.text }]}>Create client</Text>
+          <View style={styles.createBox}>
             <TextInput
               style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
               placeholder="Display name"
@@ -269,7 +284,7 @@ export default function ClientPickerModal({
             />
             <TextInput
               style={[styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }]}
-              placeholder="Email (required)"
+              placeholder="Email"
               placeholderTextColor={colors.textSecondary}
               value={createEmail}
               onChangeText={setCreateEmail}
@@ -297,42 +312,46 @@ export default function ClientPickerModal({
                 ))}
               </View>
             ) : null}
-            <View style={styles.createActions}>
-              <TouchableOpacity onPress={() => setShowCreate(false)}>
-                <Text style={{ color: colors.textSecondary }}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => void handleCreate()} disabled={creating}>
-                <Text style={{ color: '#0D9488', fontWeight: '600' }}>
-                  {creating ? 'Creating…' : 'Create'}
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        ) : null}
-
-        {loading ? (
-          <ActivityIndicator style={{ marginVertical: 24 }} color="#0D9488" />
         ) : (
-          <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
-            {!searching && recent.length > 0 ? (
-              <>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Recent</Text>
-                {recent.map(renderRow)}
-              </>
-            ) : null}
-            {otherClients.length > 0 || searching ? (
-              <>
-                <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
-                  {searching ? 'Results' : 'All clients'}
-                </Text>
-                {otherClients.length === 0 ? (
-                  <Text style={[styles.empty, { color: colors.textSecondary }]}>No clients found.</Text>
-                ) : (
-                  otherClients.map(renderRow)
-                )}
-              </>
-            ) : null}
-          </ScrollView>
+          <>
+            <View style={[styles.searchWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="search" size={18} color={colors.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: colors.text }]}
+                placeholder="Search clients…"
+                placeholderTextColor={colors.textSecondary}
+                value={q}
+                onChangeText={setQ}
+                autoCorrect={false}
+              />
+            </View>
+
+            {loading ? (
+              <ActivityIndicator style={{ marginVertical: 24 }} color="#0D9488" />
+            ) : (
+              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                {!searching && recent.length > 0 ? (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>Recent</Text>
+                    {recent.map(renderRow)}
+                  </>
+                ) : null}
+                {otherClients.length > 0 || searching ? (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: colors.textSecondary }]}>
+                      {searching ? 'Results' : 'All clients'}
+                    </Text>
+                    {otherClients.length === 0 ? (
+                      <Text style={[styles.empty, { color: colors.textSecondary }]}>No clients found.</Text>
+                    ) : (
+                      otherClients.map(renderRow)
+                    )}
+                  </>
+                ) : null}
+              </ScrollView>
+            )}
+          </>
         )}
       </View>
     </AdaptiveListPickerModal>
@@ -395,14 +414,9 @@ const styles = StyleSheet.create({
   },
   doneBtnText: { color: '#fff', fontWeight: '600' },
   createBox: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-    marginTop: 8,
     gap: 8,
+    marginTop: 4,
   },
-  createTitle: { fontWeight: '600', fontSize: 15, marginBottom: 4 },
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: 8,
@@ -416,11 +430,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  createActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 16,
-    marginTop: 4,
   },
 });

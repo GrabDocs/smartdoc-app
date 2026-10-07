@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Toast from 'react-native-toast-message';
 import { STORAGE_KEYS } from '../constants/Config';
+import { notifyLimitError } from '../contexts/LimitErrorContext';
+import { extractLimitErrorData, limitErrorFromCaught } from '../utils/limitErrorUtils';
 import { apiService } from '../services/api';
 import type {
     AiFmConfig,
@@ -40,6 +42,13 @@ export interface GateDraft {
   renameBatchConfirmed?: boolean;
   renamePickFileId?: number;
   forceScheduleOverride?: boolean;
+}
+
+function reportPlanLimit(payload: unknown): boolean {
+  const data = extractLimitErrorData(payload) || limitErrorFromCaught(payload);
+  if (!data) return false;
+  notifyLimitError(data);
+  return true;
 }
 
 function generateSessionId(): string {
@@ -263,6 +272,10 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
         if (requestId !== latestClientRequestIdRef.current) return;
 
         if (res.success === false) {
+          if (reportPlanLimit(res)) {
+            setPhase('idle');
+            return;
+          }
           const msg = res.message || 'Plan failed';
           setError(msg);
           setThread((prev) => [...prev, { role: 'assistant', content: msg }]);
@@ -273,6 +286,10 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
         applyPlanResponse(res, requestId, trimmed);
       } catch (e: any) {
         if (requestId !== latestClientRequestIdRef.current) return;
+        if (reportPlanLimit(e)) {
+          setPhase('idle');
+          return;
+        }
         const msg = e?.response?.data?.message || e?.message || 'Plan request failed';
         setError(msg);
         Toast.show({ type: 'error', text1: 'Plan failed', text2: msg });
@@ -343,6 +360,10 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
         });
 
         if (res.success === false && !res.idempotent) {
+          if (reportPlanLimit(res)) {
+            setPhase('pending');
+            return;
+          }
           const msg = res.message || 'Execute failed';
           setError(msg);
           Toast.show({ type: 'error', text1: 'Execute failed', text2: msg });
@@ -359,6 +380,10 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
         await onExecuted?.();
         await refreshHistory();
       } catch (e: any) {
+        if (reportPlanLimit(e)) {
+          setPhase('pending');
+          return;
+        }
         const msg = e?.response?.data?.message || e?.message || 'Execute failed';
         if (e?.code === 'ECONNABORTED' || e?.message?.includes('timeout') || !e?.response) {
           setPhase('unknown');

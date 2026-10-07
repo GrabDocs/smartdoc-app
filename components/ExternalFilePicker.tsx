@@ -185,6 +185,8 @@ export function ExternalFilePicker({
         if (onImportSuccess) {
           onImportSuccess();
         }
+      } else if (result.limit) {
+        return;
       } else {
         Alert.alert(
           'Import Failed',

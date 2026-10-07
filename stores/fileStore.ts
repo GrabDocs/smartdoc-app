@@ -4,8 +4,10 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import { Alert, Platform } from 'react-native';
 import { create } from 'zustand';
+import { notifyLimitError } from '../contexts/LimitErrorContext';
 import { apiService } from '../services/api';
 import { FileState, FileUpload, UploadProgress } from '../types';
+import { extractLimitErrorData, limitErrorFromCaught } from '../utils/limitErrorUtils';
 import { convertHeicToPng, compressImageForUpload, isHeicFile } from '../utils/imageConversion';
 import {
   getUserPreferences,
@@ -43,7 +45,7 @@ interface FileStore extends FileState {
   
   // Actions
   fetchFiles: (page?: number, search?: string, category?: string) => Promise<void>;
-  uploadFiles: (files: FileUpload[]) => Promise<boolean>;
+  uploadFiles: (files: FileUpload[]) => Promise<boolean | null>;
   uploadFromCamera: () => Promise<boolean>;
   /** `true` success, `false` failure, `null` cancelled or limit already shown. */
   uploadFromGallery: () => Promise<boolean | null>;
@@ -139,6 +141,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
 
     let allSuccessful = true;
     let successCount = 0;
+    let limitShown = false;
     const totalFiles = files.length;
 
     const { useProgressStore } = require('../services/progressService');
@@ -305,6 +308,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
         console.log('📁 Upload response in file store:', response);
 
         if (response.success) {
+          const acceptedLimit = extractLimitErrorData(response) || extractLimitErrorData(response.data);
+          if (acceptedLimit && notifyLimitError(acceptedLimit)) {
+            limitShown = true;
+            allSuccessful = false;
+            get().updateUploadProgress(fileId, { status: 'error', error: acceptedLimit.message });
+            break;
+          }
           uploadSucceeded = true;
           successCount += 1;
           get().updateUploadProgress(fileId, {
@@ -327,6 +337,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
           }, 2000);
         } else {
           console.log('📁 Upload failed - success:', response.success, 'data:', response.data);
+          const limitData = extractLimitErrorData(response) || extractLimitErrorData(response.data);
+          if (limitData && notifyLimitError(limitData)) {
+            limitShown = true;
+            allSuccessful = false;
+            get().updateUploadProgress(fileId, { status: 'error', error: limitData.message });
+            break;
+          }
           allSuccessful = false;
 
           get().updateUploadProgress(fileId, {
@@ -345,6 +362,13 @@ export const useFileStore = create<FileStore>((set, get) => ({
           uri: file.uri,
         });
         allSuccessful = false;
+
+        const limitData = limitErrorFromCaught(error);
+        if (limitData && notifyLimitError(limitData)) {
+          limitShown = true;
+          get().updateUploadProgress(fileId, { status: 'error', error: limitData.message });
+          break;
+        }
 
         const errorMessage = error.response?.data?.message || error.message || 'Upload failed';
         get().updateUploadProgress(fileId, {
@@ -384,7 +408,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
             ? 'Upload complete'
             : `Uploaded ${successCount} of ${totalFiles} files`,
       });
-    } else if (successCount > 0) {
+    } else if (!limitShown && successCount > 0) {
       progressStore.updateProgress(progressId, {
         progress: 100,
         status: 'completed',
@@ -400,7 +424,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
         status: 'error',
         message: totalFiles === 1 ? 'Upload failed' : 'All uploads failed',
       });
-      if (totalFiles > 1) {
+      if (totalFiles > 1 && !limitShown) {
         Alert.alert(
           'Upload Incomplete',
           'Some files failed to upload. Please check the error messages and try again.',
@@ -413,7 +437,7 @@ export const useFileStore = create<FileStore>((set, get) => ({
       progressStore.removeProgress(progressId);
     }, allSuccessful || successCount > 0 ? 3000 : 5000);
 
-    return allSuccessful;
+    return limitShown ? null : allSuccessful;
   },
 
   uploadFromCamera: async () => {

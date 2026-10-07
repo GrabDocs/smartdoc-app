@@ -41,6 +41,7 @@ import RenameFolderSheet from '../../components/folders/RenameFolderSheet';
 import LoadingDots from '../../components/LoadingDots';
 import QuickFormViewer from '../../components/QuickFormViewer';
 import { AI_FM_ICON_COLOR } from '../../constants/aiFileManagerHelp';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
@@ -52,6 +53,7 @@ import { ExternalFile } from '../../services/externalFileServices';
 import { useFileStore } from '../../stores/fileStore';
 import type { DeletedFolderGroup, FolderRowModel } from '../../types/folder';
 import { toAlertMessage } from '../../utils/alertUtils';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import {
   cleanupReprocessingTracking,
   docNeedsClassificationPollFromRow,
@@ -63,7 +65,7 @@ import { sanitizeDisplayFilename } from '../../utils/displayFilename';
 import { removeFileExtension } from '../../utils/fileUtils';
 import { mapFileRowToDocument } from '../../utils/mapFileRowToDocument';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
-import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
+import { createFileSetShareAdapter, createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
 import { scaleStyleObject } from '../../utils/styleUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
@@ -200,6 +202,7 @@ const DocumentListIcon = React.memo(function DocumentListIcon({
 
 export default function QuickFilesScreen() {
   const router = useRouter();
+  const { showLimitError } = useLimitError();
   const openChatGD = useOpenChatGD();
   const navigation = useNavigation();
   const params = useLocalSearchParams();
@@ -332,7 +335,9 @@ export default function QuickFilesScreen() {
   
   // Kebab menu state
   const [showKebabMenu, setShowKebabMenu] = useState(false);
-  const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
+  const [accessShareFiles, setAccessShareFiles] = useState<{ id: number; name: string }[] | null>(null);
+  const [selectingFiles, setSelectingFiles] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [selectedDocumentForMenu, setSelectedDocumentForMenu] = useState<Document | null>(null);
   
   // Category selection modal states
@@ -1986,10 +1991,12 @@ export default function QuickFilesScreen() {
       loadDocuments(true, 1, false, true);
     } catch (error: any) {
       const data = error?.response?.data;
-      const message =
-        data?.error === 'insufficient_tokens'
-          ? data?.message || 'Insufficient tokens. Processing could not continue. Please upgrade your plan or add credits.'
-          : data?.message || data?.error || error?.message;
+      const limitData = limitErrorFromCaught(error) || extractLimitErrorData(data);
+      if (limitData) {
+        showLimitError(limitData);
+        return;
+      }
+      const message = data?.message || data?.error || error?.message;
       Alert.alert('Reprocess failed', toAlertMessage(message, 'Could not reprocess this file.'));
     }
   };
@@ -2034,7 +2041,33 @@ export default function QuickFilesScreen() {
     setShowKebabMenu(false);
     const id = Number(doc.id);
     if (!Number.isFinite(id)) return;
-    setAccessShare({ id, name: doc.name });
+    setAccessShareFiles([{ id, name: doc.name }]);
+  };
+
+  const cancelFileSelection = () => {
+    setSelectingFiles(false);
+    setSelectedFileIds(new Set());
+  };
+
+  const toggleFileSelected = (id: string) => {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const shareSelectedFiles = () => {
+    const chosen = documents.filter(
+      (doc) => selectedFileIds.has(doc.id) && doc.listKind !== 'bookmark'
+    );
+    if (!chosen.length) return;
+    const files = chosen
+      .map((doc) => ({ id: Number(doc.id), name: doc.name }))
+      .filter((file) => Number.isFinite(file.id));
+    if (!files.length) return;
+    setAccessShareFiles(files);
   };
 
   /** Send/export a copy. Not an access change. */
@@ -2258,10 +2291,14 @@ export default function QuickFilesScreen() {
         setShowBookmarkModal(false);
         setShowKebabMenu(false);
       } else {
-        Alert.alert('Error', response.message || 'Failed to add file to bookmark');
+        const limitData = extractLimitErrorData(response);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.message || 'Failed to add file to bookmark');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to add file to bookmark');
+      const limitData = limitErrorFromCaught(error);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Error', error.message || 'Failed to add file to bookmark');
     }
   };
 
@@ -2304,13 +2341,17 @@ export default function QuickFilesScreen() {
         setNewBookmarkColor('#007AFF');
         loadBookmarks();
       } else {
-        Alert.alert('Success', `Bookmark "${name}" created. Could not add file: ${addResponse.message || 'Please add it from the bookmark.'}`);
+        const limitData = extractLimitErrorData(addResponse);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Success', `Bookmark "${name}" created. Could not add file: ${addResponse.message || 'Please add it from the bookmark.'}`);
         setShowBookmarkModal(false);
         setNewBookmarkName('');
         loadBookmarks();
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to create bookmark');
+      const limitData = limitErrorFromCaught(error);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Error', error.message || 'Failed to create bookmark');
     } finally {
       setCreatingBookmark(false);
     }
@@ -2532,16 +2573,35 @@ export default function QuickFilesScreen() {
 
     return (
     <TouchableOpacity
-      style={[dynamicStyles.documentItem, gridView && dynamicStyles.documentItemGrid]}
-      onPress={() => handleDocumentPress(item)}
+      style={[
+        dynamicStyles.documentItem,
+        gridView && dynamicStyles.documentItemGrid,
+        selectingFiles && selectedFileIds.has(item.id) ? { backgroundColor: colors.tint + '22' } : null,
+      ]}
+      onPress={() => {
+        if (selectingFiles) {
+          if (item.listKind === 'bookmark') return;
+          toggleFileSelected(item.id);
+          return;
+        }
+        handleDocumentPress(item);
+      }}
       onLongPress={
-        item.listKind === 'bookmark'
+        selectingFiles || item.listKind === 'bookmark'
           ? undefined
           : (event) => handleKebabMenuPress(item, event)
       }
       accessibilityRole="button"
       accessibilityLabel={`${item.name}${item.file_kind ? `, ${item.file_kind.replace(/_/g, ' ')}` : ''}`}
     >
+      {selectingFiles && item.listKind !== 'bookmark' ? (
+        <Ionicons
+          name={selectedFileIds.has(item.id) ? 'checkbox' : 'square-outline'}
+          size={22}
+          color={selectedFileIds.has(item.id) ? colors.tint : colors.textSecondary}
+          style={{ marginRight: 8 }}
+        />
+      ) : null}
       <DocumentListIcon
         pending={isFileKindPending(item.file_kind) || item.status === 'processing'}
         iconName={getFileIcon(item.type, item.status, item.file_kind) as React.ComponentProps<typeof Ionicons>['name']}
@@ -3552,6 +3612,19 @@ export default function QuickFilesScreen() {
             )}
           </View>
           <View style={dynamicStyles.headerActions}>
+            <TouchableOpacity
+              style={dynamicStyles.headerButton}
+              onPress={() => {
+                if (selectingFiles) cancelFileSelection();
+                else setSelectingFiles(true);
+              }}
+              accessibilityLabel={selectingFiles ? 'Cancel selection' : 'Select files'}
+              accessibilityRole="button"
+            >
+              <Text style={{ color: colors.primary || '#007AFF', fontWeight: '600' }}>
+                {selectingFiles ? 'Done' : 'Select'}
+              </Text>
+            </TouchableOpacity>
             {useFolderMode ? (
               <TouchableOpacity
                 style={dynamicStyles.headerButton}
@@ -3598,6 +3671,22 @@ export default function QuickFilesScreen() {
           </View>
         </View>
       </AnimatedHeaderContainer>
+
+      {selectingFiles ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8 }}>
+          <Text style={{ color: colors.text, fontWeight: '600' }}>{selectedFileIds.size} selected</Text>
+          <TouchableOpacity
+            onPress={shareSelectedFiles}
+            disabled={selectedFileIds.size === 0}
+            accessibilityLabel="Share selected files"
+            accessibilityRole="button"
+          >
+            <Text style={{ color: selectedFileIds.size === 0 ? '#999' : colors.primary || '#007AFF', fontWeight: '600' }}>
+              Share
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Search Bar */}
       <View style={dynamicStyles.searchContainer}>
@@ -4469,9 +4558,16 @@ export default function QuickFilesScreen() {
         onClose={() => setShowSortMenu(false)}
       />
       <ShareAccessSheet
-        visible={accessShare != null}
-        adapter={accessShare ? createFileShareAdapter(accessShare) : null}
-        onClose={() => setAccessShare(null)}
+        visible={accessShareFiles != null && accessShareFiles.length > 0}
+        adapter={
+          !accessShareFiles?.length
+            ? null
+            : accessShareFiles.length === 1
+              ? createFileShareAdapter(accessShareFiles[0])
+              : createFileSetShareAdapter(accessShareFiles)
+        }
+        listedFiles={accessShareFiles && accessShareFiles.length > 1 ? accessShareFiles : undefined}
+        onClose={() => setAccessShareFiles(null)}
       />
       </TapToToggleHeaderView>
     </SafeAreaView>

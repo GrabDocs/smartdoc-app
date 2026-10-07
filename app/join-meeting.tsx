@@ -5,6 +5,8 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLimitError } from '../contexts/LimitErrorContext';
+import { limitErrorFromCaught } from '../utils/limitErrorUtils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -54,6 +56,7 @@ function appendReturnToParam(q: URLSearchParams, returnTo: string | undefined) {
 
 export default function JoinMeetingScreen() {
   const router = useRouter();
+  const { showLimitError } = useLimitError();
   const params = useLocalSearchParams<{
     meeting_id?: string;
     passcode?: string;
@@ -217,6 +220,13 @@ export default function JoinMeetingScreen() {
                 scheduled_meeting_id: roomId,
               });
             } catch (startErr) {
+              const limitData = limitErrorFromCaught(startErr);
+              if (limitData) {
+                showLimitError(limitData);
+                setErrorMessage(limitData.message || 'Meeting limit reached');
+                setCheckState('error');
+                return;
+              }
               console.warn('App warm: schedule/start failed (proceeding anyway):', startErr);
             }
           }
@@ -229,6 +239,13 @@ export default function JoinMeetingScreen() {
         appendReturnToParam(q, returnTo);
         router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
       } catch (err: any) {
+        const limitData = limitErrorFromCaught(err);
+        if (limitData) {
+          showLimitError(limitData);
+          setErrorMessage(limitData.message || 'Meeting limit reached');
+          setCheckState('error');
+          return;
+        }
         const msg = err?.response?.data?.error || err?.message || 'Could not load meeting.';
         setErrorMessage(msg);
         setCheckState('error');
@@ -285,6 +302,12 @@ export default function JoinMeetingScreen() {
       router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
     } catch (err: any) {
       setJoinRequestSubmitting(false);
+      const limitData = limitErrorFromCaught(err);
+      if (limitData) {
+        showLimitError(limitData);
+        setCheckState('form');
+        return;
+      }
       const status = err?.response?.status;
       const errData = err?.response?.data || {};
       const joinRequestIdFromResponse = errData.join_request_id ?? errData.joinRequestId;

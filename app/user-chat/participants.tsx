@@ -12,8 +12,10 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService as api } from '../../services/api';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { getReachParticipantDisplayName } from '../../utils/reachDisplayName';
 import { useAuth } from '../context/auth';
 
@@ -30,6 +32,7 @@ export default function ChatParticipantsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const colors = useThemeColors();
+  const { showLimitError } = useLimitError();
   const { user } = useAuth();
   
   const chatId = params.chatId ? Number(params.chatId) : null;
@@ -207,7 +210,9 @@ export default function ChatParticipantsScreen() {
         });
         router.push(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
       } else {
-        Alert.alert('Error', response.data.message || 'Failed to create meeting');
+        const limitData = extractLimitErrorData(response.data);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.data.message || 'Failed to create meeting');
       }
     } catch (error: any) {
       console.error('Failed to create meeting:', error);
@@ -241,7 +246,9 @@ export default function ChatParticipantsScreen() {
           ]
         );
       } else {
-        Alert.alert(
+        const limitData = limitErrorFromCaught(error);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert(
           'Error',
           error.response?.data?.message || error.message || 'Failed to create meeting'
         );

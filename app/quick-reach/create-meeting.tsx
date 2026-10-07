@@ -18,7 +18,7 @@ import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
-import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
+import { extractLimitErrorData, getErrorResponseData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 
 export default function CreateMeetingScreen() {
   const colors = useThemeColors();
@@ -197,13 +197,15 @@ export default function CreateMeetingScreen() {
                       }
                     ]);
                   } else {
-                    const errorMessage = response.data.message || 'Failed to create meeting';
-                    console.error('❌ Meeting creation failed:', errorMessage);
-                    Alert.alert('Error', errorMessage);
+                    const limitData = extractLimitErrorData(response.data);
+                    if (limitData) showLimitError(limitData);
+                    else Alert.alert('Error', response.data.message || 'Failed to create meeting');
                   }
                 } catch (endError) {
                   console.error('Failed to end existing meeting:', endError);
-                  Alert.alert('Error', 'Failed to end existing meeting. Please try again.');
+                  const limitData = limitErrorFromCaught(endError);
+                  if (limitData) showLimitError(limitData);
+                  else Alert.alert('Error', 'Failed to end existing meeting. Please try again.');
                 } finally {
                   setLoading(false);
                 }

@@ -32,6 +32,8 @@ import ClientsButton from '../../../components/clients/ClientsButton';
 import DocumentViewer from '../../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { useThemeColors } from '../../../hooks/useThemeColors';
+import { useLimitError } from '../../../contexts/LimitErrorContext';
+import { limitErrorFromCaught } from '../../../utils/limitErrorUtils';
 import { getClientsForItem, setItemClients } from '../../../services/clientsApi';
 import {
   addDraftAttachmentFile,
@@ -283,6 +285,18 @@ function ComposeChrome({
   );
 }
 
+/** Empty subject, or the body mentions an attachment with no file. */
+function composeSendWarning(subject: string, body: string, attachmentCount: number): string | null {
+  const missingSubject = !subject.trim();
+  const mentionsAttachment = /\battach(?:ed|ing|ments?)?\b/i.test(body);
+  const missingFile = mentionsAttachment && attachmentCount === 0;
+  if (!missingSubject && !missingFile) return null;
+  const parts: string[] = [];
+  if (missingSubject) parts.push('This email has no subject.');
+  if (missingFile) parts.push('This email mentions an attachment, but no file is attached.');
+  return parts.join(' ');
+}
+
 export default function EmailThreadScreen() {
   const { id, workspaceId, filter, compose, client_id: clientIdParam, to: toParam } = useLocalSearchParams<{
     id: string;
@@ -299,6 +313,7 @@ export default function EmailThreadScreen() {
     : 'pending') as ThreadAttention;
   const dismissed = attention === 'dismissed';
   const router = useRouter();
+  const { showLimitError } = useLimitError();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -330,7 +345,6 @@ export default function EmailThreadScreen() {
   const [cc, setCc] = useState('');
   const [bcc, setBcc] = useState('');
   const [subject, setSubject] = useState('');
-  const [headersOpen, setHeadersOpen] = useState(false);
   /** Cc and Bcc stay closed until the chevron on the field above is tapped. */
   const [ccOpen, setCcOpen] = useState(false);
   const [bccOpen, setBccOpen] = useState(false);
@@ -453,10 +467,6 @@ export default function EmailThreadScreen() {
       }
     })();
   }, [clientIdParam, threadId]);
-
-  useEffect(() => {
-    if (replyFrom?.forward_without_send_as || isNewCompose) setHeadersOpen(true);
-  }, [threadId, replyFrom?.forward_without_send_as, isNewCompose]);
 
   const applyDraft = (d: EmailDraft | null, openComposer = true, maximizeComposer = false) => {
     setDraft(d);
@@ -801,19 +811,27 @@ export default function EmailThreadScreen() {
       if (data.thread) setThread(data.thread);
       applyDraft(data.draft, true, true);
       setSuggestedReply(opts?.source === 'auto_suggest');
-      setHeadersOpen(false);
       setAiDetailsOpen(false);
       setAiCardOpen(false);
       setShowSummary(false);
       if (Platform.OS !== 'web') setComposeFullscreen(true);
     } catch (e: any) {
-      const status = e?.response?.status;
-      const code = e?.response?.data?.code;
-      const msg = emailApiError(e, 'Could not generate draft');
-      if (status === 429 || code === 'monthly_token_limit_exceeded') {
-        Alert.alert('AI credit limit', msg);
+      const limitData = limitErrorFromCaught(e);
+      if (limitData) {
+        showLimitError(limitData);
       } else {
-        Alert.alert('Draft', msg);
+        const status = e?.response?.status;
+        const code = e?.response?.data?.code;
+        const msg = emailApiError(e, 'Could not generate draft');
+        if (status === 429 || code === 'monthly_token_limit_exceeded') {
+          showLimitError({
+            errorCode: 'monthly_token_limit_exceeded',
+            message: msg,
+            limitType: 'tokens',
+          });
+        } else {
+          Alert.alert('Draft', msg);
+        }
       }
     } finally {
       generateInFlightRef.current = false;
@@ -834,7 +852,9 @@ export default function EmailThreadScreen() {
       setResearchQuestion(prep.text);
       setResearchAiSuggested(prep.aiSuggested);
       setResearchNote('');
-    } catch {
+    } catch (e: unknown) {
+      const limitData = limitErrorFromCaught(e);
+      if (limitData) showLimitError(limitData);
       setAnalysis(null);
     } finally {
       setAnalysisLoading(false);
@@ -876,7 +896,6 @@ export default function EmailThreadScreen() {
       if (res.thread) setThread(res.thread);
       applyDraft(res.draft, true, true);
       setSuggestedReply(true);
-      setHeadersOpen(false);
       setAiDetailsOpen(false);
       setAiCardOpen(false);
       setShowSummary(false);
@@ -884,7 +903,9 @@ export default function EmailThreadScreen() {
       setResearchNote(res.research_note || '');
       setResearchPhase('ready');
     } catch (e: any) {
-      Alert.alert('Research', emailApiError(e, 'Could not research and generate'));
+      const limitData = limitErrorFromCaught(e);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Research', emailApiError(e, 'Could not research and generate'));
       if (generateGenRef.current === gen) setResearchPhase('idle');
     } finally {
       if (researchStageTimerRef.current) {
@@ -960,11 +981,21 @@ export default function EmailThreadScreen() {
     }
   };
 
-  const send = async (advance: boolean) => {
+  const send = async (advance: boolean, opts?: { confirmed?: boolean }) => {
     if (!draft) return;
     if ((draft.reply_mode === 'new' || isNewCompose) && emailsFromAddressText(to).length === 0) {
       Alert.alert('Recipient required', 'Add at least one recipient.');
       return;
+    }
+    if (!opts?.confirmed) {
+      const warning = composeSendWarning(subject, body, (draft.attachments || []).length);
+      if (warning) {
+        Alert.alert('Send this email?', warning, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: () => void send(advance, { confirmed: true }) },
+        ]);
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -1136,11 +1167,10 @@ export default function EmailThreadScreen() {
           position: 'relative',
           zIndex: 20,
         },
-        composeHeaderToggle: {
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-          paddingVertical: 6,
+        headerLink: {
+          color: '#007AFF',
+          fontSize: 14,
+          textDecorationLine: 'underline',
         },
         composeHeaderFields: {
           paddingBottom: 8,
@@ -1981,7 +2011,6 @@ export default function EmailThreadScreen() {
             style={styles.draftPeek}
             onPress={() => {
               setComposing(true);
-              setHeadersOpen(false);
               setAiDetailsOpen(false);
               setAiCardOpen(false);
               if (Platform.OS !== 'web') setComposeFullscreen(true);
@@ -2224,143 +2253,152 @@ export default function EmailThreadScreen() {
 
             {composing && draft ? (
               <View style={styles.composeHeaderSection}>
-                  <TouchableOpacity
-                    onPress={() => setHeadersOpen((v) => !v)}
-                    style={styles.composeHeaderToggle}
-                    accessibilityRole="button"
-                    accessibilityState={{ expanded: headersOpen }}
-                  >
-                    <Ionicons
-                      name="chevron-down"
-                      size={16}
-                      color={colors.textSecondary}
-                      style={{ transform: [{ rotate: headersOpen ? '0deg' : '-90deg' }] }}
-                    />
-                    {headersOpen ? (
-                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>Hide From, To, Cc, Bcc, Subject</Text>
-                    ) : (
-                      <Text style={{ fontSize: 14, color: colors.text, flex: 1 }} numberOfLines={1}>
+                <View style={styles.composeHeaderFields}>
+                  <View style={styles.fromBlock}>
+                    <Text style={styles.label}>From</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.fieldInput, { paddingVertical: 0 }]} numberOfLines={2}>
                         {replyFrom?.from_address || 'Connected mailbox'}
-                        {subject ? ` · ${subject}` : ''}
                       </Text>
-                    )}
-                  </TouchableOpacity>
-                  {headersOpen ? (
-                    <View style={styles.composeHeaderFields}>
-                      <View style={styles.fromBlock}>
-                        <Text style={styles.label}>From</Text>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={[styles.fieldInput, { paddingVertical: 0 }]} numberOfLines={2}>
-                            {replyFrom?.from_address || 'Connected mailbox'}
-                          </Text>
-                          {replyFrom?.using_send_as_alias && replyFrom.mailbox_address ? (
-                            <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
-                              Via {replyFrom.mailbox_address}
-                            </Text>
-                          ) : null}
-                          {replyFrom?.forward_without_send_as && replyFrom.customer_addressed ? (
-                            <Text style={[styles.bannerTxt, { marginTop: 4, fontSize: 11 }]}>
-                              Customer wrote to {replyFrom.customer_addressed}. Send-as isn’t set for that address, so this sends from{' '}
-                              {replyFrom.from_address}.
-                            </Text>
-                          ) : null}
-                        </View>
-                      </View>
-                      <RecipientAddressField
-                        label="To"
-                        value={to}
-                        onChangeText={setTo}
-                        editable={!drafting && !busy}
-                        placeholder="Name or email"
-                        textColor={colors.text}
-                        secondaryColor={colors.textSecondary}
-                        borderColor={colors.border}
-                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
-                        searchContacts={searchMailboxContacts}
-                        trailing={
-                          ccOpen ? null : (
+                      {replyFrom?.using_send_as_alias && replyFrom.mailbox_address ? (
+                        <Text style={{ color: colors.textSecondary, fontSize: 11, marginTop: 2 }}>
+                          Via {replyFrom.mailbox_address}
+                        </Text>
+                      ) : null}
+                      {replyFrom?.forward_without_send_as && replyFrom.customer_addressed ? (
+                        <Text style={[styles.bannerTxt, { marginTop: 4, fontSize: 11 }]}>
+                          Customer wrote to {replyFrom.customer_addressed}. Send-as isn’t set for that address, so this sends from{' '}
+                          {replyFrom.from_address}.
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <RecipientAddressField
+                    label="To"
+                    value={to}
+                    onChangeText={setTo}
+                    editable={!drafting && !busy}
+                    placeholder="Name or email"
+                    textColor={colors.text}
+                    secondaryColor={colors.textSecondary}
+                    borderColor={colors.border}
+                    menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                    searchContacts={searchMailboxContacts}
+                    trailing={
+                      !ccOpen || !bccOpen ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 8 }}>
+                          {!ccOpen ? (
                             <TouchableOpacity
                               onPress={() => setCcOpen(true)}
                               hitSlop={8}
-                              accessibilityRole="button"
+                              accessibilityRole="link"
                               accessibilityLabel="Show Cc"
-                              style={{ paddingLeft: 8, paddingVertical: 4 }}
                             >
-                              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                              <Text style={styles.headerLink}>Cc</Text>
                             </TouchableOpacity>
-                          )
-                        }
-                        onCommit={(addrs) => {
-                          if (!draft) return;
-                          void patchMailboxDraft(draft.id, { to: addrs }).catch(() => {});
-                        }}
-                      />
-                      {ccOpen ? (
-                      <RecipientAddressField
-                        label="Cc"
-                        value={cc}
-                        onChangeText={setCc}
-                        editable={!drafting && !busy}
-                        placeholder="Name or email"
-                        textColor={colors.text}
-                        secondaryColor={colors.textSecondary}
-                        borderColor={colors.border}
-                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
-                        searchContacts={searchMailboxContacts}
-                        trailing={
-                          bccOpen ? null : (
+                          ) : null}
+                          {!bccOpen ? (
                             <TouchableOpacity
                               onPress={() => setBccOpen(true)}
                               hitSlop={8}
-                              accessibilityRole="button"
+                              accessibilityRole="link"
                               accessibilityLabel="Show Bcc"
-                              style={{ paddingLeft: 8, paddingVertical: 4 }}
                             >
-                              <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+                              <Text style={styles.headerLink}>Bcc</Text>
                             </TouchableOpacity>
-                          )
-                        }
-                        onCommit={(addrs) => {
-                          if (!draft) return;
-                          void patchMailboxDraft(draft.id, { cc: addrs }).catch(() => {});
-                        }}
-                      />
-                      ) : null}
-                      {bccOpen ? (
-                      <RecipientAddressField
-                        label="Bcc"
-                        value={bcc}
-                        onChangeText={setBcc}
-                        editable={!drafting && !busy}
-                        placeholder="Name or email"
-                        textColor={colors.text}
-                        secondaryColor={colors.textSecondary}
-                        borderColor={colors.border}
-                        menuColor={colors.isDark ? '#111827' : '#ffffff'}
-                        searchContacts={searchMailboxContacts}
-                        onCommit={(addrs) => {
-                          if (!draft) return;
-                          void patchMailboxDraft(draft.id, { bcc: addrs }).catch(() => {});
-                        }}
-                      />
-                      ) : null}
-                      <View style={styles.headerField}>
-                        <Text style={styles.label}>Subj</Text>
-                        <TextInput
-                          style={styles.fieldInput}
-                          value={subject}
-                          onChangeText={setSubject}
-                          onFocus={() => {
-                            setAiCardOpen(false);
-                            scrollFocusedInputSoon();
+                          ) : null}
+                        </View>
+                      ) : null
+                    }
+                    onCommit={(addrs) => {
+                      if (!draft) return;
+                      void patchMailboxDraft(draft.id, { to: addrs }).catch(() => {});
+                    }}
+                  />
+                  {ccOpen ? (
+                    <RecipientAddressField
+                      label="Cc"
+                      value={cc}
+                      onChangeText={setCc}
+                      editable={!drafting && !busy}
+                      placeholder="Name or email"
+                      textColor={colors.text}
+                      secondaryColor={colors.textSecondary}
+                      borderColor={colors.border}
+                      menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                      searchContacts={searchMailboxContacts}
+                      trailing={
+                        <TouchableOpacity
+                          onPress={() => {
+                            setCc('');
+                            setCcOpen(false);
+                            if (draft) void patchMailboxDraft(draft.id, { cc: [] }).catch(() => {});
                           }}
-                          editable={!drafting && !busy}
-                          onEndEditing={() => void persistDraft().catch(() => {})}
-                        />
-                      </View>
-                    </View>
+                          disabled={drafting || busy}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove Cc"
+                          style={{ paddingLeft: 8, paddingVertical: 4 }}
+                        >
+                          <Ionicons name="close" size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                      }
+                      onCommit={(addrs) => {
+                        if (!draft) return;
+                        void patchMailboxDraft(draft.id, { cc: addrs }).catch(() => {});
+                      }}
+                    />
                   ) : null}
+                  {bccOpen ? (
+                    <RecipientAddressField
+                      label="Bcc"
+                      value={bcc}
+                      onChangeText={setBcc}
+                      editable={!drafting && !busy}
+                      placeholder="Name or email"
+                      textColor={colors.text}
+                      secondaryColor={colors.textSecondary}
+                      borderColor={colors.border}
+                      menuColor={colors.isDark ? '#111827' : '#ffffff'}
+                      searchContacts={searchMailboxContacts}
+                      trailing={
+                        <TouchableOpacity
+                          onPress={() => {
+                            setBcc('');
+                            setBccOpen(false);
+                            if (draft) void patchMailboxDraft(draft.id, { bcc: [] }).catch(() => {});
+                          }}
+                          disabled={drafting || busy}
+                          hitSlop={8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove Bcc"
+                          style={{ paddingLeft: 8, paddingVertical: 4 }}
+                        >
+                          <Ionicons name="close" size={18} color={colors.textSecondary} />
+                        </TouchableOpacity>
+                      }
+                      onCommit={(addrs) => {
+                        if (!draft) return;
+                        void patchMailboxDraft(draft.id, { bcc: addrs }).catch(() => {});
+                      }}
+                    />
+                  ) : null}
+                  <View style={styles.headerField}>
+                    <Text style={styles.label}>Subj</Text>
+                    <TextInput
+                      style={styles.fieldInput}
+                      value={subject}
+                      onChangeText={setSubject}
+                      onFocus={() => {
+                        setAiCardOpen(false);
+                        scrollFocusedInputSoon();
+                      }}
+                      editable={!drafting && !busy}
+                      onEndEditing={() => void persistDraft().catch(() => {})}
+                    />
+                  </View>
                 </View>
+              </View>
             ) : null}
           </ComposeChrome>
           {composing && draft ? (
@@ -2408,7 +2446,6 @@ export default function EmailThreadScreen() {
                     onFocus={() => {
                       setAiCardOpen(false);
                       setAiDetailsOpen(false);
-                      setHeadersOpen(false);
                       if (Platform.OS !== 'web') setComposeFullscreen(true);
                     }}
                     onContentSizeChange={() => {

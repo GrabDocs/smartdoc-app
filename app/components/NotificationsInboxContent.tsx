@@ -15,7 +15,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import { resolveSignatureRoute } from '../../utils/signatureRouteResolver';
 import { useAuth } from '../context/auth';
-import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType } from '../services/pushNotifications';
+import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, toInAppBillingPath } from '../services/pushNotifications';
 import { formatUtcIsoForDevice } from '../../utils/calendarTime';
 import { AnimatedHeaderContainer } from './AnimatedHeaderContainer';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -172,6 +172,8 @@ export function NotificationsInboxContent({
     }
     if (meta.navigation_path) {
       const p = String(meta.navigation_path);
+      const billing = toInAppBillingPath(p);
+      if (billing) return billing;
       if (p.includes('/meeting/')) {
         return getNotificationScreen({ type: n.type || 'workspace_meeting_started', ...meta, navigation_path: p });
       }

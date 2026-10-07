@@ -18,13 +18,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { useLimitError } from '../../contexts/LimitErrorContext';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 export default function ScheduleMeetingScreen() {
-  const colors = useThemeColors();
   const router = useRouter();
+  const { showLimitError } = useLimitError();
+  const colors = useThemeColors();
   const [loading, setLoading] = useState(false);
   // Default to 15 minutes ahead so "schedule now" isn't rejected as past by the API.
   const [startDateTime, setStartDateTime] = useState(() => new Date(Date.now() + 15 * 60 * 1000));
@@ -235,9 +238,9 @@ export default function ScheduleMeetingScreen() {
           }
         ]);
       } else {
-        const errorMessage = response.data.message || 'Failed to schedule meeting';
-        console.error('❌ Meeting scheduling failed:', errorMessage);
-        Alert.alert('Error', errorMessage);
+        const limitData = limitErrorFromCaught({ response: { status: response.status, data: response.data } });
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.data.message || 'Failed to schedule meeting');
       }
     } catch (error: any) {
       console.error('Create meeting failed:', error);
@@ -301,13 +304,15 @@ export default function ScheduleMeetingScreen() {
                       }
                     ]);
                   } else {
-                    const errorMessage = response.data.message || 'Failed to schedule meeting';
-                    console.error('❌ Meeting scheduling failed:', errorMessage);
-                    Alert.alert('Error', errorMessage);
+                    const limitData = extractLimitErrorData(response.data);
+                    if (limitData) showLimitError(limitData);
+                    else Alert.alert('Error', response.data.message || 'Failed to schedule meeting');
                   }
                 } catch (endError) {
                   console.error('Failed to end existing meeting:', endError);
-                  Alert.alert('Error', 'Failed to end existing meeting. Please try again.');
+                  const limitData = limitErrorFromCaught(endError);
+                  if (limitData) showLimitError(limitData);
+                  else Alert.alert('Error', 'Failed to end existing meeting. Please try again.');
                 } finally {
                   setLoading(false);
                 }
@@ -322,12 +327,16 @@ export default function ScheduleMeetingScreen() {
           'There was a server error while scheduling the meeting. Please try again or contact support.';
         Alert.alert('Server Error', serverMsg);
       } else {
-        Alert.alert(
-          'Error',
-          error.response?.data?.message ||
-            error.response?.data?.error ||
-            'Failed to schedule meeting'
-        );
+        const limitData = limitErrorFromCaught(error);
+        if (limitData) showLimitError(limitData);
+        else {
+          Alert.alert(
+            'Error',
+            error.response?.data?.message ||
+              error.response?.data?.error ||
+              'Failed to schedule meeting'
+          );
+        }
       }
     } finally {
       setLoading(false);

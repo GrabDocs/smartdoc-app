@@ -152,7 +152,7 @@ export default function ExtraAiCreditsBanner({
         ) : null}
       </View>
       {canAdd ? (
-        <TouchableOpacity onPress={() => router.push('/billing?tab=billing' as any)}>
+        <TouchableOpacity onPress={() => router.push({ pathname: '/billing', params: { tab: 'billing' } } as any)}>
           <Text style={styles.link}>Add Credits</Text>
         </TouchableOpacity>
       ) : (

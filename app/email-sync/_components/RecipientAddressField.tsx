@@ -33,9 +33,16 @@ export function emailsFromAddressText(value: string): string[] {
   return out;
 }
 
+function isCompleteEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+/** The address fragment still being typed. A finished address is not a search. */
 function activeQuery(value: string): string {
   const parts = value.split(',');
-  return (parts[parts.length - 1] || '').trim();
+  const last = (parts[parts.length - 1] || '').trim();
+  if (!last || isCompleteEmail(last)) return '';
+  return last;
 }
 
 type Props = {
@@ -50,7 +57,7 @@ type Props = {
   borderColor: string;
   menuColor: string;
   searchContacts: (query: string) => Promise<AccountContact[]>;
-  /** Shown at the right of the field, e.g. the chevron that reveals Cc / Bcc. */
+  /** Shown at the right of the field, e.g. the Cc / Bcc links. */
   trailing?: ReactNode;
 };
 
@@ -69,7 +76,9 @@ export function RecipientAddressField({
   trailing,
 }: Props) {
   const [contacts, setContacts] = useState<AccountContact[]>([]);
+  const [editing, setEditing] = useState(false);
   const seq = useRef(0);
+  const choosing = useRef(false);
   const valueRef = useRef(value);
   const searchRef = useRef(searchContacts);
   valueRef.current = value;
@@ -81,7 +90,7 @@ export function RecipientAddressField({
   const visible = contacts.filter((row) => row.email && !taken.has(row.email.toLowerCase()));
 
   useEffect(() => {
-    if (!editable || query.length < 2) {
+    if (!editable || !editing || query.length < 2) {
       setContacts([]);
       return;
     }
@@ -98,7 +107,7 @@ export function RecipientAddressField({
         });
     }, 200);
     return () => clearTimeout(timer);
-  }, [query, editable]);
+  }, [query, editable, editing]);
 
   const choose = (contact: AccountContact) => {
     const current = valueRef.current;
@@ -136,6 +145,18 @@ export function RecipientAddressField({
           autoCapitalize="none"
           autoCorrect={false}
           editable={editable}
+          onFocus={() => setEditing(true)}
+          onBlur={() => {
+            // A suggestion tap blurs the field before onPress. Wait so that tap can land.
+            setTimeout(() => {
+              if (choosing.current) {
+                choosing.current = false;
+                return;
+              }
+              setEditing(false);
+              setContacts([]);
+            }, 200);
+          }}
           onEndEditing={() => {
             setTimeout(() => onCommit(emailsFromAddressText(valueRef.current)), 50);
           }}
@@ -175,6 +196,9 @@ export function RecipientAddressField({
             return (
               <TouchableOpacity
                 key={contact.email}
+                onPressIn={() => {
+                  choosing.current = true;
+                }}
                 onPress={() => choose(contact)}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8 }}
               >

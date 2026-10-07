@@ -27,6 +27,7 @@ import FileNameText from '../../components/FileNameText';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiClient } from '../../services/api';
 import { bookmarkDetailScreenKey, bookmarksListScreenKey } from '../../services/userScopedCache';
 import { formatDateToLocal } from '../../utils/timeFormatting';
@@ -35,6 +36,7 @@ import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../components/TapToToggleHeaderView';
 import { useAuth } from '../context/auth';
@@ -79,6 +81,7 @@ export default function BookmarkDetailScreen() {
   const params = useLocalSearchParams();
   const { user } = useAuth();
   const themeColors = useThemeColors();
+  const { showLimitError } = useLimitError();
   const insets = useSafeAreaInsets();
   const scrollRestoresHeaderProps = useScrollRestoresHeaderProps();
 
@@ -604,10 +607,14 @@ export default function BookmarkDetailScreen() {
         setShowAddFilesModal(false);
         Alert.alert('Success', `${fileIds.length} file(s) added to bookmark`);
       } else {
-        Alert.alert('Error', response.message || 'Failed to add files');
+        const limitData = extractLimitErrorData(response);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.message || 'Failed to add files');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to add files');
+      const limitData = limitErrorFromCaught(error);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Error', error.message || 'Failed to add files');
     } finally {
       setAddingFiles(false);
     }

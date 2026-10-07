@@ -528,12 +528,51 @@ export function getReachMeetingJoinPath(data: Record<string, any> | null | undef
 }
 
 /**
+ * Web billing, pricing, and payment links are a website session.
+ * On the phone they open in-app Billing, where a plan is chosen before checkout.
+ */
+export function toInAppBillingPath(path: string): string | null {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  let pathname = trimmed;
+  let tab: string | null = null;
+  try {
+    if (/^https?:\/\//i.test(trimmed)) {
+      const url = new URL(trimmed);
+      const host = url.hostname.replace(/^www\./, '');
+      if (host !== 'grabdocs.com' && host !== 'app.grabdocs.com') return null;
+      pathname = url.pathname;
+      tab = url.searchParams.get('tab');
+    } else {
+      const q = trimmed.indexOf('?');
+      pathname = q >= 0 ? trimmed.slice(0, q) : trimmed;
+      if (q >= 0) tab = new URLSearchParams(trimmed.slice(q + 1)).get('tab');
+    }
+  } catch {
+    return null;
+  }
+  if (!pathname.startsWith('/')) pathname = `/${pathname}`;
+  if (pathname.length > 1 && pathname.endsWith('/')) pathname = pathname.slice(0, -1);
+  if (pathname === '/settings' && tab === 'billing') return '/billing';
+  if (pathname === '/pricing') return '/billing';
+  if (pathname === '/payment') return '/billing';
+  return null;
+}
+
+/**
  * Resolve app path for push/data payload (type + optional metadata).
  * Used when user taps a push or an in-app notification so we open the right screen.
  */
 export function getNotificationScreen(data: Record<string, any>): string {
   const type = data?.type;
   const screen = data?.screen;
+  if (typeof screen === 'string') {
+    const billing = toInAppBillingPath(screen);
+    if (billing) return billing;
+  } else if (typeof data?.navigation_path === 'string') {
+    const billing = toInAppBillingPath(data.navigation_path);
+    if (billing) return billing;
+  }
   if (screen && typeof screen === 'string' && screen.startsWith('/')) {
     if (screen.startsWith('/meeting/')) {
       return getReachMeetingJoinPath({ ...data, navigation_path: screen }) || '/quick-reach/meeting-call';

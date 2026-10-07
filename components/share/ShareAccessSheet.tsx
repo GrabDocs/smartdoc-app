@@ -24,6 +24,8 @@ type Props = {
   visible: boolean;
   adapter: ShareAccessAdapter | null;
   onClose: () => void;
+  /** Shown at the bottom when one link covers more than one file. */
+  listedFiles?: { id: number; name: string }[];
 };
 
 function parseShareEmails(raw: string): string[] {
@@ -44,7 +46,7 @@ function parseShareEmails(raw: string): string[] {
  * Renders only the sections this adapter implements.
  * getShareUrl does not imply people, general access, or email.
  */
-export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
+export default function ShareAccessSheet({ visible, adapter, onClose, listedFiles }: Props) {
   const colors = useThemeColors();
   const { height: windowHeight } = useWindowDimensions();
   const [snapshot, setSnapshot] = useState<ShareAccessSnapshot | null>(null);
@@ -275,6 +277,13 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
     },
     emailHint: { marginTop: 6 },
     emailButtonWrap: { paddingHorizontal: 16, paddingBottom: 4 },
+    fileList: {
+      borderTopWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 4,
+    },
+    fileListScroll: { maxHeight: 140 },
     emailButton: {
       marginTop: 4,
       backgroundColor: colors.tint,
@@ -600,6 +609,18 @@ export default function ShareAccessSheet({ visible, adapter, onClose }: Props) {
               >
                 <Text style={styles.emailButtonText}>{pending === 'email' ? 'Sending…' : 'Email link'}</Text>
               </TouchableOpacity>
+            </View>
+          ) : null}
+          {listedFiles && listedFiles.length > 1 ? (
+            <View style={[styles.fileList, { borderTopColor: colors.border }]}>
+              <Text style={styles.detail}>{listedFiles.length} files</Text>
+              <ScrollView style={styles.fileListScroll} nestedScrollEnabled>
+                {listedFiles.map((file) => (
+                  <Text key={file.id} style={styles.name} numberOfLines={1}>
+                    {file.name}
+                  </Text>
+                ))}
+              </ScrollView>
             </View>
           ) : null}
           {copyNote ? (

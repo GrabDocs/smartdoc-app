@@ -118,9 +118,25 @@ export default function UploadScreen() {
           );
 
           if (uploadResult.success) {
+            const limitData = extractLimitErrorData(uploadResult);
+            if (limitData) {
+              showLimitError(limitData);
+              setUploading(false);
+              setProgress(0);
+              fileStore.setDocumentPickerOpen(false);
+              return;
+            }
             successCount++;
             console.log('Upload successful:', uploadResult);
           } else {
+            const limitData = extractLimitErrorData(uploadResult);
+            if (limitData) {
+              showLimitError(limitData);
+              setUploading(false);
+              setProgress(0);
+              fileStore.setDocumentPickerOpen(false);
+              return;
+            }
             failCount++;
             console.error('Upload failed for:', file.name, uploadResult);
           }

@@ -26,11 +26,13 @@ import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import QuickFormViewer from '../../components/QuickFormViewer';
 import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiService } from '../../services/api';
 import { getReachParticipantDisplayName } from '../../utils/reachDisplayName';
 import { parseAsUTC } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
+import { limitErrorFromCaught, extractLimitErrorData } from '../../utils/limitErrorUtils';
 import {
   invalidateWorkspaceScreenCaches,
   workspaceActivitiesCacheKey,
@@ -137,6 +139,7 @@ export default function WorkspaceDetailsScreen() {
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
   const colors = useThemeColors();
+  const { showLimitError } = useLimitError();
   const insets = useSafeAreaInsets();
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
@@ -463,10 +466,14 @@ export default function WorkspaceDetailsScreen() {
         invalidateWorkspaceScreenCaches(user?.id, String(id), Number(id));
         loadWorkspaceDetails(true);
       } else {
-        Alert.alert('Error', response.message || 'Failed to send invitation');
+        const limitData = extractLimitErrorData(response);
+        if (limitData) showLimitError(limitData);
+        else Alert.alert('Error', response.message || 'Failed to send invitation');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send invitation');
+      const limitData = limitErrorFromCaught(error);
+      if (limitData) showLimitError(limitData);
+      else Alert.alert('Error', error.message || 'Failed to send invitation');
     } finally {
       setInviteLoading(false);
     }
@@ -1133,7 +1140,9 @@ export default function WorkspaceDetailsScreen() {
                     });
                     router.push(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
                   } else {
-                    Alert.alert('Error', response.data.message || 'Failed to create meeting');
+                    const limitData = extractLimitErrorData(response.data);
+                    if (limitData) showLimitError(limitData);
+                    else Alert.alert('Error', response.data.message || 'Failed to create meeting');
                   }
                 } catch (error: any) {
                   console.error('Failed to create meeting:', error);
@@ -1169,7 +1178,9 @@ export default function WorkspaceDetailsScreen() {
                       ]
                     );
                   } else {
-                    Alert.alert('Error', error.response?.data?.message || 'Failed to create meeting. Please try again.');
+                    const limitData = limitErrorFromCaught(error);
+                    if (limitData) showLimitError(limitData);
+                    else Alert.alert('Error', error.response?.data?.message || 'Failed to create meeting. Please try again.');
                   }
                 } finally {
                   setCreatingMeeting(false);

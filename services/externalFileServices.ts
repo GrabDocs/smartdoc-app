@@ -1,5 +1,7 @@
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
+import { notifyLimitError } from '../contexts/LimitErrorContext';
+import { extractLimitErrorData, limitErrorFromCaught } from '../utils/limitErrorUtils';
 import { apiService } from './api';
 
 export interface ExternalFile {
@@ -17,6 +19,7 @@ export interface ExternalFileResult {
   success: boolean;
   files?: ExternalFile[];
   error?: string;
+  limit?: boolean;
 }
 
 export interface AuthResult {
@@ -232,7 +235,7 @@ class ExternalFileService {
     fileId: string,
     fileName: string,
     onProgress?: (progress: number) => void
-  ): Promise<{ success: boolean; error?: string }> {
+  ): Promise<{ success: boolean; error?: string; limit?: boolean }> {
     try {
       const token = this.authTokens.get(service);
       if (!token) {
@@ -250,13 +253,27 @@ class ExternalFileService {
       });
 
       if (response.data.success) {
+        const limitData = extractLimitErrorData(response.data);
+        if (limitData) {
+          notifyLimitError(limitData);
+          return { success: false, error: limitData.message, limit: true };
+        }
         return { success: true };
       } else {
-        return { success: false, error: response.data.error || 'Download failed' };
+        const limitData = extractLimitErrorData(response.data);
+        if (limitData) {
+          notifyLimitError(limitData);
+          return { success: false, error: limitData.message, limit: true };
+        }
+        return { success: false, error: response.data.error || response.data.message || 'Download failed' };
       }
     } catch (error: any) {
       console.error('External download error:', error);
-      return { success: false, error: error.message || 'Download failed' };
+      const limitData = limitErrorFromCaught(error);
+      if (limitData && notifyLimitError(limitData)) {
+        return { success: false, error: limitData.message, limit: true };
+      }
+      return { success: false, error: error.response?.data?.message || error.message || 'Download failed' };
     }
   }
 

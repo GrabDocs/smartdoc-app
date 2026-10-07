@@ -26,7 +26,6 @@ import {
   getSettingsUsageStats,
   getTopupPacks,
   openStripePortal,
-  PRICING_URL,
   STRIPE_PORTAL_RETURN_URL,
   syncSubscription,
   topupPackPriceUsd,
@@ -40,6 +39,7 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import PlanChangePicker from '../../components/billing/PlanChangePicker';
 import ExtraAiCreditsBanner from '../../components/ExtraAiCreditsBanner';
 
 type Segment = 'usage' | 'billing';
@@ -354,11 +354,6 @@ export default function BillingScreen() {
     await syncAndReload();
   };
 
-  const openPricing = () => {
-    markPendingExternalCheckout();
-    Linking.openURL(PRICING_URL).catch(() => {});
-  };
-
   const handlePortal = async () => {
     setPortalLoading(true);
     try {
@@ -489,14 +484,6 @@ export default function BillingScreen() {
           borderWidth: 1,
           borderColor: '#F59E0B',
           backgroundColor: colors.isDark ? 'rgba(245,158,11,0.15)' : '#FFFBEB',
-          padding: 14,
-          marginBottom: 12,
-        },
-        bannerBlue: {
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: '#3B82F6',
-          backgroundColor: colors.isDark ? 'rgba(59,130,246,0.15)' : '#EFF6FF',
           padding: 14,
           marginBottom: 12,
         },
@@ -759,25 +746,19 @@ export default function BillingScreen() {
           </View>
         ) : null}
 
-        {canManage && planName === 'free' ? (
-          <View style={styles.bannerBlue}>
-            <Text style={{ color: colors.text, fontSize: 14, marginBottom: 4 }}>
-              Upgrade to a paid plan to add credits, unlock more features, and get more AI usage.
-            </Text>
-            <TouchableOpacity style={styles.primaryBtn} onPress={openPricing}>
-              <Text style={styles.primaryBtnText}>Subscribe</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {canManage && planName !== 'free' && usage?.nextPlanDisplayName ? (
-          <View style={styles.bannerBlue}>
-            <Text style={{ color: colors.text, fontSize: 14, marginBottom: 4 }}>
-              Get more features and higher limits by upgrading to {usage.nextPlanDisplayName}.
-            </Text>
-            <TouchableOpacity style={styles.primaryBtn} onPress={openPricing}>
-              <Text style={styles.primaryBtnText}>Upgrade to {usage.nextPlanDisplayName}</Text>
-            </TouchableOpacity>
+        {canManage ? (
+          <View style={{ marginBottom: 12 }}>
+            <PlanChangePicker
+              intro={
+                planName === 'free'
+                  ? 'Choose a plan to subscribe. Payment uses this account.'
+                  : usage?.nextPlanDisplayName
+                    ? `Choose a plan to change or renew. ${usage.nextPlanDisplayName} is the next tier.`
+                    : 'Choose a plan to subscribe, change, or renew. Payment uses this account.'
+              }
+              onOpening={markPendingExternalCheckout}
+              onReturned={syncAndReload}
+            />
           </View>
         ) : null}
 
@@ -800,10 +781,8 @@ export default function BillingScreen() {
             ) : null}
             {usage?.subscription?.canceled_at && usage?.subscription?.expires_at ? (
               <Text style={{ color: '#D97706', fontSize: 12, marginTop: 8 }}>
-                Cancelled — access until {new Date(usage.subscription.expires_at).toLocaleDateString()}.{' '}
-                <Text style={{ textDecorationLine: 'underline' }} onPress={() => Linking.openURL('https://grabdocs.com')}>
-                  Reactivate on website
-                </Text>
+                Cancelled — access until {new Date(usage.subscription.expires_at).toLocaleDateString()}. Choose a
+                plan above to renew.
               </Text>
             ) : null}
           </View>
@@ -942,9 +921,6 @@ export default function BillingScreen() {
           </View>
         ) : null}
 
-        <TouchableOpacity style={styles.linkBtn} onPress={() => Linking.openURL(PRICING_URL)}>
-          <Text style={styles.linkText}>View plans on grabdocs.com/pricing</Text>
-        </TouchableOpacity>
       </>
     );
   };
