@@ -20,6 +20,10 @@ interface Props {
   loading?: boolean;
   sortBy?: string;
   onSortPress?: () => void;
+  selecting?: boolean;
+  selectedCount?: number;
+  onSelectPress?: () => void;
+  onShareSelected?: () => void;
   onBreadcrumbPress: (index: number) => void;
   onOpenFolder: (folderId: number) => void;
   onFolderMenuPress?: (folder: FolderRowModel) => void;
@@ -32,6 +36,10 @@ export default function DocumentsFolderBar({
   loading,
   sortBy,
   onSortPress,
+  selecting,
+  selectedCount = 0,
+  onSelectPress,
+  onShareSelected,
   onBreadcrumbPress,
   onOpenFolder,
   onFolderMenuPress,
@@ -60,10 +68,44 @@ export default function DocumentsFolderBar({
             </TouchableOpacity>
           </View>
         ) : null}
+        {onSelectPress ? (
+          <TouchableOpacity
+            onPress={onSelectPress}
+            style={styles.selectBtn}
+            accessibilityLabel={selecting ? 'Cancel selection' : 'Select files'}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.selectBtnText, { color: colors.primary || '#007AFF' }]}>
+              {selecting ? 'Done' : 'Select'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity onPress={onNewFolder} style={styles.newBtn} accessibilityLabel="New folder">
           <MaterialCommunityIcons name="folder-plus-outline" size={22} color={FOLDER_ICON_COLOR} />
         </TouchableOpacity>
       </View>
+      {selecting ? (
+        <View style={styles.selectionBar}>
+          <Text style={[styles.selectionCount, { color: colors.text }]}>
+            {selectedCount} selected
+          </Text>
+          <TouchableOpacity
+            onPress={onShareSelected}
+            disabled={selectedCount === 0}
+            accessibilityLabel="Share selected files"
+            accessibilityRole="button"
+          >
+            <Text
+              style={[
+                styles.selectionShare,
+                { color: selectedCount === 0 ? '#999' : colors.primary || '#007AFF' },
+              ]}
+            >
+              Share
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {loading && folders.length === 0 ? (
         <ActivityIndicator style={{ marginVertical: 12 }} color={colors.primary} />
@@ -118,6 +160,31 @@ const styles = StyleSheet.create({
   sortButtonText: {
     fontSize: 12,
     marginRight: 2,
+  },
+  selectBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexShrink: 0,
+  },
+  selectBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  selectionCount: {
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  selectionShare: {
+    fontWeight: '600',
+    fontSize: 13,
   },
   newBtn: { padding: 6 },
   foldersSection: { marginTop: 3 },

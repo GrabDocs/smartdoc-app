@@ -2667,7 +2667,10 @@ export default function QuickFilesScreen() {
   const FilterButton = ({ option, label }: { option: FilterOption; label: string }) => (
     <TouchableOpacity
       style={[dynamicStyles.filterButton, filterBy === option && dynamicStyles.filterButtonActive]}
-      onPress={() => setFilterBy(option)}
+      onPress={() => {
+        if (option === 'deleted' && selectingFiles) cancelFileSelection();
+        setFilterBy(option);
+      }}
       accessibilityLabel={`Filter by ${label}`}
       accessibilityRole="button"
       accessibilityState={{ selected: filterBy === option }}
@@ -2773,6 +2776,7 @@ export default function QuickFilesScreen() {
     sortContainer: {
       flexDirection: 'row',
       alignItems: 'center',
+      justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingVertical: 12,
     },
@@ -3612,19 +3616,6 @@ export default function QuickFilesScreen() {
             )}
           </View>
           <View style={dynamicStyles.headerActions}>
-            <TouchableOpacity
-              style={dynamicStyles.headerButton}
-              onPress={() => {
-                if (selectingFiles) cancelFileSelection();
-                else setSelectingFiles(true);
-              }}
-              accessibilityLabel={selectingFiles ? 'Cancel selection' : 'Select files'}
-              accessibilityRole="button"
-            >
-              <Text style={{ color: colors.primary || '#007AFF', fontWeight: '600' }}>
-                {selectingFiles ? 'Done' : 'Select'}
-              </Text>
-            </TouchableOpacity>
             {useFolderMode ? (
               <TouchableOpacity
                 style={dynamicStyles.headerButton}
@@ -3671,22 +3662,6 @@ export default function QuickFilesScreen() {
           </View>
         </View>
       </AnimatedHeaderContainer>
-
-      {selectingFiles ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 8 }}>
-          <Text style={{ color: colors.text, fontWeight: '600' }}>{selectedFileIds.size} selected</Text>
-          <TouchableOpacity
-            onPress={shareSelectedFiles}
-            disabled={selectedFileIds.size === 0}
-            accessibilityLabel="Share selected files"
-            accessibilityRole="button"
-          >
-            <Text style={{ color: selectedFileIds.size === 0 ? '#999' : colors.primary || '#007AFF', fontWeight: '600' }}>
-              Share
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
 
       {/* Search Bar */}
       <View style={dynamicStyles.searchContainer}>
@@ -3739,8 +3714,49 @@ export default function QuickFilesScreen() {
           </Text>
           <Ionicons name="chevron-down" size={16} color="#666" />
         </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => {
+            if (selectingFiles) cancelFileSelection();
+            else setSelectingFiles(true);
+          }}
+          accessibilityLabel={selectingFiles ? 'Cancel selection' : 'Select files'}
+          accessibilityRole="button"
+          style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+        >
+          <Text style={{ color: colors.primary || '#007AFF', fontWeight: '600', fontSize: 13 }}>
+            {selectingFiles ? 'Done' : 'Select'}
+          </Text>
+        </TouchableOpacity>
       </View>
       )}
+      {!useFolderMode && filterBy !== 'deleted' && selectingFiles ? (
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingBottom: 8,
+          }}
+        >
+          <Text style={{ color: colors.text, fontWeight: '600' }}>{selectedFileIds.size} selected</Text>
+          <TouchableOpacity
+            onPress={shareSelectedFiles}
+            disabled={selectedFileIds.size === 0}
+            accessibilityLabel="Share selected files"
+            accessibilityRole="button"
+          >
+            <Text
+              style={{
+                color: selectedFileIds.size === 0 ? '#999' : colors.primary || '#007AFF',
+                fontWeight: '600',
+              }}
+            >
+              Share
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Files List */}
       <FlatList
@@ -3769,7 +3785,7 @@ export default function QuickFilesScreen() {
         extraData={
           filterBy === 'deleted'
             ? `${filterBy}-${showDeletedKebabMenu}-${selectedDeletedFileForMenu?.id ?? ''}-${deletedActionId ?? ''}-${deletedFiles.map((f) => `${f.id}:${f.restoring ? 1 : 0}`).join(',')}`
-            : `${filterBy}-${gridView}-${preferences.display.show_file_sizes}-${preferences.display.show_upload_dates}`
+            : `${filterBy}-${gridView}-${selectingFiles}-${selectedFileIds.size}-${preferences.display.show_file_sizes}-${preferences.display.show_upload_dates}`
         }
         style={dynamicStyles.documentsList}
         contentContainerStyle={{ paddingBottom: 88 }}
@@ -3800,6 +3816,13 @@ export default function QuickFilesScreen() {
               loading={folderSystem.loading}
               sortBy={sortBy}
               onSortPress={showSortOptions}
+              selecting={selectingFiles}
+              selectedCount={selectedFileIds.size}
+              onSelectPress={() => {
+                if (selectingFiles) cancelFileSelection();
+                else setSelectingFiles(true);
+              }}
+              onShareSelected={shareSelectedFiles}
               onBreadcrumbPress={folderSystem.goToBreadcrumb}
               onOpenFolder={folderSystem.openFolder}
               onFolderMenuPress={handleFolderMenuPress}
