@@ -284,6 +284,7 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
       paddingBottom: 4,
     },
     fileListScroll: { maxHeight: 140 },
+    fileListName: { fontSize: 13, fontWeight: '400', color: colors.text, marginTop: 4 },
     emailButton: {
       marginTop: 4,
       backgroundColor: colors.tint,
@@ -616,7 +617,7 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
               <Text style={styles.detail}>{listedFiles.length} files</Text>
               <ScrollView style={styles.fileListScroll} nestedScrollEnabled>
                 {listedFiles.map((file) => (
-                  <Text key={file.id} style={styles.name} numberOfLines={1}>
+                  <Text key={file.id} style={styles.fileListName} numberOfLines={1}>
                     {file.name}
                   </Text>
                 ))}

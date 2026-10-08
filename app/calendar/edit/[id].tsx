@@ -50,6 +50,7 @@ import { htmlToPlainText } from '../../../utils/linkifyPlainText';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import ClientsButton from '../../../components/clients/ClientsButton';
 import EventRemindersEditor from '../../../components/calendar/EventRemindersEditor';
 import { DEFAULT_REMINDERS, remindersFromEvent, type CalendarReminder } from '../../../utils/calendarReminders';
 
@@ -560,7 +561,12 @@ export default function CalendarEditScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
         >
-        <Text style={styles.label}>Title</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={[styles.label, { marginTop: 0 }]}>Title</Text>
+          {Number.isFinite(eventId) ? (
+            <ClientsButton itemType="calendar_event" itemId={eventId} allowCreate compact />
+          ) : null}
+        </View>
         <TextInput
           style={styles.input}
           value={title}

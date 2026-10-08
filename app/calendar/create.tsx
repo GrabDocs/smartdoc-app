@@ -44,8 +44,44 @@ import {
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ClientsButton from '../../components/clients/ClientsButton';
 import EventRemindersEditor from '../../components/calendar/EventRemindersEditor';
+import { setItemClients } from '../../services/clientsApi';
 import { DEFAULT_REMINDERS, type CalendarReminder } from '../../utils/calendarReminders';
+
+function asPositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const n = Number(value);
+    return n > 0 ? n : null;
+  }
+  return null;
+}
+
+async function linkCalendarClients(
+  clientIds: number[],
+  opts: { calendarEventId?: number | null; videoCallId?: number | null }
+) {
+  if (!clientIds.length) return;
+  try {
+    if (opts.videoCallId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'video_call',
+        item_id: opts.videoCallId,
+      });
+    }
+    if (opts.calendarEventId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'calendar_event',
+        item_id: opts.calendarEventId,
+      });
+    }
+  } catch (linkErr) {
+    console.error('Error linking clients to calendar event:', linkErr);
+  }
+}
 
 type Participant = { email: string; name: string; type: string };
 
@@ -80,13 +116,14 @@ function initialEventDateFromParam(raw?: string): string {
 export default function CalendarCreateScreen() {
   const router = useRouter();
   const colors = useThemeColors();
-  const params = useLocalSearchParams<{ viewUserId?: string; date?: string }>();
+  const params = useLocalSearchParams<{ viewUserId?: string; date?: string; client_id?: string }>();
   const { profile, refresh } = useCalendarProfile();
   const networkState = useNetworkState();
   const isAdmin = calendarIsCompanyAdmin(profile);
   const isPersonalAccount = useMemo(() => (profile?.company_id ?? 0) === 0, [profile?.company_id]);
 
   const [title, setTitle] = useState('');
+  const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
   const [description, setDescription] = useState('');
   const [notesField, setNotesField] = useState('');
   const [location, setLocation] = useState('');
@@ -134,6 +171,14 @@ export default function CalendarCreateScreen() {
   const [memberPickerExpandNonce, setMemberPickerExpandNonce] = useState(0);
 
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const raw = paramString(params.client_id);
+    const id = raw && /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+    if (id != null) {
+      setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    }
+  }, [params.client_id]);
 
   const durationLabel = useMemo(() => {
     const preset = DURATION_PRESETS.find((p) => p.minutes === durationMin);
@@ -372,6 +417,9 @@ export default function CalendarCreateScreen() {
         return;
       }
 
+      let createdVideoCallId: number | null = null;
+      let createdCalendarEventId: number | null = null;
+
       if (useReach) {
         try {
           const durationMinutes = Math.max(1, Math.ceil((endUtc.getTime() - startUtc.getTime()) / 60000));
@@ -392,10 +440,12 @@ export default function CalendarCreateScreen() {
           if (room) {
             const mid = room.meeting_id ?? room.id;
             videoCallId = room.id;
+            createdVideoCallId = asPositiveInt(room.id);
             videoMeetingUrl = `https://grabdocs.com/join-meeting?meeting_id=${mid}`;
             if (!loc.includes('Reach')) loc = loc ? `${loc}, Reach` : 'Reach';
           }
-          if (videoResponse.calendar_event_id) {
+          createdCalendarEventId = asPositiveInt(videoResponse.calendar_event_id);
+          if (createdCalendarEventId != null) {
             videoCallId = 'skip-calendar-creation';
           }
         } catch (e: any) {
@@ -427,6 +477,7 @@ export default function CalendarCreateScreen() {
         };
         if (typeof videoCallId === 'number') {
           eventData.video_call_id = videoCallId;
+          createdVideoCallId = asPositiveInt(videoCallId) ?? createdVideoCallId;
         }
         if (categoryId != null && recordId == null) {
           Alert.alert('Category', 'Select both category and record, or neither');
@@ -467,7 +518,9 @@ export default function CalendarCreateScreen() {
         };
 
         try {
-          await calendarCreateEvent(onlinePayload);
+          const created = await calendarCreateEvent(onlinePayload);
+          createdCalendarEventId = asPositiveInt(created?.id) ?? createdCalendarEventId;
+          createdVideoCallId = asPositiveInt(created?.video_call_id) ?? createdVideoCallId;
         } catch (e: any) {
           if (isCalendarFetchOfflineError(e) && profile?.id != null) {
             await enqueuePendingCalendarCreate(eventData, profile.id);
@@ -482,6 +535,11 @@ export default function CalendarCreateScreen() {
           throw e;
         }
       }
+
+      await linkCalendarClients(selectedClientIds, {
+        calendarEventId: createdCalendarEventId,
+        videoCallId: createdVideoCallId,
+      });
 
       await invalidateCalendarListCache();
       router.replace('/calendar' as any);
@@ -515,6 +573,7 @@ export default function CalendarCreateScreen() {
     router,
     networkState,
     profile?.id,
+    selectedClientIds,
   ]);
 
   return (
@@ -538,7 +597,15 @@ export default function CalendarCreateScreen() {
           onScrollBeginDrag={dismissFormOverlays}
           showsVerticalScrollIndicator={false}
         >
-        <Text style={styles.label}>Title *</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={[styles.label, { marginTop: 0 }]}>Title *</Text>
+          <ClientsButton
+            selectedClientIds={selectedClientIds}
+            onChange={setSelectedClientIds}
+            allowCreate
+            compact
+          />
+        </View>
         <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Event title" placeholderTextColor={colors.textSecondary} />
 
         {isAdmin && !isPersonalAccount ? (

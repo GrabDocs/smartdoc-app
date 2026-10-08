@@ -23,13 +23,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AiFileManagerBottomSheet from '../../components/ai-file-manager/AiFileManagerBottomSheet';
+import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import ClientsButton from '../../components/clients/ClientsButton';
 import DeletedFolderGroups from '../../components/documents/DeletedFolderGroups';
 import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
-import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
-import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
-import { parseNumericId, buildRecapAskAndShare } from '../../components/meeting/meetingRecapTypes';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
@@ -39,11 +37,15 @@ import FolderKebabMenu, { type FolderKebabAction } from '../../components/folder
 import FolderMovePicker from '../../components/folders/FolderMovePicker';
 import RenameFolderSheet from '../../components/folders/RenameFolderSheet';
 import LoadingDots from '../../components/LoadingDots';
+import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
+import { buildRecapAskAndShare, parseNumericId } from '../../components/meeting/meetingRecapTypes';
 import QuickFormViewer from '../../components/QuickFormViewer';
+import { createFileSetShareAdapter, createFileShareAdapter } from '../../components/share/fileShareAdapter';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { AI_FM_ICON_COLOR } from '../../constants/aiFileManagerHelp';
-import { useLimitError } from '../../contexts/LimitErrorContext';
-import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
+import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import { useFolderSystem } from '../../hooks/useFolderSystem';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
@@ -53,20 +55,18 @@ import { ExternalFile } from '../../services/externalFileServices';
 import { useFileStore } from '../../stores/fileStore';
 import type { DeletedFolderGroup, FolderRowModel } from '../../types/folder';
 import { toAlertMessage } from '../../utils/alertUtils';
-import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
-import {
-  cleanupReprocessingTracking,
-  docNeedsClassificationPollFromRow,
-  isFileKindPending,
-  resolveDocumentListStatus,
-} from '../../utils/fileDisplayStatus';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import { sanitizeDisplayFilename } from '../../utils/displayFilename';
+import {
+    cleanupReprocessingTracking,
+    docNeedsClassificationPollFromRow,
+    isFileKindPending,
+    resolveDocumentListStatus,
+} from '../../utils/fileDisplayStatus';
 import { removeFileExtension } from '../../utils/fileUtils';
+import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { mapFileRowToDocument } from '../../utils/mapFileRowToDocument';
-import ShareAccessSheet from '../../components/share/ShareAccessSheet';
-import { createFileSetShareAdapter, createFileShareAdapter } from '../../components/share/fileShareAdapter';
-import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
+import { prefetchShareDocumentFile, shareDocumentFile } from '../../utils/shareDocumentFile';
 import { scaleStyleObject } from '../../utils/styleUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../components/TapToToggleHeaderView';

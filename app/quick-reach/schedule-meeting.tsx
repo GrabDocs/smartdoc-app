@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -15,20 +15,64 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { setItemClients } from '../../services/clientsApi';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
+function asPositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const n = Number(value);
+    return n > 0 ? n : null;
+  }
+  return null;
+}
+
+async function linkMeetingClients(clientIds: number[], responseData: any) {
+  if (!clientIds.length) return;
+  const payload = responseData?.data || responseData?.room || responseData;
+  const videoCallId =
+    asPositiveInt(payload?.id) ??
+    asPositiveInt(responseData?.room?.id) ??
+    asPositiveInt(responseData?.room_id) ??
+    asPositiveInt(responseData?.video_call_id);
+  const calendarEventId =
+    asPositiveInt(responseData?.calendar_event_id) ??
+    asPositiveInt(payload?.calendar_event_id);
+  try {
+    if (videoCallId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'video_call',
+        item_id: videoCallId,
+      });
+    }
+    if (calendarEventId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'calendar_event',
+        item_id: calendarEventId,
+      });
+    }
+  } catch (linkErr) {
+    console.error('Error linking clients to meeting:', linkErr);
+  }
+}
+
 export default function ScheduleMeetingScreen() {
   const router = useRouter();
+  const { client_id: clientIdParam } = useLocalSearchParams<{ client_id?: string }>();
   const { showLimitError } = useLimitError();
   const colors = useThemeColors();
   const [loading, setLoading] = useState(false);
+  const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
   // Default to 15 minutes ahead so "schedule now" isn't rejected as past by the API.
   const [startDateTime, setStartDateTime] = useState(() => new Date(Date.now() + 15 * 60 * 1000));
   const [endDateTime, setEndDateTime] = useState(() => new Date(Date.now() + 75 * 60 * 1000));
@@ -52,6 +96,14 @@ export default function ScheduleMeetingScreen() {
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
+
+  useEffect(() => {
+    const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
+    const id = typeof raw === 'string' && /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+    if (id != null) {
+      setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    }
+  }, [clientIdParam]);
 
   /** Return a valid Date for DateTimePicker; never pass Invalid Date (causes picker not to display). */
   const getValidDate = (d: Date | undefined): Date => {
@@ -228,6 +280,8 @@ export default function ScheduleMeetingScreen() {
           hmsRoomId,
           title: meetingData?.title || meetingData?.name || meetingData?.roomName || meetingData?.room_name
         });
+
+        await linkMeetingClients(selectedClientIds, response.data);
         
         Alert.alert('Success', 'Meeting scheduled successfully!', [
           {
@@ -294,6 +348,8 @@ export default function ScheduleMeetingScreen() {
                       hmsRoomId,
                       title: meetingData?.title || meetingData?.name || meetingData?.roomName || meetingData?.room_name
                     });
+
+                    await linkMeetingClients(selectedClientIds, response.data);
                     
                     Alert.alert('Success', 'Meeting scheduled successfully! Email invitations have been sent to all participants.', [
                       {
@@ -668,7 +724,15 @@ export default function ScheduleMeetingScreen() {
           {/* Meeting Details */}
           <View style={dynamicStyles.section}>
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Meeting Name *</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={[dynamicStyles.label, { marginBottom: 0 }]}>Meeting Name *</Text>
+                <ClientsButton
+                  selectedClientIds={selectedClientIds}
+                  onChange={setSelectedClientIds}
+                  allowCreate
+                  compact
+                />
+              </View>
               <TextInput
                 style={dynamicStyles.textInput}
                 placeholder="Enter meeting name"

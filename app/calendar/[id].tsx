@@ -578,7 +578,8 @@ export default function CalendarEventDetailScreen() {
             Offline — showing saved copy. Connect for live updates, notes, and RSVP.
           </Text>
         ) : null}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <ClientsButton itemType="calendar_event" itemId={eventId} allowCreate compact />
           {(!isPersonalAccount || event.event_type === 'company') ? (
             <View style={[styles.pill, { marginBottom: 0 }]}>
               <Text style={{ color: colors.text, fontSize: 13 }}>

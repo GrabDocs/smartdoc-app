@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
@@ -13,18 +13,62 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { setItemClients } from '../../services/clientsApi';
 import { extractLimitErrorData, getErrorResponseData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
+
+function asPositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const n = Number(value);
+    return n > 0 ? n : null;
+  }
+  return null;
+}
+
+async function linkMeetingClients(clientIds: number[], responseData: any) {
+  if (!clientIds.length) return;
+  const payload = responseData?.data || responseData?.room || responseData;
+  const videoCallId =
+    asPositiveInt(payload?.id) ??
+    asPositiveInt(responseData?.room?.id) ??
+    asPositiveInt(responseData?.room_id) ??
+    asPositiveInt(responseData?.video_call_id);
+  const calendarEventId =
+    asPositiveInt(responseData?.calendar_event_id) ??
+    asPositiveInt(payload?.calendar_event_id);
+  try {
+    if (videoCallId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'video_call',
+        item_id: videoCallId,
+      });
+    }
+    if (calendarEventId != null) {
+      await setItemClients({
+        client_ids: clientIds,
+        item_type: 'calendar_event',
+        item_id: calendarEventId,
+      });
+    }
+  } catch (linkErr) {
+    console.error('Error linking clients to meeting:', linkErr);
+  }
+}
 
 export default function CreateMeetingScreen() {
   const colors = useThemeColors();
   const router = useRouter();
+  const { client_id: clientIdParam } = useLocalSearchParams<{ client_id?: string }>();
   const { showLimitError } = useLimitError();
   const [loading, setLoading] = useState(false);
+  const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
   const [meetingData, setMeetingData] = useState({
     title: '',
     description: '',
@@ -36,6 +80,14 @@ export default function CreateMeetingScreen() {
   });
   const [newParticipant, setNewParticipant] = useState('');
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
+
+  useEffect(() => {
+    const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
+    const id = typeof raw === 'string' && /^\d+$/.test(raw) ? parseInt(raw, 10) : null;
+    if (id != null) {
+      setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    }
+  }, [clientIdParam]);
 
   const createMeeting = async () => {
     if (!meetingData.title.trim()) {
@@ -117,6 +169,8 @@ export default function CreateMeetingScreen() {
           hmsRoomId,
           title: meetingTitle
         });
+
+        await linkMeetingClients(selectedClientIds, response.data);
         
         // Show success message and go back to meeting list
         // User can now join the meeting from the list or send it to others
@@ -186,6 +240,8 @@ export default function CreateMeetingScreen() {
                       hmsRoomId,
                       title: meetingTitle
                     });
+
+                    await linkMeetingClients(selectedClientIds, response.data);
                     
                     // Show success message and go back to meeting list
                     Alert.alert('Success', `Meeting "${meetingTitle}" created successfully! You can join it from the meeting list or send it to others.`, [
@@ -441,7 +497,15 @@ export default function CreateMeetingScreen() {
             <Text style={dynamicStyles.sectionTitle}>Meeting Details</Text>
             
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Meeting Name *</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <Text style={[dynamicStyles.label, { marginBottom: 0 }]}>Meeting Name *</Text>
+                <ClientsButton
+                  selectedClientIds={selectedClientIds}
+                  onChange={setSelectedClientIds}
+                  allowCreate
+                  compact
+                />
+              </View>
               <TextInput
                 style={dynamicStyles.textInput}
                 placeholder="Enter meeting name"

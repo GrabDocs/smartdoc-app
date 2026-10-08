@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
+import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
@@ -69,6 +70,7 @@ type Signup = {
   status: string;
   form_response_id?: number | null;
   form_response?: Record<string, unknown> | null;
+  calendar_event_id?: number | null;
 };
 
 function slugFromName(name: string) {
@@ -705,12 +707,21 @@ export default function CalendarSchedulingScreen() {
             ) : (
               signups.map((row) => {
                 const answers = answerLines(row.form_response);
+                const calendarEventId =
+                  typeof row.calendar_event_id === 'number' && row.calendar_event_id > 0
+                    ? row.calendar_event_id
+                    : null;
                 return (
                   <View key={row.id} style={styles.signup}>
-                    <Text style={styles.signupName} numberOfLines={1}>
-                      {row.guest_name}
-                      <Text style={styles.signupMeta}> · {row.status}</Text>
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <Text style={[styles.signupName, { flex: 1 }]} numberOfLines={1}>
+                        {row.guest_name}
+                        <Text style={styles.signupMeta}> · {row.status}</Text>
+                      </Text>
+                      {calendarEventId != null ? (
+                        <ClientsButton itemType="calendar_event" itemId={calendarEventId} allowCreate compact />
+                      ) : null}
+                    </View>
                     <Text style={styles.signupMeta} numberOfLines={1}>{row.guest_email}</Text>
                     <Text style={styles.signupMeta}>{new Date(row.start_time).toLocaleString()}</Text>
                     {answers.map((answer) => (
