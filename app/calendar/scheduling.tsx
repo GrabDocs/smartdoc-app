@@ -629,16 +629,6 @@ export default function CalendarSchedulingScreen() {
               <Text style={styles.label}>Duration (min)</Text>
               <TextInput style={styles.input} value={duration} onChangeText={setDuration} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
-            {kind === 'group' ? (
-              <View style={styles.pairField}>
-                <Text style={styles.label}>Seats</Text>
-                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" onFocus={revealFocusedField} />
-              </View>
-            ) : (
-              <View style={styles.pairField} />
-            )}
-          </View>
-          <View style={styles.pair}>
             <View style={styles.pairField}>
               <Text style={styles.label}>Kind</Text>
               <View style={styles.chipRow}>
@@ -656,6 +646,14 @@ export default function CalendarSchedulingScreen() {
                 </TouchableOpacity>
               </View>
             </View>
+          </View>
+          <View style={styles.pair}>
+            {kind === 'group' ? (
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Seats</Text>
+                <TextInput style={styles.input} value={seatLimit} onChangeText={setSeatLimit} keyboardType="number-pad" onFocus={revealFocusedField} />
+              </View>
+            ) : null}
             <TouchableOpacity style={styles.pairField} onPress={() => setFormPickerOpen(true)}>
               <Text style={styles.label}>Form</Text>
               <View style={styles.pickerField}>
@@ -667,19 +665,34 @@ export default function CalendarSchedulingScreen() {
           {slugInvalid ? (
             <Text style={styles.slugError}>Use lowercase letters, numbers, and hyphens, like intro-call.</Text>
           ) : null}
-          <TouchableOpacity
-            style={styles.checkRow}
-            onPress={() => setAddReach((value) => !value)}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: addReach }}
-          >
-            <Ionicons
-              name={addReach ? 'checkbox' : 'square-outline'}
-              size={18}
-              color={addReach ? '#2563eb' : colors.textSecondary}
-            />
-            <Text style={styles.checkLabel}>Add a Reach meeting link</Text>
-          </TouchableOpacity>
+          <View style={styles.reachFilesRow}>
+            <TouchableOpacity
+              style={styles.checkRow}
+              onPress={() => setAddReach((value) => !value)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: addReach }}
+            >
+              <Ionicons
+                name={addReach ? 'checkbox' : 'square-outline'}
+                size={18}
+                color={addReach ? '#2563eb' : colors.textSecondary}
+              />
+              <Text style={[styles.checkLabel, styles.reachLabel]} numberOfLines={2}>
+                Add a Reach meeting link
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.filesButton}
+              onPress={() => setFilesOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Files for guests"
+            >
+              <Ionicons name="attach" size={16} color={colors.text} />
+              <Text style={styles.filesButtonText}>
+                {draftFiles.length ? `Files (${draftFiles.length})` : 'Files'}
+              </Text>
+            </TouchableOpacity>
+          </View>
           {!addReach ? (
             <View style={styles.meetingField}>
               <Text style={styles.label}>External meeting link</Text>
@@ -696,17 +709,6 @@ export default function CalendarSchedulingScreen() {
               />
             </View>
           ) : null}
-          <TouchableOpacity
-            style={styles.filesButton}
-            onPress={() => setFilesOpen(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Files for guests"
-          >
-            <Ionicons name="attach" size={16} color={colors.text} />
-            <Text style={styles.filesButtonText}>
-              {draftFiles.length ? `Files (${draftFiles.length})` : 'Files'}
-            </Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.button, (!name.trim() || !SLUG_RE.test(slug) || creating || uploadingFiles) && styles.buttonDisabled]}
             disabled={!name.trim() || !SLUG_RE.test(slug) || creating || uploadingFiles}
@@ -986,12 +988,28 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       marginBottom: 8,
       padding: 3,
       borderRadius: 10,
-      backgroundColor: colors.isDark ? '#1f2937' : '#f3f4f6',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.isDark ? '#111827' : '#e5e7eb',
     },
     tab: { flex: 1, alignItems: 'center', borderRadius: 8, paddingVertical: 8 },
-    tabOn: { backgroundColor: colors.surface },
+    tabOn: {
+      backgroundColor: colors.isDark ? colors.surface : '#ffffff',
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.isDark ? colors.border : '#d1d5db',
+      ...Platform.select({
+        ios: {
+          shadowColor: '#000',
+          shadowOpacity: 0.08,
+          shadowRadius: 2,
+          shadowOffset: { width: 0, height: 1 },
+        },
+        android: { elevation: 1 },
+        default: {},
+      }),
+    },
     tabText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
-    tabTextOn: { color: colors.text },
+    tabTextOn: { color: colors.text, fontWeight: '700' },
     banner: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13 },
     bannerOk: { backgroundColor: colors.isDark ? '#064e3b' : '#ecfdf5', color: colors.isDark ? '#a7f3d0' : '#065f46' },
     bannerError: { backgroundColor: colors.isDark ? '#450a0a' : '#fef2f2', color: colors.isDark ? '#fecaca' : '#991b1b' },
@@ -1074,10 +1092,16 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       backgroundColor: colors.background,
     },
     pickerValue: { flex: 1, fontSize: 14, color: colors.text },
+    reachFilesRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
     filesButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      alignSelf: 'flex-start',
+      flexShrink: 0,
       gap: 4,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
@@ -1087,7 +1111,8 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       backgroundColor: colors.background,
     },
     filesButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },
-    checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    checkRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+    reachLabel: { flexShrink: 1 },
     modalBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.45)',
