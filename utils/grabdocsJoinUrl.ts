@@ -77,6 +77,20 @@ export function navigateGrabDocsJoinFromUrl(
   const params: Record<string, string> = { meeting_id: mid };
   const returnTo = options?.returnTo?.trim();
   if (returnTo) params.returnTo = returnTo;
+  try {
+    const href = rawUrl.includes('://') ? rawUrl : `https://${rawUrl}`;
+    const token = new URL(href).searchParams.get('passcode_token')?.trim();
+    if (token) params.passcode_token = token;
+  } catch {
+    const m = rawUrl.match(/[?&#]passcode_token=([^&#]+)/i);
+    if (m?.[1]) {
+      try {
+        params.passcode_token = decodeURIComponent(m[1]).trim();
+      } catch {
+        params.passcode_token = m[1].trim();
+      }
+    }
+  }
   r.push({ pathname: '/join-meeting', params } as any);
   return true;
 }

@@ -195,20 +195,12 @@ export default function JoinMeetingScreen() {
         }
 
         // Never trust passcode from URL. Only passcode_token (server-issued) or user-typed passcode.
-        if (data.passcode_required && !params.passcode_token) {
-          if (data.require_join_approval) {
-            setCheckState('form');
-            setPasscode('');
-            return;
-          }
-          setErrorMessage('This meeting requires a passcode. Please use the link shared by the host.');
-          setCheckState('error');
-          return;
-        }
-
-        if (data.require_join_approval) {
+        // Passcode-only and approval meetings both need the form when there is no token.
+        if ((data.passcode_required && !params.passcode_token) || data.require_join_approval) {
           setCheckState('form');
           setPasscode('');
+          const defaultName = getReachParticipantDisplayName(user);
+          if (defaultName) setParticipantName(defaultName);
           return;
         }
 
@@ -261,17 +253,27 @@ export default function JoinMeetingScreen() {
     clearPersistedWaiting();
     const q = new URLSearchParams({ meetingId: meetingId.trim() });
     if (params.passcode_token) q.set('passcode_token', params.passcode_token);
-    else if (passcode) q.set('passcode', passcode);
-    appendSanitizedUserName(q, getReachParticipantDisplayName(user));
+    else if (passcode.trim()) q.set('passcode', passcode.trim());
+    appendSanitizedUserName(
+      q,
+      participantName.trim() || getReachParticipantDisplayName(user)
+    );
     appendReturnToParam(q, returnTo);
     router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
-  }, [meetingId, passcode, params.passcode_token, returnTo, router, clearPersistedWaiting, user]);
+  }, [meetingId, passcode, participantName, params.passcode_token, returnTo, router, clearPersistedWaiting, user]);
 
   const submitJoinRequest = useCallback(async () => {
-    const name = participantName.trim() || 'Participant';
+    const name = participantName.trim() || getReachParticipantDisplayName(user) || 'Participant';
     const pc = requirements?.passcode_required ? passcode.trim() : '';
     if (requirements?.passcode_required && !pc) {
       setErrorMessage('Passcode is required.');
+      return;
+    }
+
+    // Passcode-only (no host approval): join directly with the typed passcode.
+    if (!requirements?.require_join_approval) {
+      setErrorMessage('');
+      navigateToMeeting();
       return;
     }
 
@@ -325,7 +327,20 @@ export default function JoinMeetingScreen() {
       setErrorMessage(errData?.error || errData?.message || err?.message || 'Failed to request join.');
       setCheckState('form');
     }
-  }, [meetingId, participantName, passcode, requirements, params.passcode_token, returnTo, router, clearPersistedWaiting, persistWaitingState, user]);
+  }, [
+    meetingId,
+    participantName,
+    passcode,
+    requirements,
+    params.passcode_token,
+    returnTo,
+    router,
+    clearPersistedWaiting,
+    persistWaitingState,
+    user,
+    navigateToMeeting,
+    showLimitError,
+  ]);
 
   // Poll for approval status when in waiting state
   useEffect(() => {
@@ -443,8 +458,12 @@ export default function JoinMeetingScreen() {
   }
 
   if (checkState === 'form') {
+    const needsApproval = !!requirements?.require_join_approval;
+    const hasName = needsApproval
+      ? participantName.trim().length > 0
+      : true; // passcode-only: name optional (falls back to account name / Participant)
     const canSubmit =
-      (participantName.trim().length > 0) &&
+      hasName &&
       (!requirements?.passcode_required || passcode.trim().length > 0) &&
       !joinRequestSubmitting;
     const isSubmitting = joinRequestSubmitting;
@@ -460,11 +479,13 @@ export default function JoinMeetingScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.formTitle}>Request to join</Text>
+          <Text style={styles.formTitle}>{needsApproval ? 'Request to join' : 'Join meeting'}</Text>
           {requirements?.room_name && (
             <Text style={styles.roomName}>{requirements.room_name}</Text>
           )}
-          <Text style={styles.label}>Your name (required for organizer)</Text>
+          <Text style={styles.label}>
+            {needsApproval ? 'Your name (required for organizer)' : 'Your name'}
+          </Text>
           <TextInput
             style={styles.input}
             value={participantName}
@@ -484,6 +505,7 @@ export default function JoinMeetingScreen() {
                 placeholder="Enter passcode"
                 placeholderTextColor="#666"
                 secureTextEntry
+                keyboardType="number-pad"
                 editable={!isSubmitting}
               />
             </>
@@ -497,7 +519,7 @@ export default function JoinMeetingScreen() {
             {isSubmitting ? (
               <ActivityIndicator size="small" color="#fff" />
             ) : (
-              <Text style={styles.primaryButtonText}>Request to join</Text>
+              <Text style={styles.primaryButtonText}>{needsApproval ? 'Request to join' : 'Join'}</Text>
             )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.secondaryButton} onPress={goToAppHome}>
