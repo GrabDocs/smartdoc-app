@@ -564,7 +564,13 @@ export default function CalendarEditScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <Text style={[styles.label, { marginTop: 0 }]}>Title</Text>
           {Number.isFinite(eventId) ? (
-            <ClientsButton itemType="calendar_event" itemId={eventId} allowCreate compact />
+            <ClientsButton
+              itemType="calendar_event"
+              itemId={eventId}
+              allowCreate
+              compact
+              lockWhenSet={existingVideoCallId != null}
+            />
           ) : null}
         </View>
         <TextInput

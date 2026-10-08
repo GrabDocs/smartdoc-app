@@ -3,10 +3,12 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   Alert,
   Keyboard,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -23,9 +25,12 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
+import { GrabDocsAttachPicker } from '../email-sync/_components/GrabDocsAttachPicker';
 import { FRONTEND_URL } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { apiService } from '../../services/api';
 import {
+  bookingAttachEventFile,
   bookingCreateEventType,
   bookingDeactivateEventType,
   bookingGetProfile,
@@ -34,6 +39,7 @@ import {
   bookingListSignups,
   bookingUpdateProfile,
 } from '../../services/bookingApi';
+import { useFileStore } from '../../stores/fileStore';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const DAY_LABELS: Record<(typeof DAYS)[number], string> = {
@@ -47,6 +53,9 @@ const DAY_LABELS: Record<(typeof DAYS)[number], string> = {
 };
 const INTERVALS = [15, 30, 60];
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const MAX_GUEST_FILES = 5;
+
+type PendingFile = { fileId: number; name: string };
 
 type Interval = { start: string; end: string };
 type Hours = Record<string, Interval[]>;
@@ -140,6 +149,10 @@ export default function CalendarSchedulingScreen() {
   const [message, setMessage] = useState('');
   const [savingHours, setSavingHours] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [draftFiles, setDraftFiles] = useState<PendingFile[]>([]);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
   const [tab, setTab] = useState<'events' | 'hours'>('events');
   const [eventsView, setEventsView] = useState<'list' | 'detail'>('list');
   const [kbInset, setKbInset] = useState(0);
@@ -286,6 +299,57 @@ export default function CalendarSchedulingScreen() {
     }
   };
 
+  const addDraftFiles = (next: PendingFile[]) => {
+    setDraftFiles((current) => {
+      const merged = [...current];
+      for (const file of next) {
+        if (merged.length >= MAX_GUEST_FILES) break;
+        if (merged.some((item) => item.fileId === file.fileId)) continue;
+        merged.push(file);
+      }
+      return merged;
+    });
+  };
+
+  const uploadMoreFiles = async () => {
+    if (useFileStore.getState().isDocumentPickerOpen || uploadingFiles) return;
+    const room = MAX_GUEST_FILES - draftFiles.length;
+    if (room <= 0) return;
+    useFileStore.getState().setDocumentPickerOpen(true);
+    setUploadingFiles(true);
+    try {
+      const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
+      if (pick.canceled || !pick.assets?.length) return;
+      const added: PendingFile[] = [];
+      for (const asset of pick.assets.slice(0, room)) {
+        if (asset.size && asset.size > 10 * 1024 * 1024) {
+          setMessage('Each file must be 10 MB or smaller.');
+          continue;
+        }
+        const filename = asset.name || 'file';
+        const form = new FormData();
+        form.append('file', {
+          uri: asset.uri,
+          name: filename,
+          type: asset.mimeType || 'application/octet-stream',
+        } as any);
+        const response = await apiService.uploadFileWithProgressPolling(form, undefined, { filename });
+        const fileId = (response as { file?: { id?: number } }).file?.id;
+        if (!fileId) {
+          setMessage('Upload finished without a file.');
+          continue;
+        }
+        added.push({ fileId, name: filename });
+      }
+      if (added.length) addDraftFiles(added);
+    } catch (err: any) {
+      setMessage(err?.response?.data?.error || err?.message || 'Could not upload that file.');
+    } finally {
+      useFileStore.getState().setDocumentPickerOpen(false);
+      setUploadingFiles(false);
+    }
+  };
+
   const createType = async () => {
     if (!addReach && !meetingLink.trim()) {
       setMessage('Could not create this event type. Enter a meeting link, or leave Reach on.');
@@ -293,7 +357,7 @@ export default function CalendarSchedulingScreen() {
     }
     setCreating(true);
     try {
-      await bookingCreateEventType({
+      const created = await bookingCreateEventType({
         name,
         slug: slug.toLowerCase(),
         duration_minutes: Number(duration) || 30,
@@ -303,12 +367,28 @@ export default function CalendarSchedulingScreen() {
         add_reach_link: addReach,
         custom_meeting_url: addReach ? '' : meetingLink.trim(),
       });
+      const typeId = created?.event_type?.id as number | undefined;
+      const failedNames: string[] = [];
+      if (typeId) {
+        for (const file of draftFiles) {
+          try {
+            await bookingAttachEventFile(typeId, file.fileId);
+          } catch {
+            failedNames.push(file.name);
+          }
+        }
+      }
       setName('');
       setSlug('');
       setSlugEdited(false);
       setAddReach(true);
       setMeetingLink('');
-      setMessage('Event type created.');
+      setDraftFiles([]);
+      setMessage(
+        failedNames.length
+          ? `Event type created. Could not attach: ${failedNames.join(', ')}.`
+          : 'Event type created.',
+      );
       await load();
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not create this event type.');
@@ -617,8 +697,19 @@ export default function CalendarSchedulingScreen() {
             </View>
           ) : null}
           <TouchableOpacity
-            style={[styles.button, (!name.trim() || !SLUG_RE.test(slug) || creating) && styles.buttonDisabled]}
-            disabled={!name.trim() || !SLUG_RE.test(slug) || creating}
+            style={styles.filesButton}
+            onPress={() => setFilesOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Files for guests"
+          >
+            <Ionicons name="attach" size={16} color={colors.text} />
+            <Text style={styles.filesButtonText}>
+              {draftFiles.length ? `Files (${draftFiles.length})` : 'Files'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.button, (!name.trim() || !SLUG_RE.test(slug) || creating || uploadingFiles) && styles.buttonDisabled]}
+            disabled={!name.trim() || !SLUG_RE.test(slug) || creating || uploadingFiles}
             onPress={() => void createType()}
           >
             <Text style={styles.buttonText}>{creating ? 'Creating…' : 'Create event type'}</Text>
@@ -746,6 +837,72 @@ export default function CalendarSchedulingScreen() {
         ) : null}
       </ScrollView>
       </View>
+
+      <Modal
+        visible={filesOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setFilesOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.sectionTitle}>Files for guests</Text>
+            <Text style={styles.sectionHint}>Guests see these beside the calendar. Up to {MAX_GUEST_FILES} files.</Text>
+            {draftFiles.length === 0 ? (
+              <Text style={styles.empty}>No files yet.</Text>
+            ) : (
+              draftFiles.map((file) => (
+                <View key={file.fileId} style={styles.fileRow}>
+                  <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
+                  <TouchableOpacity
+                    onPress={() => setDraftFiles((current) => current.filter((item) => item.fileId !== file.fileId))}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${file.name}`}
+                  >
+                    <Text style={styles.actionDanger}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.action}
+                disabled={uploadingFiles || draftFiles.length >= MAX_GUEST_FILES}
+                onPress={() => void uploadMoreFiles()}
+              >
+                <Text style={styles.actionText}>{uploadingFiles ? 'Uploading…' : 'Upload'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.action}
+                disabled={uploadingFiles || draftFiles.length >= MAX_GUEST_FILES}
+                onPress={() => {
+                  setFilesOpen(false);
+                  setLibraryOpen(true);
+                }}
+              >
+                <Text style={styles.actionText}>From GrabDocs</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.action} onPress={() => setFilesOpen(false)}>
+                <Text style={styles.actionText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <GrabDocsAttachPicker
+        visible={libraryOpen}
+        onClose={() => {
+          setLibraryOpen(false);
+          setFilesOpen(true);
+        }}
+        onAddFiles={(files) => {
+          addDraftFiles(files.map((file) => ({ fileId: file.id, name: file.name })));
+          setLibraryOpen(false);
+          setFilesOpen(true);
+        }}
+      />
 
       <AdaptiveListPickerModal
         visible={formPickerOpen}
@@ -917,7 +1074,34 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       backgroundColor: colors.background,
     },
     pickerValue: { flex: 1, fontSize: 14, color: colors.text },
+    filesButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 4,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      backgroundColor: colors.background,
+    },
+    filesButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },
     checkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'center',
+      padding: 24,
+    },
+    modalCard: {
+      borderRadius: 12,
+      backgroundColor: colors.surface,
+      padding: 14,
+      gap: 8,
+    },
+    fileRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    fileName: { flex: 1, fontSize: 14, color: colors.text },
     meetingField: { width: '100%', gap: 2 },
     checkLabel: { fontSize: 13, color: colors.text },
     listTitle: { fontSize: 14, fontWeight: '700', color: colors.text, marginTop: 2 },

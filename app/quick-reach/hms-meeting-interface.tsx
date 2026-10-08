@@ -220,7 +220,9 @@ export default function HMSMeetingInterfaceScreen() {
   const notificationShownForCurrentStartRef = useRef(false);
   const locallyInitiatedThisStartRef = useRef(false);
   const pendingLocalStartAtRef = useRef<number | null>(null);
-  const LOCAL_START_WINDOW_MS = 12000;
+  const recordingOffSinceRef = useRef<number | null>(null);
+  const LOCAL_START_WINDOW_MS = 90000;
+  const RECORDING_STOP_DEBOUNCE_MS = 8000;
 
   const notificationDisplayedRef = useRef(false);
   const pipFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -522,10 +524,23 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, [roomId, inHmsRoom]);
 
-  const consumePendingLocalStart = useCallback(() => {
+  const markPendingLocalStart = useCallback(() => {
+    pendingLocalStartAtRef.current = Date.now();
+    locallyInitiatedThisStartRef.current = true;
+  }, []);
+
+  const claimLocalStart = useCallback(() => {
+    if (!locallyInitiatedThisStartRef.current && pendingLocalStartAtRef.current == null) {
+      return false;
+    }
     const at = pendingLocalStartAtRef.current;
-    pendingLocalStartAtRef.current = null;
-    return at != null && Date.now() - at < LOCAL_START_WINDOW_MS;
+    if (at != null && Date.now() - at >= LOCAL_START_WINDOW_MS) {
+      locallyInitiatedThisStartRef.current = false;
+      pendingLocalStartAtRef.current = null;
+      return false;
+    }
+    locallyInitiatedThisStartRef.current = true;
+    return true;
   }, []);
 
   const handleRecordingStarted = useCallback((opts?: { locallyInitiated?: boolean }) => {
@@ -546,46 +561,55 @@ export default function HMSMeetingInterfaceScreen() {
     setBannerQueue((prev) => [
       ...prev,
       {
-        message: 'This meeting is being recorded. By staying, you consent to being recorded.',
+        message: 'Meeting is being recorded.',
         type: 'recording',
       },
     ]);
   }, [presenceConfirmed]);
 
   const applyRecordingSample = useCallback((isRecording: boolean, opts?: { locallyInitiated?: boolean }) => {
-    if (opts?.locallyInitiated) {
-      locallyInitiatedThisStartRef.current = true;
+    if (opts?.locallyInitiated && isRecording && !locallyInitiatedThisStartRef.current) {
+      markPendingLocalStart();
     }
     recordingActiveRef.current = isRecording;
     if (!presenceConfirmed) {
       return;
     }
+    if (isRecording) {
+      recordingOffSinceRef.current = null;
+    }
     if (previousRecordingStateRef.current === null) {
       previousRecordingStateRef.current = isRecording;
       if (isRecording) {
-        if (consumePendingLocalStart()) {
-          locallyInitiatedThisStartRef.current = true;
-        }
-        handleRecordingStarted();
+        handleRecordingStarted({ locallyInitiated: claimLocalStart() });
       }
       return;
     }
     const prev = previousRecordingStateRef.current;
     if (!prev && isRecording) {
       previousRecordingStateRef.current = true;
-      if (consumePendingLocalStart()) {
-        locallyInitiatedThisStartRef.current = true;
-      }
-      handleRecordingStarted();
+      handleRecordingStarted({ locallyInitiated: claimLocalStart() });
       return;
     }
     if (prev && !isRecording) {
+      // A lagging status poll can report "off" after this device already
+      // started recording. Wait for the off state to stick before treating
+      // it as a stop, or the next "on" sample notifies the person who started it.
+      const now = Date.now();
+      if (recordingOffSinceRef.current == null) {
+        recordingOffSinceRef.current = now;
+        return;
+      }
+      if (now - recordingOffSinceRef.current < RECORDING_STOP_DEBOUNCE_MS) {
+        return;
+      }
       previousRecordingStateRef.current = false;
       notificationShownForCurrentStartRef.current = false;
       locallyInitiatedThisStartRef.current = false;
       pendingLocalStartAtRef.current = null;
+      recordingOffSinceRef.current = null;
     }
-  }, [presenceConfirmed, handleRecordingStarted, consumePendingLocalStart]);
+  }, [presenceConfirmed, handleRecordingStarted, claimLocalStart, markPendingLocalStart]);
 
   useEffect(() => {
     if (!presenceConfirmed) {
@@ -594,6 +618,7 @@ export default function HMSMeetingInterfaceScreen() {
       notificationShownForCurrentStartRef.current = false;
       locallyInitiatedThisStartRef.current = false;
       pendingLocalStartAtRef.current = null;
+      recordingOffSinceRef.current = null;
     } else if (recordingActiveRef.current && previousRecordingStateRef.current === null) {
       applyRecordingSample(true);
     }
@@ -615,7 +640,7 @@ export default function HMSMeetingInterfaceScreen() {
       originals.push([method, original]);
       mgr[method] = (...args: any[]) => {
         if (isLocalStart(args[0])) {
-          pendingLocalStartAtRef.current = Date.now();
+          markPendingLocalStart();
         }
         return original(...args);
       };
@@ -630,7 +655,7 @@ export default function HMSMeetingInterfaceScreen() {
         mgr[method] = original;
       }
     };
-  }, []);
+  }, [markPendingLocalStart]);
 
   // Poll recording status after GrabDocs presence is confirmed (late join + mid-call start).
   useEffect(() => {

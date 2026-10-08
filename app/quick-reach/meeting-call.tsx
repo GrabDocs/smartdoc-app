@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
+import ClientContextStrip from '../../components/clients/ClientContextStrip';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
@@ -30,6 +31,15 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+
+function asPositiveInt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) {
+    const n = Number(value);
+    return n > 0 ? n : null;
+  }
+  return null;
+}
 
 type MeetingSource = 'own' | 'invited';
 
@@ -2174,6 +2184,21 @@ export default function MeetingCallScreen() {
                   <Text style={dynamicStyles.infoLabel}>Title</Text>
                   <Text style={dynamicStyles.infoValue}>{infoMeeting.title}</Text>
                 </View>
+
+                {(() => {
+                  const videoCallId =
+                    asPositiveInt(meetingInfoData?.id) ??
+                    asPositiveInt(meetingInfoData?.video_call_id) ??
+                    asPositiveInt(infoMeeting.id);
+                  if (videoCallId == null) return null;
+                  return (
+                    <ClientContextStrip
+                      itemType="video_call"
+                      itemId={videoCallId}
+                      showEmpty
+                    />
+                  );
+                })()}
 
                 {/* Status with Participant Count - Compact Row */}
                 <View style={dynamicStyles.infoRow}>

@@ -258,7 +258,12 @@ export default function MeetingAssetTabs({
         <View style={styles.actions}>
           <View style={styles.actionsLeft}>
             {clientLink ? (
-              <ClientsButton itemType={clientLink.itemType} itemId={clientLink.itemId} compact />
+              <ClientsButton
+                itemType={clientLink.itemType}
+                itemId={clientLink.itemId}
+                lockWhenSet
+                compact
+              />
             ) : null}
             {tab === 'recap' && onDownloadSummary ? (
               <TouchableOpacity onPress={onDownloadSummary} style={styles.actionBtn}>

@@ -13,27 +13,36 @@ import {
 type Props = {
   itemType: string;
   itemId: number;
+  /** Bump to re-fetch linked clients after an external assign/unlink. */
+  reloadToken?: number | string;
+  /** When true, show a muted "No clients linked" row instead of hiding. */
+  showEmpty?: boolean;
 };
 
 /**
  * Strip showing linked client name + pending work chips (email threads).
  */
-export default function ClientContextStrip({ itemType, itemId }: Props) {
+export default function ClientContextStrip({
+  itemType,
+  itemId,
+  reloadToken = 0,
+  showEmpty = false,
+}: Props) {
   const colors = useThemeColors();
   const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [overview, setOverview] = useState<ClientOverview | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const list = await getClientsForItem(itemType, itemId);
-        if (cancelled || !list.length) {
-          if (!cancelled) {
-            setClients([]);
-            setOverview(null);
-          }
+        if (cancelled) return;
+        if (!list.length) {
+          setClients([]);
+          setOverview(null);
           return;
         }
         setClients(list);
@@ -44,14 +53,26 @@ export default function ClientContextStrip({ itemType, itemId }: Props) {
           setClients([]);
           setOverview(null);
         }
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [itemType, itemId]);
+  }, [itemType, itemId, reloadToken]);
 
-  if (!clients.length) return null;
+  if (!clients.length) {
+    if (!showEmpty || !loaded) return null;
+    return (
+      <View style={[styles.wrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={styles.nameRow}>
+          <Ionicons name="people-outline" size={16} color={colors.textSecondary} />
+          <Text style={{ color: colors.textSecondary, fontSize: 13 }}>No clients linked</Text>
+        </View>
+      </View>
+    );
+  }
 
   const primary = clients[0];
   const oc = overview?.attention?.open_counts;

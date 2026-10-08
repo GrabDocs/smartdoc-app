@@ -20,6 +20,11 @@ export interface ClientsButtonProps {
   multi?: boolean;
   compact?: boolean;
   label?: string;
+  /**
+   * When true (default for video_call), once this item already has clients
+   * the picker is disabled — meeting client links are permanent.
+   */
+  lockWhenSet?: boolean;
 }
 
 export default function ClientsButton({
@@ -31,6 +36,7 @@ export default function ClientsButton({
   multi = true,
   compact = true,
   label = 'Clients',
+  lockWhenSet,
 }: ClientsButtonProps) {
   const colors = useThemeColors();
   const { isHomeAppVisible } = useVisibleApps();
@@ -91,7 +97,14 @@ export default function ClientsButton({
     void loadLinked();
   }, [clientsFeatureVisible, itemType, itemId, loadLinked, selectedClientIds]);
 
+  const locked =
+    (lockWhenSet ?? itemType === 'video_call') && ids.length > 0 && itemType != null && itemId != null;
+
   const handleSave = async (nextIds: number[]) => {
+    if (locked) {
+      Alert.alert('Clients', 'Clients for this meeting cannot be changed once set.');
+      return;
+    }
     setIds(nextIds);
     onChangeRef.current?.(nextIds);
     if (itemType && itemId != null) {
@@ -118,14 +131,19 @@ export default function ClientsButton({
     <>
       <TouchableOpacity
         onPress={() => {
+          if (locked) {
+            Alert.alert('Clients', 'Clients for this meeting cannot be changed once set.');
+            return;
+          }
           setOpen(true);
           if (itemType && itemId != null) void loadLinked();
         }}
         style={compact ? styles.compact : [styles.full, { backgroundColor: colors.card }]}
         hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+        disabled={locked}
       >
-        <Ionicons name="people-outline" size={compact ? 16 : 18} color={colors.textSecondary} />
-        <Text style={[compact ? styles.compactLabel : styles.fullLabel, { color: colors.textSecondary }]}>
+        <Ionicons name="people-outline" size={compact ? 16 : 18} color={locked ? '#0D9488' : colors.textSecondary} />
+        <Text style={[compact ? styles.compactLabel : styles.fullLabel, { color: locked ? '#0D9488' : colors.textSecondary }]}>
           {label}
         </Text>
         {badge > 0 ? (
@@ -135,30 +153,32 @@ export default function ClientsButton({
         ) : null}
       </TouchableOpacity>
 
-      <ClientPickerModal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-        selectedClientIds={ids}
-        onChange={(next) => {
-          setIds(next);
-          onChangeRef.current?.(next);
-        }}
-        onSave={
-          itemType && itemId != null
-            ? async (next) => {
-                try {
-                  await handleSave(next);
-                } catch (err: any) {
-                  Alert.alert('Error', err?.message || 'Failed to update clients');
-                  throw err;
+      {!locked ? (
+        <ClientPickerModal
+          isOpen={open}
+          onClose={() => setOpen(false)}
+          selectedClientIds={ids}
+          onChange={(next) => {
+            setIds(next);
+            onChangeRef.current?.(next);
+          }}
+          onSave={
+            itemType && itemId != null
+              ? async (next) => {
+                  try {
+                    await handleSave(next);
+                  } catch (err: any) {
+                    Alert.alert('Error', err?.message || 'Failed to update clients');
+                    throw err;
+                  }
                 }
-              }
-            : undefined
-        }
-        allowCreate={allowCreate}
-        multi={multi}
-        forceShow
-      />
+              : undefined
+          }
+          allowCreate={allowCreate}
+          multi={multi}
+          forceShow
+        />
+      ) : null}
     </>
   );
 }

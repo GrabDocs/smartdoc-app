@@ -579,7 +579,13 @@ export default function CalendarEventDetailScreen() {
           </Text>
         ) : null}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <ClientsButton itemType="calendar_event" itemId={eventId} allowCreate compact />
+          <ClientsButton
+            itemType="calendar_event"
+            itemId={eventId}
+            allowCreate
+            compact
+            lockWhenSet={!!event.video_call_id}
+          />
           {(!isPersonalAccount || event.event_type === 'company') ? (
             <View style={[styles.pill, { marginBottom: 0 }]}>
               <Text style={{ color: colors.text, fontSize: 13 }}>

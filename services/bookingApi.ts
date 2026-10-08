@@ -22,6 +22,11 @@ export async function bookingCreateEventType(body: Record<string, unknown>) {
   return response.data;
 }
 
+export async function bookingAttachEventFile(typeId: number, fileId: number) {
+  const response = await client().post(`/api/v1/booking/event-types/${typeId}/attachments`, { file_id: fileId });
+  return response.data;
+}
+
 export async function bookingListSignups(typeId: number) {
   const response = await client().get(`/api/v1/booking/event-types/${typeId}/signups`);
   return response.data;
