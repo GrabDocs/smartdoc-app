@@ -324,7 +324,7 @@ export default function IntakeScheduleDetailScreen() {
           accessibilityRole="button"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#0D9488'} />
+          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#0D9488'} />
         </TouchableOpacity>
       </View>
 

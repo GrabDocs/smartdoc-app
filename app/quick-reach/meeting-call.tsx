@@ -1904,7 +1904,7 @@ export default function MeetingCallScreen() {
       {/* Quick Actions */}
       <View style={dynamicStyles.quickActions}>
         <TouchableOpacity style={dynamicStyles.actionButton} onPress={createMeeting}>
-          <Ionicons name="add-circle" size={24} color="#007AFF" />
+          <Ionicons name="add-circle" size={28} color="#007AFF" />
           <Text style={dynamicStyles.actionButtonText}>Create</Text>
         </TouchableOpacity>
         
@@ -1913,7 +1913,7 @@ export default function MeetingCallScreen() {
           disabled={isJoining}
           onPress={() => { if (!isJoining) setShowJoinModal(true); }}
         >
-          <Ionicons name="enter" size={24} color="#34C759" />
+          <Ionicons name="enter" size={28} color="#34C759" />
           <Text style={dynamicStyles.actionButtonText}>Join</Text>
         </TouchableOpacity>
         

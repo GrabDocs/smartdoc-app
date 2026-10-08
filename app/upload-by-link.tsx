@@ -810,7 +810,7 @@ export default function UploadByLinkScreen() {
             <Text style={dynamicStyles.headerSubtitle}>Upload to: {uploadInfo.name}</Text>
           )}
         </View>
-        <Ionicons name="cloud-upload" size={24} color="#007AFF" />
+        <Ionicons name="cloud-upload" size={28} color="#007AFF" />
       </View>
 
       <ScrollView

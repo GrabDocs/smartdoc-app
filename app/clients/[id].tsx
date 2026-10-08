@@ -421,7 +421,7 @@ export default function ClientDetailScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={22} color={loading ? '#999' : '#0D9488'} />
+            <Ionicons name="refresh" size={28} color={loading ? '#999' : '#0D9488'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleArchive}
@@ -431,7 +431,7 @@ export default function ClientDetailScreen() {
           >
             <Ionicons
               name={client?.status === 'archived' ? 'refresh-outline' : 'archive-outline'}
-              size={22}
+              size={28}
               color={colors.textSecondary}
             />
           </TouchableOpacity>

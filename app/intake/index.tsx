@@ -1011,14 +1011,14 @@ export default function IntakeListScreen() {
               accessibilityRole="button"
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => router.push('/intake/create')}
               accessibilityLabel="Create intake"
               accessibilityRole="button"
             >
-              <Ionicons name="add" size={24} color="#007AFF" />
+              <Ionicons name="add" size={28} color="#007AFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1048,14 +1048,14 @@ export default function IntakeListScreen() {
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => router.push('/intake/create')}
             accessibilityLabel="Create intake"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={24} color="#007AFF" />
+            <Ionicons name="add" size={28} color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

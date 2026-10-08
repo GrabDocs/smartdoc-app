@@ -487,7 +487,7 @@ export default function CreateMeetingScreen() {
         <View style={dynamicStyles.header}>
           <AppHeaderTitle>Create New Meeting</AppHeaderTitle>
           <TouchableOpacity onPress={() => router.back()} style={dynamicStyles.closeButton}>
-            <Ionicons name="close" size={24} color={colors.textSecondary} />
+            <Ionicons name="close" size={28} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 

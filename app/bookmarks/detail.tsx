@@ -1067,7 +1067,7 @@ export default function BookmarkDetailScreen() {
               accessibilityLabel="Refresh"
               accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
             </TouchableOpacity>
             <FeedbackTouchable
               onPress={handleToggleLock}
@@ -1076,11 +1076,11 @@ export default function BookmarkDetailScreen() {
               loading={togglingLock}
               spinnerColor="#F59E0B"
             >
-              <Ionicons name={bookmark.is_locked ? 'lock-open' : 'lock-closed-outline'} size={24} color="#F59E0B" />
+              <Ionicons name={bookmark.is_locked ? 'lock-open' : 'lock-closed-outline'} size={28} color="#F59E0B" />
             </FeedbackTouchable>
             {!bookmark.is_locked && (
               <TouchableOpacity onPress={handleShowAddFilesModal} style={dynamicStyles.headerIconButton} accessibilityLabel="Add files to bookmark">
-                <Ionicons name="add" size={24} color="#007AFF" />
+                <Ionicons name="add" size={28} color="#007AFF" />
               </TouchableOpacity>
             )}
             {!bookmark.is_locked && (

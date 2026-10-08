@@ -718,7 +718,7 @@ export default function EmailInboxScreen() {
               }
             }}
           >
-            <Ionicons name="close-circle-outline" size={24} color={colors.text} />
+            <Ionicons name="close-circle-outline" size={28} color={colors.text} />
           </FeedbackTouchable>
         ) : selectMode ? (
           <View style={{ width: 44 }} />
@@ -733,7 +733,7 @@ export default function EmailInboxScreen() {
             >
               <Ionicons
                 name="refresh"
-                size={24}
+                size={28}
                 color={refreshing || (tab === 'replies' && syncing) ? colors.textSecondary : colors.text}
               />
             </FeedbackTouchable>

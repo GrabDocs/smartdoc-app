@@ -1192,7 +1192,7 @@ export default function IntakeDetailScreen() {
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -1231,7 +1231,7 @@ export default function IntakeDetailScreen() {
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           {intake.status !== 'archived' ? (
             <TouchableOpacity

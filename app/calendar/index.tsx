@@ -1347,7 +1347,7 @@ export default function CalendarHomeScreen() {
           >
             <Ionicons
               name="refresh"
-              size={24}
+              size={28}
               color={refreshing ? '#999' : colors.tint ?? '#007AFF'}
             />
           </TouchableOpacity>
@@ -1357,7 +1357,7 @@ export default function CalendarHomeScreen() {
             accessibilityRole="button"
             style={styles.headerIconBtn}
           >
-            <Ionicons name="link-outline" size={22} color={colors.tint ?? '#007AFF'} />
+            <Ionicons name="link-outline" size={28} color={colors.tint ?? '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={openCreateChooser}
@@ -1365,7 +1365,7 @@ export default function CalendarHomeScreen() {
             accessibilityRole="button"
             style={styles.headerIconBtn}
           >
-            <Ionicons name="add" size={24} color={colors.tint ?? '#007AFF'} />
+            <Ionicons name="add" size={28} color={colors.tint ?? '#007AFF'} />
           </TouchableOpacity>
         </View>
       </View>

@@ -2954,7 +2954,7 @@ export default function MeetingDetailsScreen() {
               loading={deletingAll}
               spinnerColor="#FF3B30"
             >
-              <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+              <Ionicons name="trash-outline" size={28} color="#FF3B30" />
             </FeedbackTouchable>
           )}
           <FeedbackTouchable
@@ -2963,7 +2963,7 @@ export default function MeetingDetailsScreen() {
             disabled={deletingAll || loading}
             spinnerColor={themeColors.tint || '#007AFF'}
           >
-            <Ionicons name="refresh" size={24} color={themeColors.tint || '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={themeColors.tint || '#007AFF'} />
           </FeedbackTouchable>
         </View>
       </View>

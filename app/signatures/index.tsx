@@ -550,7 +550,7 @@ export default function SignaturesHubScreen() {
         >
           <Ionicons
             name="refresh"
-            size={24}
+            size={28}
             color={refreshing ? '#999' : colors.primary || '#007AFF'}
           />
         </TouchableOpacity>

@@ -61,7 +61,7 @@ export default function FillEntryScreen() {
           onPress={handleUpload}
           spinnerColor="#fff"
         >
-          <Ionicons name="cloud-upload-outline" size={22} color="#fff" />
+          <Ionicons name="cloud-upload-outline" size={28} color="#fff" />
           <Text style={styles.primaryBtnText}>Upload document</Text>
         </FeedbackTouchable>
 
@@ -70,7 +70,7 @@ export default function FillEntryScreen() {
           disabled={busy}
           onPress={() => router.push(hubFillPickRoute())}
         >
-          <Ionicons name="folder-open-outline" size={20} color={colors.text} />
+          <Ionicons name="folder-open-outline" size={28} color={colors.text} />
           <Text style={[styles.secondaryBtnText, { color: colors.text }]}>Choose existing document</Text>
         </TouchableOpacity>
       </ScrollView>

@@ -2040,7 +2040,7 @@ export default function UserChatScreen() {
             >
               <Ionicons 
                 name="refresh" 
-                size={20} 
+                size={28} 
                 color={refreshing ? "#999" : "#007AFF"} 
               />
             </TouchableOpacity>
@@ -2420,15 +2420,15 @@ export default function UserChatScreen() {
           >
             <Ionicons 
               name="refresh" 
-              size={26} 
+              size={28} 
               color={refreshing ? "#999" : "#007AFF"} 
             />
           </TouchableOpacity>
           <TouchableOpacity onPress={() => setShowInviteModal(true)} style={dynamicStyles.newChatButton}>
-            <Ionicons name="person-add-outline" size={24} color="#007AFF" />
+            <Ionicons name="person-add-outline" size={28} color="#007AFF" />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleNewChat} style={dynamicStyles.newChatButton}>
-            <Ionicons name="add" size={26} color="#007AFF" />
+            <Ionicons name="add" size={28} color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

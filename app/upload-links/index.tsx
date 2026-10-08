@@ -658,7 +658,7 @@ export default function UploadLinksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -682,7 +682,7 @@ export default function UploadLinksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={handleCreateLink}
@@ -690,7 +690,7 @@ export default function UploadLinksScreen() {
             accessibilityLabel="Create file request"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={24} color="#007AFF" />
+            <Ionicons name="add" size={28} color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

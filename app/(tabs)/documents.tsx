@@ -3553,7 +3553,7 @@ export default function QuickFilesScreen() {
                 >
                   <Ionicons
                     name="refresh"
-                    size={24}
+                    size={28}
                     color={refreshing ? '#999' : colors.primary || '#007AFF'}
                   />
                 </TouchableOpacity>
@@ -3634,7 +3634,7 @@ export default function QuickFilesScreen() {
             >
               <Ionicons
                 name={gridView ? 'list-outline' : 'grid-outline'}
-                size={24}
+                size={28}
                 color={colors.primary || '#007AFF'}
               />
             </TouchableOpacity>

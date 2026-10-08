@@ -997,7 +997,7 @@ export default function WorkspaceDetailsScreen() {
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.loadingContainer}>
@@ -1036,11 +1036,11 @@ export default function WorkspaceDetailsScreen() {
             accessibilityRole="button"
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           {workspace.user_role !== 'owner' && workspace.user_role !== 'admin' ? (
             <FeedbackTouchable onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
-              <Ionicons name="exit-outline" size={24} color="#FF3B30" />
+              <Ionicons name="exit-outline" size={28} color="#FF3B30" />
             </FeedbackTouchable>
           ) : (
             <View style={{ width: APP_BACK_BUTTON_SLOT }} />

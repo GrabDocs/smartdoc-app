@@ -647,7 +647,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={[dynamicStyles.loadingContainer, dynamicStyles.content]}>
@@ -671,7 +671,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             style={dynamicStyles.addButton}
@@ -679,7 +679,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Add bookmark"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={24} color="#007AFF" />
+            <Ionicons name="add" size={28} color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

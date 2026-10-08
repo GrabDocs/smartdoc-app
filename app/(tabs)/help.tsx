@@ -231,7 +231,7 @@ export default function HelpScreen() {
           {/* Header */}
           <View style={[dynamicStyles.section, { marginTop: 0 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              <Ionicons name="help-circle" size={24} color="#007AFF" />
+              <Ionicons name="help-circle" size={28} color="#007AFF" />
               <Text style={[dynamicStyles.sectionTitle, { marginLeft: 8, marginBottom: 0 }]}>
                 Help & Feedback
               </Text>

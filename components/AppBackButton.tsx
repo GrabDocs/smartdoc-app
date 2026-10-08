@@ -4,6 +4,7 @@ import React from 'react';
 import { StyleProp, StyleSheet, ViewStyle } from 'react-native';
 import { FeedbackTouchable } from './FeedbackTouchable';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { APP_HEADER_ICON_SIZE } from './AppHeaderIcon';
 
 /** Approximate width for balancing header spacers opposite this control. */
 export const APP_BACK_BUTTON_SLOT = 44;
@@ -23,7 +24,7 @@ type AppBackButtonProps = {
 export default function AppBackButton({
   onPress,
   color,
-  size = 28,
+  size = APP_HEADER_ICON_SIZE,
   accessibilityLabel = 'Back',
   style,
 }: AppBackButtonProps) {

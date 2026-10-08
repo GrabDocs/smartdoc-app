@@ -156,7 +156,7 @@ export default function ClientsIndexScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={loading ? '#999' : '#0D9488'} />
+            <Ionicons name="refresh" size={28} color={loading ? '#999' : '#0D9488'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setShowCreate(true)}

@@ -937,7 +937,7 @@ export default function BillingScreen() {
           accessibilityLabel="Refresh"
           accessibilityRole="button"
         >
-          <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#2563EB'} />
+          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#2563EB'} />
         </TouchableOpacity>
       </View>
 

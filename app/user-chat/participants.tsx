@@ -321,7 +321,7 @@ export default function ChatParticipantsScreen() {
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+            <Ionicons name="close-circle" size={28} color={colors.textSecondary} />
           </TouchableOpacity>
         )}
       </View>

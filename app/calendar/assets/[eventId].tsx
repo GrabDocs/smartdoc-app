@@ -262,7 +262,7 @@ export default function CalendarEventAssetsScreen() {
           accessibilityRole="button"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={24} color={loading ? '#999' : colors.tint ?? '#007AFF'} />
+          <Ionicons name="refresh" size={28} color={loading ? '#999' : colors.tint ?? '#007AFF'} />
         </TouchableOpacity>
       </View>
 

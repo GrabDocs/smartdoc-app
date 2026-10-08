@@ -850,7 +850,7 @@ export default function UploadLinkDetailsScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -893,10 +893,10 @@ export default function UploadLinkDetailsScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={24} color={refreshing ? '#999' : '#007AFF'} />
+            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <FeedbackTouchable onPress={handleDeleteLink} loading={deleting} spinnerColor="#FF3B30" hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="trash" size={24} color="#FF3B30" />
+            <Ionicons name="trash" size={28} color="#FF3B30" />
           </FeedbackTouchable>
         </View>
       </View>

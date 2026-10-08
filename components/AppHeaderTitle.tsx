@@ -1,11 +1,14 @@
 import React from 'react';
 import { StyleProp, StyleSheet, Text, TextProps, TextStyle } from 'react-native';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { APP_HEADER_TITLE_SIZE } from './AppHeaderIcon';
+
+export { APP_HEADER_ICON_SIZE, APP_HEADER_TITLE_SIZE } from './AppHeaderIcon';
 
 type AppHeaderTitleProps = Omit<TextProps, 'children'> & {
   children: React.ReactNode;
   style?: StyleProp<TextStyle>;
-  /** Preferred size; shrinks to stay on one line. Default 24. */
+  /** Preferred size; shrinks to stay on one line. Default matches Financials (24). */
   size?: number;
   /**
    * When true (default), title grows in a header row.
@@ -22,7 +25,7 @@ type AppHeaderTitleProps = Omit<TextProps, 'children'> & {
 export default function AppHeaderTitle({
   children,
   style,
-  size = 24,
+  size = APP_HEADER_TITLE_SIZE,
   fill = true,
   shrink = true,
   ...rest

@@ -205,7 +205,7 @@ export default function FillDocumentPickScreen() {
           accessibilityRole="button"
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={24} color={refreshing ? '#999' : colors.primary || '#007AFF'} />
+          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : colors.primary || '#007AFF'} />
         </TouchableOpacity>
       </View>
 
