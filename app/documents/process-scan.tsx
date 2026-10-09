@@ -54,7 +54,9 @@ const FILTER_OPTIONS: FilterOption[] = [
 export default function ProcessScanScreen() {
   const router = useRouter();
   const { showLimitError } = useLimitError();
-  const { imageUri } = useLocalSearchParams<{ imageUri: string }>();
+  const { imageUri, returnTo } = useLocalSearchParams<{ imageUri: string; returnTo?: string | string[] }>();
+  const guestReturn = returnTo === 'scheduling-guest'
+    || (Array.isArray(returnTo) && returnTo[0] === 'scheduling-guest');
   const [uploading, setUploading] = useState(false);
   const [enhancement, setEnhancement] = useState<EnhancementMode>('auto');
   const imageViewRef = useRef<View>(null);
@@ -100,6 +102,44 @@ export default function ProcessScanScreen() {
         fileToUpload = await convertHeicToPng(fileToUpload);
       } catch {
         // continue with original
+      }
+
+      if (guestReturn) {
+        try {
+          const { getInfoAsync } = await import('expo-file-system/legacy');
+          const info = await getInfoAsync(fileToUpload.uri);
+          if (info.exists && typeof info.size === 'number' && info.size > 10 * 1024 * 1024) {
+            Alert.alert('File too large', 'Each file must be 10 MB or smaller.');
+            return;
+          }
+          const formData = new FormData();
+          formData.append('file', {
+            uri: fileToUpload.uri,
+            type: fileToUpload.type,
+            name: fileToUpload.name,
+          } as any);
+          const { apiClient } = await import('../../services/api');
+          const response = await apiClient.uploadFileWithProgressPolling(formData, undefined, {
+            filename: fileToUpload.name,
+          });
+          const fileId = (response as { file?: { id?: number } }).file?.id;
+          if (!fileId) {
+            Alert.alert('Upload Failed', 'Upload finished without a file.');
+            return;
+          }
+          const { queueGuestFile } = await import('../../utils/schedulingGuestFiles');
+          queueGuestFile({ fileId, name: fileToUpload.name });
+          if (router.canDismiss()) router.dismiss(2);
+          else router.back();
+        } catch (error: any) {
+          const limitData = extractLimitErrorData(getErrorResponseData(error));
+          if (limitData) {
+            showLimitError(limitData);
+            return;
+          }
+          Alert.alert('Upload Failed', error?.message || 'Failed to upload document. Please try again.');
+        }
+        return;
       }
 
       // Navigate immediately — upload runs in background.

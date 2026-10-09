@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Clipboard from 'expo-clipboard';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import * as DocumentPicker from 'expo-document-picker';
 import {
   Alert,
   Keyboard,
@@ -25,8 +24,14 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
+import {
+  pickDocumentsLikeFilesScreen,
+  pickGalleryImagesLikeFilesScreen,
+} from '../../components/signatures/DocumentSourcePicker';
 import { GrabDocsAttachPicker } from '../email-sync/_components/GrabDocsAttachPicker';
+import { UploadOptionsModal } from '../components/UploadOptionsModal';
 import { FRONTEND_URL } from '../../constants/Config';
+import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import {
@@ -40,6 +45,9 @@ import {
   bookingUpdateProfile,
 } from '../../services/bookingApi';
 import { useFileStore } from '../../stores/fileStore';
+import { takeQueuedGuestFiles } from '../../utils/schedulingGuestFiles';
+import { compressImageForUpload, convertHeicToPng, isHeicFile } from '../../utils/imageConversion';
+import { getUserPreferences } from '../../utils/userPreferences';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const DAY_LABELS: Record<(typeof DAYS)[number], string> = {
@@ -56,6 +64,7 @@ const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_GUEST_FILES = 5;
 
 type PendingFile = { fileId: number; name: string };
+type LocalAsset = { uri: string; name: string; type: string; size?: number };
 
 type Interval = { start: string; end: string };
 type Hours = Record<string, Interval[]>;
@@ -153,6 +162,10 @@ export default function CalendarSchedulingScreen() {
   const [filesOpen, setFilesOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(false);
+  const uploadSheet = useMinimizableSheet();
+  const draftCountRef = useRef(0);
+  const resumeFilesRef = useRef(false);
+  draftCountRef.current = draftFiles.length;
   const [tab, setTab] = useState<'events' | 'hours'>('events');
   const [eventsView, setEventsView] = useState<'list' | 'detail'>('list');
   const [kbInset, setKbInset] = useState(0);
@@ -311,43 +324,133 @@ export default function CalendarSchedulingScreen() {
     });
   };
 
-  const uploadMoreFiles = async () => {
-    if (useFileStore.getState().isDocumentPickerOpen || uploadingFiles) return;
-    const room = MAX_GUEST_FILES - draftFiles.length;
-    if (room <= 0) return;
-    useFileStore.getState().setDocumentPickerOpen(true);
+  const uploadLocalAssets = async (assets: LocalAsset[]) => {
+    const room = MAX_GUEST_FILES - draftCountRef.current;
+    if (room <= 0 || !assets.length) return;
     setUploadingFiles(true);
     try {
-      const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: true });
-      if (pick.canceled || !pick.assets?.length) return;
+      const prefs = await getUserPreferences();
       const added: PendingFile[] = [];
-      for (const asset of pick.assets.slice(0, room)) {
+      for (const asset of assets.slice(0, room)) {
         if (asset.size && asset.size > 10 * 1024 * 1024) {
           setMessage('Each file must be 10 MB or smaller.');
           continue;
         }
-        const filename = asset.name || 'file';
+        let file: LocalAsset = {
+          uri: asset.uri,
+          name: asset.name || 'file',
+          type: asset.type || 'application/octet-stream',
+          size: asset.size,
+        };
+        if (isHeicFile(file)) file = await convertHeicToPng(file);
+        if (prefs.file_management.compress_images) {
+          file = await compressImageForUpload(file, true);
+        }
         const form = new FormData();
         form.append('file', {
-          uri: asset.uri,
-          name: filename,
-          type: asset.mimeType || 'application/octet-stream',
+          uri: file.uri,
+          name: file.name,
+          type: file.type || 'application/octet-stream',
         } as any);
-        const response = await apiService.uploadFileWithProgressPolling(form, undefined, { filename });
+        const response = await apiService.uploadFileWithProgressPolling(form, undefined, { filename: file.name });
         const fileId = (response as { file?: { id?: number } }).file?.id;
         if (!fileId) {
           setMessage('Upload finished without a file.');
           continue;
         }
-        added.push({ fileId, name: filename });
+        added.push({ fileId, name: file.name });
       }
       if (added.length) addDraftFiles(added);
     } catch (err: any) {
       setMessage(err?.response?.data?.error || err?.message || 'Could not upload that file.');
     } finally {
-      useFileStore.getState().setDocumentPickerOpen(false);
       setUploadingFiles(false);
     }
+  };
+
+  const openGuestUploadOptions = () => {
+    if (uploadingFiles || draftCountRef.current >= MAX_GUEST_FILES) return;
+    setFilesOpen(false);
+    setTimeout(() => uploadSheet.open(), 300);
+  };
+
+  const runGuestUpload = (work: () => Promise<LocalAsset[] | null>) => {
+    if (uploadingFiles) return;
+    uploadSheet.close();
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const assets = await work();
+          if (assets?.length) await uploadLocalAssets(assets);
+        } catch (err: any) {
+          setMessage(err?.message || 'Could not upload that file.');
+        } finally {
+          setFilesOpen(true);
+        }
+      })();
+    }, 500);
+  };
+
+  const handleGuestUploadFiles = () => {
+    if (useFileStore.getState().isDocumentPickerOpen || uploadingFiles) return;
+    runGuestUpload(async () => {
+      await useFileStore.getState().forceResetDocumentPicker();
+      useFileStore.getState().setDocumentPickerOpen(true);
+      try {
+        const assets = await pickDocumentsLikeFilesScreen();
+        if (!assets?.length) return null;
+        return assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name || 'file',
+          type: asset.mimeType || 'application/octet-stream',
+          size: asset.size,
+        }));
+      } finally {
+        useFileStore.getState().setDocumentPickerOpen(false);
+      }
+    });
+  };
+
+  const handleGuestUploadCamera = () => {
+    if (uploadingFiles || draftCountRef.current >= MAX_GUEST_FILES) return;
+    uploadSheet.close();
+    resumeFilesRef.current = true;
+    router.push({ pathname: '/scanner', params: { returnTo: 'scheduling-guest' } });
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      const queued = takeQueuedGuestFiles();
+      if (queued.length) addDraftFiles(queued);
+      if (queued.length || resumeFilesRef.current) {
+        resumeFilesRef.current = false;
+        setFilesOpen(true);
+      }
+    }, []),
+  );
+
+  const handleGuestUploadGallery = () => {
+    if (useFileStore.getState().isImagePickerOpen || uploadingFiles) return;
+    runGuestUpload(async () => {
+      useFileStore.getState().setImagePickerOpen(true);
+      try {
+        const assets = await pickGalleryImagesLikeFilesScreen();
+        if (!assets?.length) return null;
+        return assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.name || 'image.jpg',
+          type: asset.mimeType || 'image/jpeg',
+        }));
+      } finally {
+        useFileStore.getState().setImagePickerOpen(false);
+      }
+    });
+  };
+
+  const handleGuestUploadByLink = () => {
+    uploadSheet.close();
+    resumeFilesRef.current = true;
+    router.push('/upload-by-link-code');
   };
 
   const createType = async () => {
@@ -686,16 +789,18 @@ export default function CalendarSchedulingScreen() {
               <TouchableOpacity
                 style={styles.filesButton}
                 onPress={() => setFilesOpen(true)}
+                disabled={uploadingFiles}
                 accessibilityRole="button"
                 accessibilityLabel="Files for guests"
               >
-                <Ionicons name="attach" size={18} color={colors.text} />
+                <Ionicons name="attach" size={16} color={colors.text} />
                 <Text style={styles.filesButtonText} numberOfLines={1}>
-                  {draftFiles.length
-                    ? `${draftFiles.length} file${draftFiles.length === 1 ? '' : 's'}`
-                    : 'Add files'}
+                  {uploadingFiles
+                    ? 'Uploading…'
+                    : draftFiles.length
+                      ? `${draftFiles.length} file${draftFiles.length === 1 ? '' : 's'}`
+                      : 'Add files'}
                 </Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -877,7 +982,7 @@ export default function CalendarSchedulingScreen() {
               <TouchableOpacity
                 style={styles.action}
                 disabled={uploadingFiles || draftFiles.length >= MAX_GUEST_FILES}
-                onPress={() => void uploadMoreFiles()}
+                onPress={openGuestUploadOptions}
               >
                 <Text style={styles.actionText}>{uploadingFiles ? 'Uploading…' : 'Upload'}</Text>
               </TouchableOpacity>
@@ -898,6 +1003,20 @@ export default function CalendarSchedulingScreen() {
           </View>
         </View>
       </Modal>
+
+      <UploadOptionsModal
+        visible={uploadSheet.visible}
+        expandNonce={uploadSheet.expandNonce}
+        isUploading={uploadingFiles}
+        onDismiss={() => {
+          uploadSheet.close();
+          setFilesOpen(true);
+        }}
+        onFiles={handleGuestUploadFiles}
+        onCamera={handleGuestUploadCamera}
+        onGallery={handleGuestUploadGallery}
+        onLink={handleGuestUploadByLink}
+      />
 
       <GrabDocsAttachPicker
         visible={libraryOpen}
@@ -1101,25 +1220,23 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     reachFilesRow: {
       flexDirection: 'row',
       alignItems: 'flex-end',
-      justifyContent: 'space-between',
-      gap: 10,
+      gap: 8,
     },
-    filesField: { flex: 1, minWidth: 140, gap: 2 },
+    filesField: { flexGrow: 0, flexShrink: 0, gap: 2, alignItems: 'flex-start' },
     filesButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
+      gap: 4,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 6,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      minHeight: 40,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
       backgroundColor: colors.background,
     },
-    filesButtonText: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.text },
-    checkRow: { flex: 1.1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0, paddingBottom: 8 },
-    reachLabel: { flexShrink: 1, fontSize: 14 },
+    filesButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },
+    checkRow: { flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0, paddingBottom: 4 },
+    reachLabel: { flex: 1, flexShrink: 1, fontSize: 14 },
     modalBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.45)',

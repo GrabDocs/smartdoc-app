@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraType, CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -20,6 +20,12 @@ const { width: screenWidth } = Dimensions.get('window');
 
 export default function ScannerScreen() {
   const router = useRouter();
+  const { returnTo: returnToParam } = useLocalSearchParams<{ returnTo?: string | string[] }>();
+  const returnTo = typeof returnToParam === 'string'
+    ? returnToParam
+    : Array.isArray(returnToParam)
+      ? returnToParam[0]
+      : undefined;
   const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
   const [isCapturing, setIsCapturing] = useState(false);
@@ -93,7 +99,7 @@ export default function ScannerScreen() {
       if (photo) {
         router.push({
           pathname: '/documents/process-scan',
-          params: { imageUri: photo.uri },
+          params: returnTo ? { imageUri: photo.uri, returnTo } : { imageUri: photo.uri },
         });
       }
     } catch (error) {
@@ -121,7 +127,9 @@ export default function ScannerScreen() {
       if (!result.canceled && result.assets[0]) {
         router.push({
           pathname: '/documents/process-scan',
-          params: { imageUri: result.assets[0].uri },
+          params: returnTo
+            ? { imageUri: result.assets[0].uri, returnTo }
+            : { imageUri: result.assets[0].uri },
         });
       }
     } catch (error) {
