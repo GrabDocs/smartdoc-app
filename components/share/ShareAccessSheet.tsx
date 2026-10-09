@@ -10,6 +10,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -18,6 +19,7 @@ import {
   type KeyboardEvent,
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import PhoneNumberInput from '../PhoneNumberInput';
 import { shareErrorMessage, type ShareAccessAdapter, type ShareAccessSnapshot, type ShareRecipient } from './types';
 
 type Props = {
@@ -59,6 +61,8 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<ShareRecipient[]>([]);
   const [emailDraft, setEmailDraft] = useState('');
+  const [phoneOn, setPhoneOn] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState('');
   const [copyNote, setCopyNote] = useState<string | null>(null);
   const [keyboardLift, setKeyboardLift] = useState(0);
   const pendingRef = useRef<string | null>(null);
@@ -185,6 +189,13 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
   const showPeople = !!snapshot?.people && (!!adapter?.addPeople || !!adapter?.updatePersonRole || !!adapter?.removePerson || snapshot.people.length > 0);
   const showAdd = !!adapter?.addPeople && !!adapter?.searchPeople;
   const showChoices = !!snapshot?.choices?.length && !!adapter?.setChoice;
+  const showPhone = snapshot?.phoneVerification != null && !!adapter?.setPhoneVerification;
+
+  useEffect(() => {
+    if (!snapshot?.phoneVerification) return;
+    setPhoneOn(snapshot.phoneVerification.required);
+    setPhoneDraft(snapshot.phoneVerification.phoneNumber || '');
+  }, [snapshot?.phoneVerification?.required, snapshot?.phoneVerification?.phoneNumber]);
   const showLink = !!adapter?.getShareUrl && !!snapshot?.shareUrl;
   const showEmail = !!adapter?.sendLinkEmail && !!snapshot?.shareUrl;
 
@@ -309,6 +320,7 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
     optionButtonSelected: { backgroundColor: colors.tint, borderColor: colors.tint },
     optionButtonText: { fontSize: 15, fontWeight: '600', color: colors.text, textAlign: 'center' },
     optionButtonTextSelected: { color: '#fff' },
+    switchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
     error: { color: '#F87171', fontSize: 14, marginBottom: 8 },
     note: { color: colors.textSecondary, fontSize: 13, marginBottom: 8 },
     copyNote: {
@@ -546,6 +558,53 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
                     </View>
                   ))
                 : null}
+              {showPhone ? (
+                <View style={{ paddingVertical: 12 }}>
+                  <View style={styles.switchRow}>
+                    <Text style={[styles.name, { flex: 1 }]}>Require phone verification</Text>
+                    <Switch
+                      value={phoneOn}
+                      disabled={!!pending}
+                      onValueChange={(next) => {
+                        setPhoneOn(next);
+                        if (!next) {
+                          void run('phone-off', () => adapter.setPhoneVerification!(false, ''));
+                        }
+                      }}
+                    />
+                  </View>
+                  <Text style={styles.detail}>
+                    The recipient enters a code sent to this number before the files open.
+                  </Text>
+                  {phoneOn ? (
+                    <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <PhoneNumberInput
+                          value={phoneDraft}
+                          onChange={setPhoneDraft}
+                          placeholder="Phone number"
+                        />
+                      </View>
+                      <TouchableOpacity
+                        disabled={!!pending}
+                        accessibilityLabel="Save phone number"
+                        onPress={() => void run('phone-save', () => adapter.setPhoneVerification!(true, phoneDraft))}
+                        style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 8,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          backgroundColor: '#dcfce7',
+                          opacity: pending ? 0.5 : 1,
+                        }}
+                      >
+                        <Ionicons name="checkmark" size={22} color="#16a34a" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
               {showLink ? (
                 <View style={{ flexDirection: 'row', gap: 16 }}>
                   <TouchableOpacity onPress={() => void copyLink()} style={styles.button}>

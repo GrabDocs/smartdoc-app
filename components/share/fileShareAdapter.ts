@@ -22,6 +22,8 @@ type LinkShare = {
   is_active?: boolean;
   revoked_at?: string | null;
   share_url?: string;
+  phone_verification_required?: boolean;
+  phone_number?: string | null;
 };
 
 const DIRECT_ROLES: ShareRole[] = [
@@ -160,6 +162,12 @@ export function createFileShareAdapter(file: { id: number; name: string }): Shar
             ]
           : null,
         shareUrl: link?.share_url || null,
+        phoneVerification: direct.canManage
+          ? {
+              required: Boolean(link?.phone_verification_required),
+              phoneNumber: link?.phone_number || '',
+            }
+          : null,
       };
     },
 
@@ -259,6 +267,23 @@ export function createFileShareAdapter(file: { id: number; name: string }): Shar
       }
     },
 
+    async setPhoneVerification(required, phoneNumber) {
+      const link = await loadLink();
+      const body = {
+        phone_verification_required: required,
+        phone_number: required ? phoneNumber : '',
+      };
+      if (!link) {
+        await apiService.createFileShareLink(file.id, {
+          role: 'viewer',
+          general_access: 'restricted',
+          ...body,
+        });
+        return;
+      }
+      await apiService.updateFileLinkShare(file.id, link.id, body);
+    },
+
     async getShareUrl() {
       const link = await loadLink();
       return link?.share_url || null;
@@ -279,6 +304,8 @@ type ShareSetRecord = {
   link?: string;
   role?: string;
   general_access?: string;
+  phone_verification_required?: boolean;
+  phone_number?: string | null;
 };
 
 /**
@@ -425,6 +452,12 @@ export function createFileSetShareAdapter(files: { id: number; name: string }[])
             ]
           : null,
         shareUrl: link?.link || null,
+        phoneVerification: direct.canManage
+          ? {
+              required: Boolean(link?.phone_verification_required),
+              phoneNumber: link?.phone_number || '',
+            }
+          : null,
       };
     },
 
@@ -529,6 +562,27 @@ export function createFileSetShareAdapter(files: { id: number; name: string }[])
         const general = (link?.general_access || '').toLowerCase() === 'anyone' ? 'anyone' : 'restricted';
         await ensureSet(role, general);
       }
+    },
+
+    async setPhoneVerification(required, phoneNumber) {
+      const link = currentSet || (await loadSet());
+      const body = {
+        phone_verification_required: required,
+        phone_number: required ? phoneNumber : '',
+      };
+      if (!link) {
+        const response = (await apiService.saveFileShareSet({
+          file_ids: fileIds,
+          role: 'viewer',
+          general_access: 'restricted',
+          ...body,
+        })) as { share?: ShareSetRecord };
+        currentSet = response.share || null;
+        if (!currentSet) throw new Error('Could not create the share link');
+        return;
+      }
+      const response = (await apiService.updateFileShareSet(link.id, body)) as { share?: ShareSetRecord };
+      currentSet = response.share || link;
     },
 
     async getShareUrl() {

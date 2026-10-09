@@ -2005,7 +2005,7 @@ class ApiService {
   /**
    * Create share link for a file (draft or any file). POST /api/v1/web/files/:id/create-link.
    */
-  async createFileShareLink(fileId: number, options?: { role?: 'viewer' | 'member' | 'admin'; general_access?: 'anyone' | 'restricted'; expires_in_days?: number }): Promise<ApiResponse> {
+  async createFileShareLink(fileId: number, options?: { role?: 'viewer' | 'member' | 'admin'; general_access?: 'anyone' | 'restricted'; expires_in_days?: number; phone_verification_required?: boolean; phone_number?: string }): Promise<ApiResponse> {
     const response = await this.client.post(`/api/v1/web/files/${fileId}/create-link`, options || {});
     return response.data;
   }
@@ -2050,6 +2050,8 @@ class ApiService {
     file_ids: number[];
     role?: 'viewer' | 'member' | 'admin';
     general_access?: 'anyone' | 'restricted';
+    phone_verification_required?: boolean;
+    phone_number?: string;
   }): Promise<ApiResponse> {
     const response = await this.client.post(`/api/v1/web/files/share-sets`, body);
     return response.data;
@@ -2057,13 +2059,13 @@ class ApiService {
 
   async updateFileShareSet(
     setId: number,
-    body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin' }
+    body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin'; phone_verification_required?: boolean; phone_number?: string }
   ): Promise<ApiResponse> {
     const response = await this.client.patch(`/api/v1/web/files/share-sets/${setId}`, body);
     return response.data;
   }
 
-  async updateFileLinkShare(fileId: number, shareId: number, body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin' }): Promise<ApiResponse> {
+  async updateFileLinkShare(fileId: number, shareId: number, body: { general_access?: 'anyone' | 'restricted'; role?: 'viewer' | 'member' | 'admin'; phone_verification_required?: boolean; phone_number?: string }): Promise<ApiResponse> {
     const response = await this.client.patch(`/api/v1/web/files/${fileId}/external-shares/${shareId}`, body);
     return response.data;
   }

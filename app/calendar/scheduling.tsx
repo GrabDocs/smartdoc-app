@@ -674,24 +674,30 @@ export default function CalendarSchedulingScreen() {
             >
               <Ionicons
                 name={addReach ? 'checkbox' : 'square-outline'}
-                size={18}
+                size={20}
                 color={addReach ? '#2563eb' : colors.textSecondary}
               />
               <Text style={[styles.checkLabel, styles.reachLabel]} numberOfLines={2}>
                 Add a Reach meeting link
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.filesButton}
-              onPress={() => setFilesOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Files for guests"
-            >
-              <Ionicons name="attach" size={16} color={colors.text} />
-              <Text style={styles.filesButtonText}>
-                {draftFiles.length ? `Files (${draftFiles.length})` : 'Files'}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.filesField}>
+              <Text style={styles.label}>Files for guests</Text>
+              <TouchableOpacity
+                style={styles.filesButton}
+                onPress={() => setFilesOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Files for guests"
+              >
+                <Ionicons name="attach" size={18} color={colors.text} />
+                <Text style={styles.filesButtonText} numberOfLines={1}>
+                  {draftFiles.length
+                    ? `${draftFiles.length} file${draftFiles.length === 1 ? '' : 's'}`
+                    : 'Add files'}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           </View>
           {!addReach ? (
             <View style={styles.meetingField}>
@@ -1094,25 +1100,26 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     pickerValue: { flex: 1, fontSize: 14, color: colors.text },
     reachFilesRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-end',
       justifyContent: 'space-between',
-      gap: 8,
+      gap: 10,
     },
+    filesField: { flex: 1, minWidth: 140, gap: 2 },
     filesButton: {
       flexDirection: 'row',
       alignItems: 'center',
-      flexShrink: 0,
-      gap: 4,
+      gap: 6,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 6,
-      paddingHorizontal: 8,
-      paddingVertical: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      minHeight: 40,
       backgroundColor: colors.background,
     },
-    filesButtonText: { fontSize: 13, fontWeight: '600', color: colors.text },
-    checkRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
-    reachLabel: { flexShrink: 1 },
+    filesButtonText: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.text },
+    checkRow: { flex: 1.1, flexDirection: 'row', alignItems: 'center', gap: 8, minWidth: 0, paddingBottom: 8 },
+    reachLabel: { flexShrink: 1, fontSize: 14 },
     modalBackdrop: {
       flex: 1,
       backgroundColor: 'rgba(0,0,0,0.45)',

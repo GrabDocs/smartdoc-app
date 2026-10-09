@@ -32,6 +32,8 @@ export type ShareAccessSnapshot = {
   choices: ShareChoice[] | null;
   /** Null means no usable URL. Distinct from a restricted link that still has a URL. */
   shareUrl: string | null;
+  /** Null when this resource has no phone check. One phone covers every file on the link. */
+  phoneVerification?: { required: boolean; phoneNumber: string } | null;
 };
 
 export type ShareRecipient = {
@@ -50,6 +52,7 @@ export type ShareAccessAdapter = {
   removePerson?: (personId: string) => Promise<void>;
   personRoles?: () => ShareRole[];
   setChoice?: (choiceId: string, optionId: string) => Promise<void>;
+  setPhoneVerification?: (required: boolean, phoneNumber: string) => Promise<void>;
   getShareUrl?: () => Promise<string | null>;
   sendLinkEmail?: (emails: string[], message?: string) => Promise<void>;
 };
