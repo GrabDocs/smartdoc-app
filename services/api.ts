@@ -2117,6 +2117,54 @@ class ApiService {
     return response.data;
   }
 
+  async getFilesSharedWithMe(params: { limit?: number; offset?: number; phase?: 'fast' | 'rest' | 'all' }): Promise<ApiResponse & {
+    shared_files?: any[];
+    has_more?: boolean;
+    next_offset?: number | null;
+  }> {
+    const response = await this.client.get('/api/v1/web/file-sharing/shared-with-me', { params });
+    return response.data;
+  }
+
+  async getMyShareLinks(params: { limit?: number; offset?: number }): Promise<ApiResponse & {
+    links?: any[];
+    has_more?: boolean;
+    next_offset?: number | null;
+  }> {
+    const response = await this.client.get('/api/v1/web/files/my-share-links', { params });
+    return response.data;
+  }
+
+  async revokeShareSet(setId: number, permanent = false): Promise<ApiResponse> {
+    const suffix = permanent ? '?permanent=true' : '';
+    const response = await this.client.delete(`/api/v1/web/files/share-sets/${setId}${suffix}`);
+    return response.data;
+  }
+
+  async exitFileShare(shareId: number): Promise<ApiResponse> {
+    const response = await this.client.post(`/api/v1/web/file-sharing/share/${shareId}/exit`, {});
+    return response.data;
+  }
+
+  async hideSharedItem(body: {
+    share_type: string;
+    asset_type: string;
+    asset_id: number;
+    workspace_id?: number;
+  }): Promise<ApiResponse> {
+    const response = await this.client.post('/api/v1/web/shares/hide', body);
+    return response.data;
+  }
+
+  async getSharedBookmarkFiles(bookmarkId: number, workspaceId?: number): Promise<ApiResponse & {
+    bookmark_name?: string;
+  }> {
+    const response = await this.client.get(`/api/v1/web/file-sharing/bookmark/${bookmarkId}/files`, {
+      params: workspaceId != null ? { workspace_id: workspaceId } : undefined,
+    });
+    return response.data;
+  }
+
   // ==================== CHUNKED UPLOAD METHODS ====================
   // Resilient file upload with chunking, resume, and retry support
 

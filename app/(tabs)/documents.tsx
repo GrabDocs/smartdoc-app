@@ -26,6 +26,7 @@ import AiFileManagerBottomSheet from '../../components/ai-file-manager/AiFileMan
 import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import ClientsButton from '../../components/clients/ClientsButton';
 import DeletedFolderGroups from '../../components/documents/DeletedFolderGroups';
+import FilesSharedSection from '../../components/documents/FilesSharedSection';
 import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
@@ -139,7 +140,8 @@ type FilterOption =
   | 'picture'
   | 'pending'
   | 'unknown'
-  | 'deleted';
+  | 'deleted'
+  | 'shared';
 
 // Helper to check if a file is editable as Draft (text-like formats)
 function isEditableTextFormat(file: Document | { original_filename?: string; filename?: string; file_kind?: string }): boolean {
@@ -253,7 +255,7 @@ export default function QuickFilesScreen() {
   }, []);
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
 
-  const useFolderMode = filterBy !== 'forms' && filterBy !== 'deleted';
+  const useFolderMode = filterBy !== 'forms' && filterBy !== 'deleted' && filterBy !== 'shared';
 
   const folderSystem = useFolderSystem({
     workspaceId,
@@ -872,7 +874,7 @@ export default function QuickFilesScreen() {
 
   // Memoized filtered and sorted documents for better performance
   const filteredAndSortedDocuments = useMemo(() => {
-    if (filterBy === 'deleted') {
+    if (filterBy === 'deleted' || filterBy === 'shared') {
       return [];
     }
 
@@ -1115,6 +1117,7 @@ export default function QuickFilesScreen() {
     if (isLoadingDocumentsRef.current) return;
 
     const currentFilterBy = filterByRef.current;
+    if (currentFilterBy === 'shared') return;
     const isFormsMode = currentFilterBy === 'forms';
     const isFolderPersonalMode =
       workspaceId == null && currentFilterBy !== 'forms' && currentFilterBy !== 'deleted';
@@ -1558,7 +1561,7 @@ export default function QuickFilesScreen() {
   // Merge optimistic placeholder rows (from in-flight uploads) at the top of the list
   // (must be after getFileTypeFromExtension / formatFileSize — defined above)
   const documentsWithPending = useMemo<Document[]>(() => {
-    if (filterBy === 'deleted') {
+    if (filterBy === 'deleted' || filterBy === 'shared') {
       return [];
     }
     const placeholders: Document[] = pendingUploads.map((u) => ({
@@ -2668,7 +2671,7 @@ export default function QuickFilesScreen() {
     <TouchableOpacity
       style={[dynamicStyles.filterButton, filterBy === option && dynamicStyles.filterButtonActive]}
       onPress={() => {
-        if (option === 'deleted' && selectingFiles) cancelFileSelection();
+        if ((option === 'deleted' || option === 'shared') && selectingFiles) cancelFileSelection();
         setFilterBy(option);
       }}
       accessibilityLabel={`Filter by ${label}`}
@@ -3200,9 +3203,11 @@ export default function QuickFilesScreen() {
       pending: 'Pending',
       unknown: 'Unknown',
       deleted: 'Deleted',
+      shared: 'Shared',
     };
-    const base = availableCategories.filter((c) => c !== 'deleted');
-    const ordered: FilterOption[] = user ? [...base, 'deleted'] : base;
+    const rest = availableCategories.filter((c) => c !== 'all' && c !== 'deleted' && c !== 'shared');
+    const head: FilterOption[] = availableCategories.includes('all') ? ['all', 'shared'] : ['shared'];
+    const ordered: FilterOption[] = user ? [...head, ...rest, 'deleted'] : [...head, ...rest];
     return ordered.map((category) => ({
       option: category,
       label: labels[category] || category,
@@ -3664,6 +3669,7 @@ export default function QuickFilesScreen() {
       </AnimatedHeaderContainer>
 
       {/* Search Bar */}
+      {filterBy !== 'shared' && (
       <View style={dynamicStyles.searchContainer}>
         <Ionicons name="search" size={20} color="#666" style={dynamicStyles.searchIcon} />
         <TextInput
@@ -3684,6 +3690,7 @@ export default function QuickFilesScreen() {
           </TouchableOpacity>
         )}
       </View>
+      )}
 
       {/* Filters */}
       <View style={dynamicStyles.filtersContainer}>
@@ -3701,7 +3708,7 @@ export default function QuickFilesScreen() {
       </View>
 
       {/* Sort Options — forms tab only (folder mode shows sort in breadcrumb bar) */}
-      {!useFolderMode && filterBy !== 'deleted' && (
+      {!useFolderMode && filterBy !== 'deleted' && filterBy !== 'shared' && (
       <View style={dynamicStyles.sortContainer}>
         <TouchableOpacity
           style={dynamicStyles.sortButton}
@@ -3729,7 +3736,7 @@ export default function QuickFilesScreen() {
         </TouchableOpacity>
       </View>
       )}
-      {!useFolderMode && filterBy !== 'deleted' && selectingFiles ? (
+      {!useFolderMode && filterBy !== 'deleted' && filterBy !== 'shared' && selectingFiles ? (
         <View
           style={{
             flexDirection: 'row',
@@ -3759,6 +3766,9 @@ export default function QuickFilesScreen() {
       ) : null}
 
       {/* Files List */}
+      {filterBy === 'shared' ? (
+        <FilesSharedSection />
+      ) : (
       <FlatList
         key={filterBy === 'deleted' ? 'deleted-list' : gridView ? 'files-grid' : 'files-list'}
         data={
@@ -3883,6 +3893,7 @@ export default function QuickFilesScreen() {
           )
         }
       />
+      )}
 
       <Modal
         visible={showMeetingRecap}
