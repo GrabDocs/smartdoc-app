@@ -798,7 +798,7 @@ export default function CalendarSchedulingScreen() {
                   {uploadingFiles
                     ? 'Uploading…'
                     : draftFiles.length
-                      ? `${draftFiles.length} file${draftFiles.length === 1 ? '' : 's'}`
+                      ? `Add files (${draftFiles.length})`
                       : 'Add files'}
                 </Text>
               </TouchableOpacity>
