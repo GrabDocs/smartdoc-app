@@ -14,6 +14,8 @@ import {
 import { useThemeColors } from '../hooks/useThemeColors';
 import { extractUrls, htmlToPlainText } from '../utils/linkifyPlainText';
 import { validateAndSanitizeUrl } from '../utils/linkSecurity';
+import { isGrabDocsReachJoinUrl } from '../utils/grabdocsJoinUrl';
+import { openMeetingUrl } from '../utils/openMeetingUrl';
 import LinkifiedText from './LinkifiedText';
 
 type LinkifiedMultilineInputProps = Omit<TextInputProps, 'style'> & {
@@ -25,6 +27,13 @@ type LinkifiedMultilineInputProps = Omit<TextInputProps, 'style'> & {
 function openUrl(raw: string) {
   const result = validateAndSanitizeUrl(raw);
   if (result.valid && result.url) {
+    if (
+      isGrabDocsReachJoinUrl(result.url) ||
+      /zoom\.us|teams\.(microsoft|live)\.com|meet\.google\.com|\.webex\.com/i.test(result.url)
+    ) {
+      void openMeetingUrl(result.url);
+      return;
+    }
     Linking.openURL(result.url).catch(() => {});
   }
 }

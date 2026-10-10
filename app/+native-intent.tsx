@@ -1,38 +1,24 @@
 /**
- * Public booking cancel/reschedule are browser-only. If a /book URL reaches the
- * app (custom scheme or misrouted universal link), open it in a browser sheet
- * instead of an in-app route (avoids App Link loops from Linking.openURL).
+ * Rewrite App Links / custom-scheme URLs before Expo Router matches routes.
+ * Meeting links → /join-meeting; public /book → browser + home; unknown → home.
  */
 import * as WebBrowser from 'expo-web-browser';
+import {
+  APP_HOME_PATH,
+  publicBookingWebsiteUrl,
+  resolveAppDeepLinkPath,
+} from '../utils/resolveAppDeepLinkPath';
 
-function bookingWebsiteUrl(path: string): string | null {
+export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
   try {
-    if (/^grabdocs:\/\//i.test(path)) {
-      const rest = path.replace(/^grabdocs:\/\//i, '').replace(/^\/+/, '');
-      if (rest !== 'book' && !rest.startsWith('book/')) return null;
-      return `https://app.grabdocs.com/${rest}`;
+    const websiteUrl = publicBookingWebsiteUrl(path);
+    if (websiteUrl) {
+      void WebBrowser.openBrowserAsync(websiteUrl);
+      // Never return null — on cold start that surfaces grabdocs:/// Unmatched Route.
+      return APP_HOME_PATH;
     }
-
-    const href = path.includes('://') ? path : `https://app.grabdocs.com${path.startsWith('/') ? '' : '/'}${path}`;
-    const url = new URL(href);
-    const host = url.hostname.toLowerCase();
-    const isGrabDocs =
-      host === 'app.grabdocs.com' || host === 'grabdocs.com' || host === 'www.grabdocs.com';
-    if (!isGrabDocs) return null;
-    if (url.pathname !== '/book' && !url.pathname.startsWith('/book/')) return null;
-    return `https://app.grabdocs.com${url.pathname}${url.search}`;
+    return resolveAppDeepLinkPath(path);
   } catch {
-    return null;
-  }
-}
-
-export function redirectSystemPath({ path }: { path: string; initial: boolean }): string | null {
-  try {
-    const websiteUrl = bookingWebsiteUrl(path);
-    if (!websiteUrl) return path;
-    void WebBrowser.openBrowserAsync(websiteUrl);
-    return null;
-  } catch {
-    return path;
+    return APP_HOME_PATH;
   }
 }

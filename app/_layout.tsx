@@ -375,7 +375,7 @@ function RootLayoutNav() {
           router.push(pathname as any);
         }
       } catch {
-        router.push('/notifications');
+        router.push('/(tabs)');
       }
     },
     [router]
@@ -588,6 +588,8 @@ function RootLayoutNav() {
           <Stack.Screen name="calendar" options={{ headerShown: false }} />
           <Stack.Screen name="quick-reach" options={{ headerShown: false }} />
           <Stack.Screen name="join-meeting" options={{ headerShown: false }} />
+          <Stack.Screen name="meeting/[id]" options={{ headerShown: false }} />
+          <Stack.Screen name="+not-found" options={{ headerShown: false }} />
           <Stack.Screen name="upload-links" options={{ headerShown: false }} />
           <Stack.Screen name="intake" options={{ headerShown: false }} />
           <Stack.Screen name="clients" options={{ headerShown: false }} />

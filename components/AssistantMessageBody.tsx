@@ -100,8 +100,19 @@ function renderInlineSegments(
             key={i}
             style={{ color: linkColor, textDecorationLine: 'underline' }}
             onPress={() => {
-              if (onOpenLink) onOpenLink(result.url!);
-              else Linking.openURL(result.url!);
+              if (onOpenLink) {
+                onOpenLink(result.url!);
+                return;
+              }
+              const url = result.url!;
+              if (
+                /grabdocs\.com\/(?:meeting|meet|join-meeting)/i.test(url) ||
+                /zoom\.us|teams\.(microsoft|live)\.com|meet\.google\.com|\.webex\.com/i.test(url)
+              ) {
+                void import('../utils/openMeetingUrl').then(({ openMeetingUrl }) => openMeetingUrl(url));
+                return;
+              }
+              Linking.openURL(url);
             }}
           >
             {seg.text}

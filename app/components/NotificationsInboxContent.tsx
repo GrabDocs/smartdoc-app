@@ -15,7 +15,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import { resolveSignatureRoute } from '../../utils/signatureRouteResolver';
 import { useAuth } from '../context/auth';
-import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, toInAppBillingPath } from '../services/pushNotifications';
+import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen } from '../services/pushNotifications';
 import { formatUtcIsoForDevice } from '../../utils/calendarTime';
 import { AnimatedHeaderContainer } from './AnimatedHeaderContainer';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -161,34 +161,54 @@ export function NotificationsInboxContent({
     );
   };
 
+  const isDraftOrFileInvite = (n: AppNotification) => {
+    const isInvite =
+      n.type === 'draft_invite' ||
+      n.type === 'file_invite' ||
+      n.type === 'file_received' ||
+      n.type === 'file_share' ||
+      n.metadata?.action_type === 'draft_invite' ||
+      n.metadata?.action_type === 'file_invite' ||
+      n.metadata?.action_type === 'file_share';
+    if (!isInvite || n.metadata?.share_id == null) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    return Boolean(n.metadata?.has_actions);
+  };
+
+  const isWorkspaceInvitation = (n: AppNotification) => {
+    const isInvite =
+      n.type === 'workspace_invite' ||
+      n.type === 'workspace_invitation' ||
+      n.metadata?.action_type === 'workspace_invite' ||
+      n.metadata?.action_type === 'workspace_invitation';
+    if (!isInvite || n.metadata?.invitation_id == null) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    return Boolean(n.metadata?.has_actions);
+  };
+
+  const isJoinRequest = (n: AppNotification) => {
+    const isJoin =
+      (n.type === 'join_request' || n.metadata?.action_type === 'join_request') &&
+      n.metadata?.video_call_id != null &&
+      n.metadata?.join_request_id != null;
+    if (!isJoin) return false;
+    const status = n.metadata?.action_status;
+    if (status === 'accepted' || status === 'rejected') return false;
+    return Boolean(n.metadata?.has_actions);
+  };
+
   const resolveNotificationPath = useCallback((n: AppNotification) => {
     const meta = n.metadata || {};
-    // Prefer mobile `screen` / type resolver — web `navigation_path` is not valid in Expo.
-    if (n.type === 'inbound_email' || n.type === 'awaiting_reply_received' || meta.action_type === 'email_reply') {
-      return getNotificationScreen({ type: n.type || 'inbound_email', ...meta });
-    }
-    if (isReachMeetingStartedNotificationType(n.type) || isReachMeetingStartedNotificationType(meta.action_type)) {
-      return getNotificationScreen({ type: n.type, ...meta });
-    }
-    if (meta.navigation_path) {
-      const p = String(meta.navigation_path);
-      const billing = toInAppBillingPath(p);
-      if (billing) return billing;
-      if (p.includes('/meeting/')) {
-        return getNotificationScreen({ type: n.type || 'workspace_meeting_started', ...meta, navigation_path: p });
-      }
-      return p.startsWith('/') ? p : `/${p}`;
-    }
+    // Single resolver for push + inbox — maps web paths and every backend type.
     return getNotificationScreen({ type: n.type, ...meta });
   }, []);
 
   const navigateFromNotification = useCallback(
     (n: AppNotification) => {
       if (!n.read) markAsRead(n.id);
-      let path = resolveNotificationPath(n);
-      if (path.startsWith('/calendar/event/')) {
-        path = path.replace('/calendar/event/', '/calendar/');
-      }
+      const path = resolveNotificationPath(n);
       if (path === '/notifications') return;
       if (variant === 'modal') onDismiss?.();
       try {
@@ -211,7 +231,7 @@ export function NotificationsInboxContent({
           router.push(pathname as any);
         }
       } catch {
-        router.push('/notifications' as any);
+        router.push('/(tabs)' as any);
       }
     },
     [markAsRead, resolveNotificationPath, router, variant, onDismiss]
@@ -219,8 +239,9 @@ export function NotificationsInboxContent({
 
   const handleNotificationPress = useCallback(
     (n: AppNotification) => {
-      // Invites / join requests use their own buttons; email Reply uses the Reply button (or row tap).
-      if (n.metadata?.has_actions && !isEmailReplyNotification(n)) return;
+      // Only block row tap when this row already has inline Accept/Reject.
+      // Calendar invites and other has_actions types still open their screen.
+      if (isDraftOrFileInvite(n) || isWorkspaceInvitation(n) || isJoinRequest(n)) return;
       navigateFromNotification(n);
     },
     [navigateFromNotification]
@@ -229,10 +250,7 @@ export function NotificationsInboxContent({
   const handleEmailReply = useCallback(
     (n: AppNotification) => {
       if (!n.read) markAsRead(n.id);
-      let path = getEmailReplyComposeScreen({ type: n.type || 'inbound_email', ...(n.metadata || {}) });
-      if (path.startsWith('/calendar/event/')) {
-        path = path.replace('/calendar/event/', '/calendar/');
-      }
+      const path = getEmailReplyComposeScreen({ type: n.type || 'inbound_email', ...(n.metadata || {}) });
       if (variant === 'modal') onDismiss?.();
       try {
         if (path.includes('signatures') || n.type.startsWith('signature_')) {
@@ -254,7 +272,7 @@ export function NotificationsInboxContent({
           router.push(pathname as any);
         }
       } catch {
-        router.push('/notifications' as any);
+        router.push('/(tabs)' as any);
       }
     },
     [markAsRead, onDismiss, router, variant]
@@ -345,45 +363,6 @@ export function NotificationsInboxContent({
     },
     [actionState, finalizeSuccessfulAction]
   );
-
-  const isDraftOrFileInvite = (n: AppNotification) => {
-    const isInvite =
-      n.type === 'draft_invite' ||
-      n.type === 'file_invite' ||
-      n.type === 'file_received' ||
-      n.type === 'file_share' ||
-      n.metadata?.action_type === 'draft_invite' ||
-      n.metadata?.action_type === 'file_invite' ||
-      n.metadata?.action_type === 'file_share';
-    if (!isInvite || n.metadata?.share_id == null) return false;
-    const status = n.metadata?.action_status;
-    if (status === 'accepted' || status === 'rejected') return false;
-    // Hide after accept/reject clears has_actions; keep showing for actionable invites.
-    return Boolean(n.metadata?.has_actions);
-  };
-
-  const isWorkspaceInvitation = (n: AppNotification) => {
-    const isInvite =
-      n.type === 'workspace_invite' ||
-      n.type === 'workspace_invitation' ||
-      n.metadata?.action_type === 'workspace_invite' ||
-      n.metadata?.action_type === 'workspace_invitation';
-    if (!isInvite || n.metadata?.invitation_id == null) return false;
-    const status = n.metadata?.action_status;
-    if (status === 'accepted' || status === 'rejected') return false;
-    return Boolean(n.metadata?.has_actions);
-  };
-
-  const isJoinRequest = (n: AppNotification) => {
-    const isJoin =
-      (n.type === 'join_request' || n.metadata?.action_type === 'join_request') &&
-      n.metadata?.video_call_id != null &&
-      n.metadata?.join_request_id != null;
-    if (!isJoin) return false;
-    const status = n.metadata?.action_status;
-    if (status === 'accepted' || status === 'rejected') return false;
-    return Boolean(n.metadata?.has_actions);
-  };
 
   const handleAcceptWorkspaceInvitation = useCallback(
     async (n: AppNotification) => {

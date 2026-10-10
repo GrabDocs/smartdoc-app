@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
 import { apiClient } from '../../services/api';
+import { resolveAppDeepLinkPath } from '../../utils/resolveAppDeepLinkPath';
 
 /** iOS category + action identifiers for meeting join-request lock-screen buttons. */
 export const JOIN_REQUEST_NOTIFICATION_CATEGORY = 'join_request';
@@ -483,10 +484,13 @@ export const NOTIFICATION_TYPES = [
   'chat_message',
   'file_received',
   'draft_edited',
+  'draft_invite',
+  'file_invite',
   'calendar_invite',
   'calendar_reminder',
   'file_share_viewed',
   'join_request',
+  'join_request_approved',
   'transcript_ready',
   'intake_file_received',
   'inbound_email',
@@ -494,6 +498,16 @@ export const NOTIFICATION_TYPES = [
   'workspace_meeting_started',
   'chat_call_started',
   'meeting_started',
+  'upload',
+  'upload_link_expiring',
+  'agentic',
+  'info',
+  'success',
+  'warning',
+  'workspace_invite',
+  'workspace_update',
+  'storage_limit',
+  'meeting_minimized',
 ] as const;
 
 export const REACH_MEETING_STARTED_TYPES = [
@@ -559,49 +573,117 @@ export function toInAppBillingPath(path: string): string | null {
   return null;
 }
 
+const APP_HOME_FALLBACK = '/(tabs)';
+
+function finalizeNotificationPath(path: string): string {
+  return resolveAppDeepLinkPath(path);
+}
+
+function pathFromScreenOrNav(data: Record<string, any>): string | null {
+  const raw =
+    (typeof data?.screen === 'string' && data.screen.trim()) ||
+    (typeof data?.navigation_path === 'string' && data.navigation_path.trim()) ||
+    '';
+  if (!raw) return null;
+  const billing = toInAppBillingPath(raw);
+  if (billing) return billing;
+  return finalizeNotificationPath(raw.startsWith('/') || /^https?:\/\//i.test(raw) || /^grabdocs:\/\//i.test(raw) ? raw : `/${raw}`);
+}
+
+function isActionableInboxInvite(data: Record<string, any>): boolean {
+  const type = data?.type;
+  const action = data?.action_type;
+  if (data?.has_actions === false) return false;
+  if (type === 'join_request' || action === 'join_request') return true;
+  if (
+    type === 'workspace_invite' ||
+    type === 'workspace_invitation' ||
+    action === 'workspace_invite' ||
+    action === 'workspace_invitation'
+  ) {
+    return true;
+  }
+  if (type === 'draft_invite' || type === 'file_invite' || action === 'draft_invite' || action === 'file_invite') {
+    return true;
+  }
+  if ((type === 'file_received' || action === 'file_share') && data?.has_actions && data?.share_id != null) {
+    return true;
+  }
+  if (type === 'info' && (action === 'workspace_invitation' || action === 'workspace_invite')) {
+    return true;
+  }
+  // secure_message_invite: no inbox Accept buttons — open user-chat (pending invite prompt).
+  return false;
+}
+
+function signaturePathFromData(data: Record<string, any>): string | null {
+  if (data?.token) {
+    return finalizeNotificationPath(`/signatures/sign/token/${encodeURIComponent(String(data.token))}`);
+  }
+  const nav = data?.navigation_path != null ? String(data.navigation_path) : '';
+  if (nav.includes('signatures')) {
+    return finalizeNotificationPath(nav.startsWith('/') ? nav : `/${nav}`);
+  }
+  if (data?.envelope_id != null || data?.public_id != null) {
+    const id = data.public_id ?? data.envelope_id;
+    return finalizeNotificationPath(
+      data?.action === 'sign' ? `/signatures/sign/${id}` : `/signatures/${id}`,
+    );
+  }
+  if (data?.action_type === 'signature_envelope') return '/signatures';
+  return null;
+}
+
 /**
  * Resolve app path for push/data payload (type + optional metadata).
  * Used when user taps a push or an in-app notification so we open the right screen.
+ * Type-specific targets win over coarse backend `screen` defaults; web paths are rewritten.
  */
 export function getNotificationScreen(data: Record<string, any>): string {
   const type = data?.type;
-  const screen = data?.screen;
-  if (typeof screen === 'string') {
-    const billing = toInAppBillingPath(screen);
-    if (billing) return billing;
-  } else if (typeof data?.navigation_path === 'string') {
-    const billing = toInAppBillingPath(data.navigation_path);
-    if (billing) return billing;
+  const action = data?.action_type;
+
+  // Accept/Reject rows must open the inbox (not documents / home).
+  if (isActionableInboxInvite(data)) {
+    return '/notifications';
   }
-  if (screen && typeof screen === 'string' && screen.startsWith('/')) {
-    if (screen.startsWith('/meeting/')) {
-      return getReachMeetingJoinPath({ ...data, navigation_path: screen }) || '/quick-reach/meeting-call';
-    }
-    return screen;
+
+  // Reach meeting started — always join, even if push default screen is /notifications.
+  if (
+    isReachMeetingStartedNotificationType(type) ||
+    isReachMeetingStartedNotificationType(action)
+  ) {
+    return getReachMeetingJoinPath(data) || '/quick-reach/meeting-call';
   }
-  if (screen && typeof screen === 'string') return screen.startsWith('/') ? screen : `/${screen}`;
 
   switch (type) {
     case 'file_request':
+    case 'upload_link_expiring':
       return '/upload-links';
     case 'chat_message':
       return data?.chat_id != null ? `/user-chat?chatId=${data.chat_id}` : '/(tabs)/chats';
     case 'file_received':
+    case 'file_share_viewed':
+    case 'file_upload':
+    case 'file_processing':
+    case 'form_response':
+    case 'upload':
       return '/(tabs)/documents';
     case 'draft_edited':
       return data?.file_id != null ? `/drafts/edit/${data.file_id}` : '/(tabs)/documents';
     case 'calendar_invite':
     case 'calendar_reminder': {
       const eid = data?.event_id ?? data?.calendar_event_id ?? data?.eventId;
-      return eid != null ? `/calendar/${eid}` : '/calendar';
+      if (eid != null) return `/calendar/${eid}`;
+      const fromNav = pathFromScreenOrNav(data);
+      return fromNav && fromNav.startsWith('/calendar') ? fromNav : '/calendar';
     }
-    case 'file_share_viewed':
-      return '/(tabs)/documents';
     case 'join_request':
-      // Navigate to notifications so host can Accept/Reject inline (same as workspace/file invites)
       return '/notifications';
     case 'join_request_approved':
-      return data?.meeting_id != null ? `/join-meeting?meeting_id=${encodeURIComponent(String(data.meeting_id))}` : '/(tabs)';
+      return data?.meeting_id != null
+        ? `/join-meeting?meeting_id=${encodeURIComponent(String(data.meeting_id))}`
+        : APP_HOME_FALLBACK;
     case 'workspace_meeting_started':
     case 'chat_call_started':
     case 'meeting_started':
@@ -610,24 +692,14 @@ export function getNotificationScreen(data: Record<string, any>): string {
       return data?.video_call_id != null
         ? `/quick-reach/meeting-details?roomId=${data.video_call_id}&meetingId=${data.video_call_id}&open_recap=1&initialTab=transcript`
         : '/quick-reach/meeting-call';
-    case 'file_upload':
-    case 'file_processing':
-      return '/(tabs)/documents';
-    case 'form_response':
-      return '/(tabs)/documents';
     case 'workspace_invite':
-      // Navigate to notifications so user can Accept/Reject workspace invitation inline
+    case 'workspace_invitation':
+    case 'draft_invite':
+    case 'file_invite':
       return '/notifications';
     case 'workspace_update':
       return '/workspaces';
-    case 'draft_invite':
-    case 'file_invite':
-      // Navigate to notifications so user can Accept/Reject inline
-      return '/notifications';
-    case 'upload_link_expiring':
-      return '/upload-links';
     case 'intake_file_received':
-      // Backend already sends extra_data.screen = `/intake/{id}` (handled above); this is a defensive fallback.
       return data?.intake_id != null ? `/intake/${data.intake_id}` : '/intake';
     case 'awaiting_reply_received':
     case 'inbound_email': {
@@ -640,27 +712,16 @@ export function getNotificationScreen(data: Record<string, any>): string {
         return `/email-sync?${q.toString()}`;
       }
       if (ws != null) return `/email-sync?workspaceId=${ws}`;
-      return '/email-sync';
+      const fromNav = pathFromScreenOrNav(data);
+      return fromNav && fromNav.startsWith('/email-sync') ? fromNav : '/email-sync';
     }
     case 'signature_request':
     case 'signature_invite':
     case 'signature_reminder':
-    case 'signature_completed':
-      if (data?.token) {
-        return `/signatures/sign/token/${encodeURIComponent(String(data.token))}`;
-      }
-      if (data?.navigation_path && String(data.navigation_path).includes('signatures')) {
-        return String(data.navigation_path).startsWith('/')
-          ? String(data.navigation_path)
-          : `/${data.navigation_path}`;
-      }
-      if (data?.envelope_id ?? data?.public_id) {
-        const id = data.public_id ?? data.envelope_id;
-        return data?.action === 'sign' ? `/signatures/sign/${id}` : `/signatures/${id}`;
-      }
-      return '/signatures';
-    case 'meeting_minimized':
-      // Tap "In meeting" notification -> open meeting screen
+    case 'signature_completed': {
+      return signaturePathFromData(data) || '/signatures';
+    }
+    case 'meeting_minimized': {
       if (data?.meetingId) {
         const params = new URLSearchParams({ meetingId: String(data.meetingId) });
         if (data?.title) params.set('title', String(data.title));
@@ -668,10 +729,35 @@ export function getNotificationScreen(data: Record<string, any>): string {
         return `/quick-reach/hms-meeting-interface?${params.toString()}`;
       }
       return '/quick-reach/hms-meeting-interface';
-    default:
-      // Unknown/missing type: land on Home rather than the notifications inbox so an unexpected
-      // payload can never strand the user on /notifications (outside the tabs, no bottom nav).
-      return '/(tabs)';
+    }
+    case 'agentic':
+      return APP_HOME_FALLBACK;
+    case 'storage_limit':
+      return '/billing';
+    case 'info':
+    case 'success':
+    case 'warning': {
+      if (action === 'signature_envelope') {
+        return signaturePathFromData(data) || '/signatures';
+      }
+      if (action === 'secure_message_invite') {
+        return data?.chat_id != null ? `/user-chat?chatId=${data.chat_id}` : '/user-chat';
+      }
+      if (action === 'secure_message_invite_delivery_failed' && data?.chat_id != null) {
+        return `/user-chat?chatId=${data.chat_id}`;
+      }
+      if (data?.workspace_id != null && (action === 'workspace_invitation' || type === 'success')) {
+        return '/workspaces';
+      }
+      const fromNav = pathFromScreenOrNav(data);
+      if (fromNav && fromNav !== APP_HOME_FALLBACK) return fromNav;
+      return APP_HOME_FALLBACK;
+    }
+    default: {
+      const fromNav = pathFromScreenOrNav(data);
+      if (fromNav && fromNav !== APP_HOME_FALLBACK) return fromNav;
+      return APP_HOME_FALLBACK;
+    }
   }
 }
 
@@ -707,7 +793,7 @@ export function handleNotificationNavigation(
 ) {
   const path = getNotificationScreen(data);
   if (path === '/notifications') {
-    navigation.navigate('(tabs)', { screen: 'index' });
+    navigation.navigate('notifications' as any);
     return;
   }
   if (path.startsWith('/(tabs)/')) {
@@ -715,7 +801,12 @@ export function handleNotificationNavigation(
     navigation.navigate('(tabs)', { screen });
     return;
   }
-  navigation.navigate(path as any);
+  const { pathname, params } = parseNotificationPath(path);
+  if (params && Object.keys(params).length > 0) {
+    navigation.navigate(pathname as any, params);
+    return;
+  }
+  navigation.navigate(pathname as any);
 }
 
 export default pushNotificationService; 
