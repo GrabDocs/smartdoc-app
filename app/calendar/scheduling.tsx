@@ -89,6 +89,7 @@ type Signup = {
   form_response_id?: number | null;
   form_response?: Record<string, unknown> | null;
   calendar_event_id?: number | null;
+  guest_change_reason?: string | null;
 };
 
 function slugFromName(name: string) {
@@ -928,6 +929,11 @@ export default function CalendarSchedulingScreen() {
                     </View>
                     <Text style={styles.signupMeta} numberOfLines={1}>{row.guest_email}</Text>
                     <Text style={styles.signupMeta}>{new Date(row.start_time).toLocaleString()}</Text>
+                    {row.guest_change_reason ? (
+                      <Text style={styles.signupMeta} numberOfLines={4}>
+                        Reason: {row.guest_change_reason}
+                      </Text>
+                    ) : null}
                     {answers.map((answer) => (
                       <Text key={answer.key} style={styles.signupMeta} numberOfLines={2}>
                         {answer.key}: {answer.text}
