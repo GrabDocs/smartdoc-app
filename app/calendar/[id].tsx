@@ -51,7 +51,7 @@ import {
 } from '../../utils/calendarCache';
 import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { navigateJoinMeeting } from '../../utils/calendarReachJoin';
-import { calendarDisplayLocation, formatUtcIsoForDevice } from '../../utils/calendarTime';
+import { calendarDisplayLocation, formatEventWhen, formatUtcIsoForDevice } from '../../utils/calendarTime';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -606,10 +606,13 @@ export default function CalendarEventDetailScreen() {
         </View>
         {event.start_time ? (
           <Text style={[styles.meta, { color: colors.text }]}>
-            {formatUtcIsoForDevice(event.start_time, { dateStyle: 'full', timeStyle: 'short' })}
-            {event.end_time
-              ? ` → ${formatUtcIsoForDevice(event.end_time, { timeStyle: 'short' })}`
-              : ''}
+            {event.all_day
+              ? formatEventWhen(event)
+              : `${formatUtcIsoForDevice(event.start_time, { dateStyle: 'full', timeStyle: 'short' })}${
+                  event.end_time
+                    ? ` → ${formatUtcIsoForDevice(event.end_time, { timeStyle: 'short' })}`
+                    : ''
+                }`}
           </Text>
         ) : null}
         {locationLabel ? (

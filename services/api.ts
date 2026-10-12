@@ -192,6 +192,8 @@ const MOBILE_ENDPOINTS = {
   USER_CHAT_INVITES_OUTGOING: '/api/v1/mobile/user-chat/invites/pending',
   USER_CHAT_INVITE_RESEND: (id: number) => `/api/v1/mobile/user-chat/invites/${id}/resend`,
   USER_CHAT_INVITE_REVOKE: (id: number) => `/api/v1/mobile/user-chat/invites/${id}/revoke`,
+  USER_CHAT_ARCHIVE: (chatId: number) => `/api/v1/mobile/user-chat/chats/${chatId}/archive`,
+  USER_CHAT_UNARCHIVE: (chatId: number) => `/api/v1/mobile/user-chat/chats/${chatId}/unarchive`,
   
   // Bookmarks
   BOOKMARKS: '/api/v1/mobile/bookmarks',
@@ -5073,13 +5075,35 @@ class ApiService {
    * Get all user chats - Mobile-specific endpoint
    * Returns direct messages and workspace chats only
    */
-  async getChats(limit: number = 50, offset: number = 0): Promise<ApiResponse> {
+  async getChats(limit: number = 50, offset: number = 0, archived: boolean = false): Promise<ApiResponse> {
     try {
-      const response = await this.client.get(MOBILE_ENDPOINTS.USER_CHATS, { params: { limit, offset } });
+      const response = await this.client.get(MOBILE_ENDPOINTS.USER_CHATS, {
+        params: { limit, offset, archived: archived ? '1' : '0' },
+      });
       return response.data;
     } catch (error: any) {
       console.error('Get chats error:', error);
       const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to fetch chats';
+      throw new Error(errorMessage);
+    }
+  }
+
+  async archiveUserChat(chatId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_CHAT_ARCHIVE(chatId));
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to archive chat';
+      throw new Error(errorMessage);
+    }
+  }
+
+  async unarchiveUserChat(chatId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_CHAT_UNARCHIVE(chatId));
+      return response.data;
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to unarchive chat';
       throw new Error(errorMessage);
     }
   }

@@ -39,6 +39,7 @@ import {
   convertLocalTimeToUTC,
   formatLocalTime12h,
   getDeviceIanaTimezone,
+  inclusiveToExclusiveEnd,
   toLocalDateString,
 } from '../../utils/calendarTime';
 
@@ -151,6 +152,7 @@ export default function CalendarCreateScreen() {
     return formatLocalTime12h(d);
   });
   const [durationMin, setDurationMin] = useState(60);
+  const [allDay, setAllDay] = useState(false);
 
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFreq, setRecurringFreq] = useState('WEEKLY');
@@ -396,13 +398,19 @@ export default function CalendarCreateScreen() {
     }
 
     let startUtc: Date;
+    let endUtc: Date;
     try {
-      startUtc = convertLocalTimeToUTC(eventDate, eventTime, tz);
+      if (allDay) {
+        startUtc = convertLocalTimeToUTC(eventDate, '00:00', tz);
+        endUtc = convertLocalTimeToUTC(inclusiveToExclusiveEnd(eventDate), '00:00', tz);
+      } else {
+        startUtc = convertLocalTimeToUTC(eventDate, eventTime, tz);
+        endUtc = new Date(startUtc.getTime() + Math.max(1, durationMin) * 60 * 1000);
+      }
     } catch {
-      Alert.alert('Time', 'Enter a valid start time (for example 5:00 PM).');
+      Alert.alert('Time', allDay ? 'Select a valid date.' : 'Enter a valid start time (for example 5:00 PM).');
       return;
     }
-    const endUtc = new Date(startUtc.getTime() + Math.max(1, durationMin) * 60 * 1000);
 
     setSubmitting(true);
     try {
@@ -411,7 +419,7 @@ export default function CalendarCreateScreen() {
       let videoCallId: string | number | undefined = undefined;
       let loc = location.trim();
 
-      if (useReach && deviceOffline) {
+      if (!allDay && useReach && deviceOffline) {
         Alert.alert('Offline', 'Reach video meetings require an internet connection.');
         setSubmitting(false);
         return;
@@ -420,7 +428,7 @@ export default function CalendarCreateScreen() {
       let createdVideoCallId: number | null = null;
       let createdCalendarEventId: number | null = null;
 
-      if (useReach) {
+      if (!allDay && useReach) {
         try {
           const durationMinutes = Math.max(1, Math.ceil((endUtc.getTime() - startUtc.getTime()) / 60000));
           const videoMeetingData: Record<string, unknown> = {
@@ -456,7 +464,7 @@ export default function CalendarCreateScreen() {
         }
       }
 
-      if (!useReach || !videoCallId) {
+      if (allDay || !useReach || !videoCallId) {
         const eventData: Record<string, unknown> = {
           title: t,
           description: description.trim(),
@@ -464,8 +472,9 @@ export default function CalendarCreateScreen() {
           start_time: startUtc.toISOString(),
           end_time: endUtc.toISOString(),
           timezone: tz,
+          all_day: allDay,
           location: loc || undefined,
-          meeting_url: videoMeetingUrl,
+          meeting_url: allDay ? undefined : videoMeetingUrl,
           participants,
           reminders,
           reminder_minutes: reminders.map((r) => r.minutes),
@@ -475,7 +484,7 @@ export default function CalendarCreateScreen() {
           linked_category_id: categoryId ?? undefined,
           linked_category_record_id: recordId ?? undefined,
         };
-        if (typeof videoCallId === 'number') {
+        if (!allDay && typeof videoCallId === 'number') {
           eventData.video_call_id = videoCallId;
           createdVideoCallId = asPositiveInt(videoCallId) ?? createdVideoCallId;
         }
@@ -653,42 +662,64 @@ export default function CalendarCreateScreen() {
           </>
         ) : null}
 
-        <Text style={styles.label}>Starts</Text>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openDatePicker}>
-            <Text style={{ color: colors.text }}>{eventDate}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openTimePicker}>
-            <Text style={{ color: colors.text }}>{eventTime}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.label}>Duration</Text>
-        <TouchableOpacity
-          style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
-          onPress={openDurationPicker}
-          accessibilityRole="button"
-          accessibilityLabel={`Duration, ${durationLabel}`}
-        >
-          <Text style={{ color: colors.text }}>{durationLabel}</Text>
-          <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <Text style={styles.label}>Location</Text>
-        <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholderTextColor={colors.textSecondary} />
-
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
-          <Text style={{ flex: 1, color: colors.text, fontWeight: '600' }}>Create Reach meeting</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 4 }}>
+          <Text style={{ flex: 1, color: colors.text, fontWeight: '600' }}>All day</Text>
           <Switch
-            value={useReach}
-            onValueChange={setUseReach}
+            value={allDay}
+            onValueChange={(next) => {
+              setAllDay(next);
+              if (next) setUseReach(false);
+            }}
             trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-            thumbColor={colors.switchThumbAndroid(useReach)}
+            thumbColor={colors.switchThumbAndroid(allDay)}
             ios_backgroundColor={colors.switchTrackOff}
           />
         </View>
 
-        {!useReach ? (
+        <Text style={styles.label}>{allDay ? 'Date' : 'Starts'}</Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openDatePicker}>
+            <Text style={{ color: colors.text }}>{eventDate}</Text>
+          </TouchableOpacity>
+          {!allDay ? (
+            <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openTimePicker}>
+              <Text style={{ color: colors.text }}>{eventTime}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {!allDay ? (
+          <>
+            <Text style={styles.label}>Duration</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+              onPress={openDurationPicker}
+              accessibilityRole="button"
+              accessibilityLabel={`Duration, ${durationLabel}`}
+            >
+              <Text style={{ color: colors.text }}>{durationLabel}</Text>
+              <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </>
+        ) : null}
+
+        <Text style={styles.label}>Location</Text>
+        <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholderTextColor={colors.textSecondary} />
+
+        {!allDay ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
+            <Text style={{ flex: 1, color: colors.text, fontWeight: '600' }}>Create Reach meeting</Text>
+            <Switch
+              value={useReach}
+              onValueChange={setUseReach}
+              trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+              thumbColor={colors.switchThumbAndroid(useReach)}
+              ios_backgroundColor={colors.switchTrackOff}
+            />
+          </View>
+        ) : null}
+
+        {!allDay && !useReach ? (
           <>
             <Text style={styles.label}>Meeting URL (optional)</Text>
             <TextInput style={styles.input} value={meetingUrlManual} onChangeText={setMeetingUrlManual} placeholderTextColor={colors.textSecondary} />

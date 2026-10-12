@@ -3,6 +3,7 @@ import 'react-native-url-polyfill/auto';
 
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as DocumentPicker from 'expo-document-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -23,16 +24,20 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import { io, Socket } from 'socket.io-client';
+import ActionMenuModal, { type ActionMenuItem } from '../components/ActionMenuModal';
 import ChatConnectivityBanner from '../components/ChatConnectivityBanner';
 import ClientsButton from '../components/clients/ClientsButton';
+import GeneralFileViewerModal from '../components/GeneralFileViewerModal';
 import { API_BASE_URL, STORAGE_KEYS } from '../constants/Config';
 import { useLimitError } from '../contexts/LimitErrorContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { useChatConnectivity } from '../hooks/useChatConnectivity';
 import { userChatFavoritesStorageKey } from '../services/userScopedCache';
 import { useThemeColors } from '../hooks/useThemeColors';
@@ -44,6 +49,11 @@ import PhoneNumberInput from '../components/PhoneNumberInput';
 import { getChatNetworkErrorMessage, isNetworkError } from '../utils/networkErrors';
 import { isValidPhoneNumber } from '../utils/phoneUtils';
 import { showInviteDeliveryToastMobile } from '../utils/inviteDeliveryFeedback';
+import {
+  anchoredPopoverCardStyle,
+  anchoredPopoverOverlayStyle,
+} from '../utils/dialogSurfaceStyles';
+import { GrabDocsAttachPicker } from './email-sync/_components/GrabDocsAttachPicker';
 import { useAuth } from './context/auth';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../components/AppBackButton';
@@ -76,11 +86,18 @@ interface Chat {
   secure_message_invite_id?: number | null;
   invitee_label?: string | null;
   display_name?: string;
+  is_archived?: boolean;
 }
 
 // Storage key helpers scoped per authenticated user
 const ANDROID_TEXT_INPUT_PROPS =
   Platform.OS === 'android' ? { underlineColorAndroid: 'transparent' as const } : {};
+
+interface ChatAttachment {
+  file_id: number;
+  name: string;
+  mimeType?: string;
+}
 
 interface ChatMessage {
   id: number;
@@ -92,12 +109,24 @@ interface ChatMessage {
   sender_id?: number | null;
   /** sent | delivered | read — own messages only */
   receipt_status?: 'sent' | 'delivered' | 'read' | null;
+  attachments?: ChatAttachment[];
+}
+
+interface StagedAttachment {
+  id: string;
+  name: string;
+  mimeType?: string;
+  file_id?: number;
+  uri?: string;
+  status: 'uploading' | 'ready' | 'failed';
+  error?: string;
 }
 
 export default function UserChatScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const colors = useThemeColors();
+  const { isDark, setTheme } = useTheme();
   const insets = useSafeAreaInsets();
   const { user: authUser } = useAuth();
   const { showLimitError } = useLimitError();
@@ -119,11 +148,20 @@ export default function UserChatScreen() {
   const USER_CHAT_PAGE_SIZE = 20;
 
   const [chats, setChats] = useState<Chat[]>([]);
+  const [listMode, setListMode] = useState<'active' | 'archived'>('active');
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const chatMoreButtonRef = useRef<View>(null);
+  const [chatMenuVisible, setChatMenuVisible] = useState(false);
+  const [chatMenuAnchor, setChatMenuAnchor] = useState({ top: 0, right: 0 });
+  const [attachedFiles, setAttachedFiles] = useState<StagedAttachment[]>([]);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showGrabDocsPicker, setShowGrabDocsPicker] = useState(false);
+  const [viewerFileId, setViewerFileId] = useState<number | null>(null);
+  const [viewerFileName, setViewerFileName] = useState<string | undefined>(undefined);
 
   // Pagination for the chat list
   const [chatOffset, setChatOffset] = useState(0);
@@ -317,6 +355,7 @@ export default function UserChatScreen() {
                 sender_id: senderId,
                 created_at: data.message.created_at,
                 receipt_status: data.message.receipt_status ?? (isOwnMessage ? 'sent' : null),
+                attachments: parseMessageAttachments(data.message),
               };
               
               // Prevent duplicates and update existing messages with correct ownership
@@ -511,7 +550,6 @@ export default function UserChatScreen() {
 
   useEffect(() => {
     loadUserProfile();
-    loadChats();
     loadWorkspaces();
     loadFavorites();
   }, [authUser?.id]);
@@ -693,13 +731,14 @@ export default function UserChatScreen() {
       secure_message_invite_id: chat.secure_message_invite_id ?? null,
       invitee_label: chat.invitee_label ?? null,
       display_name: chat.display_name,
+      is_archived: !!chat.is_archived,
     };
   };
 
-  const loadChats = async () => {
+  const loadChats = useCallback(async (mode: 'active' | 'archived' = listMode) => {
     try {
       setLoading(true);
-      const response = await api.getChats(USER_CHAT_PAGE_SIZE, 0);
+      const response = await api.getChats(USER_CHAT_PAGE_SIZE, 0, mode === 'archived');
       if (response.success && (response as any).chats) {
         const rawChats = (response as any).chats as any[];
         setChats(rawChats.map(rawChatToChat));
@@ -721,13 +760,19 @@ export default function UserChatScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [listMode, persistFavoriteChats]);
+
+  useEffect(() => {
+    setChatOffset(0);
+    setHasMoreChats(false);
+    void loadChats(listMode);
+  }, [listMode, authUser?.id, loadChats]);
 
   const loadMoreChats = async () => {
     if (isLoadingMoreChats || !hasMoreChats) return;
     setIsLoadingMoreChats(true);
     try {
-      const response = await api.getChats(USER_CHAT_PAGE_SIZE, chatOffset);
+      const response = await api.getChats(USER_CHAT_PAGE_SIZE, chatOffset, listMode === 'archived');
       if (response.success && (response as any).chats) {
         const rawChats = (response as any).chats as any[];
         const newChats = rawChats.map(rawChatToChat);
@@ -752,6 +797,166 @@ export default function UserChatScreen() {
       setIsLoadingMoreChats(false);
     }
   };
+
+  const handleOpenChatMenu = useCallback(() => {
+    chatMoreButtonRef.current?.measureInWindow((x, y, width, height) => {
+      const screenWidth = Dimensions.get('window').width;
+      setChatMenuAnchor({ top: y + height + 6, right: screenWidth - x - width });
+      setChatMenuVisible(true);
+    });
+  }, []);
+
+  const handleArchiveSelectedChat = useCallback(async () => {
+    if (!selectedChat) return;
+    const chatId = selectedChat.id;
+    const currentlyArchived = !!selectedChat.is_archived || listMode === 'archived';
+    try {
+      if (currentlyArchived) {
+        await api.unarchiveUserChat(chatId);
+        Toast.show({ type: 'success', text1: 'Chat restored' });
+      } else {
+        await api.archiveUserChat(chatId);
+        Toast.show({ type: 'success', text1: 'Chat archived' });
+      }
+      setSelectedChat(null);
+      setMessages([]);
+      setAttachedFiles([]);
+      setChats((prev) => prev.filter((c) => c.id !== chatId));
+      await loadChats(listMode);
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Failed to update chat');
+    }
+  }, [selectedChat, listMode, loadChats]);
+
+  const parseMessageAttachments = (msg: any): ChatAttachment[] => {
+    const raw = msg?.metadata?.attachments;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((att: any) => ({
+        file_id: Number(att?.file_id),
+        name: String(att?.name || att?.filename || 'Attachment'),
+        mimeType: att?.mimeType || att?.mime_type || undefined,
+      }))
+      .filter((att: ChatAttachment) => Number.isFinite(att.file_id) && att.file_id > 0);
+  };
+
+  const uploadPickedFile = useCallback(async (asset: {
+    uri: string;
+    name: string;
+    mimeType?: string | null;
+  }) => {
+    const localId = `up-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const name = asset.name || 'file';
+    const mimeType = asset.mimeType || 'application/octet-stream';
+    setAttachedFiles((prev) => [
+      ...prev,
+      { id: localId, name, mimeType, uri: asset.uri, status: 'uploading' },
+    ]);
+    try {
+      const formData = new FormData();
+      formData.append('files', {
+        uri: asset.uri,
+        name,
+        type: mimeType,
+      } as any);
+      formData.append('useAdvancedClassification', 'true');
+      const response = await api.uploadFileWithProgressPolling(formData, undefined, { filename: name });
+      const fileId =
+        (response as any)?.file?.id ??
+        (response as any)?.uploaded_files?.[0]?.id ??
+        (Array.isArray((response as any)?.files) ? (response as any).files[0]?.id : undefined);
+      if (!fileId) throw new Error('Upload finished without a file id');
+      setAttachedFiles((prev) =>
+        prev.map((att) =>
+          att.id === localId
+            ? { ...att, file_id: Number(fileId), status: 'ready', error: undefined }
+            : att
+        )
+      );
+    } catch (error: any) {
+      const limitData = extractLimitErrorData(getErrorResponseData(error));
+      if (limitData) showLimitError(limitData);
+      setAttachedFiles((prev) =>
+        prev.map((att) =>
+          att.id === localId
+            ? {
+                ...att,
+                status: 'failed',
+                error: error?.message || 'Upload failed',
+                file_id: undefined,
+              }
+            : att
+        )
+      );
+    }
+  }, [showLimitError]);
+
+  const pickDeviceFiles = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      for (const asset of result.assets) {
+        await uploadPickedFile({
+          uri: asset.uri,
+          name: asset.name || 'file',
+          mimeType: asset.mimeType,
+        });
+      }
+    } catch (error: any) {
+      Alert.alert('Attach', error?.message || 'Could not pick files');
+    }
+  }, [uploadPickedFile]);
+
+  const addLibraryAttachments = useCallback((picks: { id: number; name: string }[]) => {
+    setAttachedFiles((prev) => {
+      const existing = new Set(prev.map((a) => a.file_id).filter(Boolean) as number[]);
+      const next = [...prev];
+      for (const pick of picks) {
+        if (existing.has(pick.id)) continue;
+        existing.add(pick.id);
+        next.push({
+          id: `lib-${pick.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          file_id: pick.id,
+          name: pick.name,
+          mimeType: 'application/octet-stream',
+          status: 'ready',
+        });
+      }
+      return next;
+    });
+    setShowGrabDocsPicker(false);
+  }, []);
+
+  const attachMenuItems: ActionMenuItem[] = useMemo(
+    () => [
+      {
+        id: 'device',
+        label: 'From this device',
+        icon: 'phone-portrait-outline',
+        onPress: async () => {
+          setShowAttachMenu(false);
+          await pickDeviceFiles();
+        },
+      },
+      {
+        id: 'gd',
+        label: 'From GrabDocs',
+        icon: 'folder-outline',
+        onPress: () => {
+          setShowAttachMenu(false);
+          setShowGrabDocsPicker(true);
+        },
+      },
+    ],
+    [pickDeviceFiles]
+  );
+
+  const attachmentsBlockingSend = attachedFiles.some(
+    (a) => a.status === 'uploading' || a.status === 'failed' || !a.file_id
+  );
 
   const loadMentionResults = async (query: string) => {
     try {
@@ -815,6 +1020,7 @@ export default function UserChatScreen() {
             sender_id: senderId,
             created_at: msg.created_at || new Date().toISOString(),
             receipt_status: isOwn ? (msg.receipt_status || 'sent') : null,
+            attachments: parseMessageAttachments(msg),
           };
         });
         setMessages(convertedMessages);
@@ -880,9 +1086,10 @@ export default function UserChatScreen() {
   };
 
   const handleChatPress = (chat: Chat) => {
-    setSelectedChat(chat);
+    setSelectedChat(listMode === 'archived' ? { ...chat, is_archived: true } : chat);
     setIsNewChat(false);
     setSelectedRecipient(null);
+    setAttachedFiles([]);
     loadMessages(chat.id);
   };
 
@@ -1078,13 +1285,18 @@ export default function UserChatScreen() {
       return;
     }
 
-    // Normal message sending
-    if (!selectedChat || !newMessage.trim()) {
+    // Normal message sending (text and/or attachments)
+    if (!selectedChat || (!newMessage.trim() && attachedFiles.length === 0)) {
       console.log('⚠️ [USER-CHAT] Cannot send - missing chat or empty message:', {
         hasSelectedChat: !!selectedChat,
         hasMessage: !!newMessage.trim(),
-        messageLength: newMessage.trim().length
+        messageLength: newMessage.trim().length,
+        attachmentCount: attachedFiles.length,
       });
+      return;
+    }
+    if (attachedFiles.length > 0 && attachmentsBlockingSend) {
+      Alert.alert('Attachments', 'Wait for uploads to finish, or remove failed ones before sending.');
       return;
     }
     console.log('📤 [USER-CHAT] Proceeding with normal message send');
@@ -1095,9 +1307,19 @@ export default function UserChatScreen() {
     const canProceed = await confirmSend();
     if (!canProceed) return;
 
+    const stagedSnapshot = [...attachedFiles];
+    if (
+      stagedSnapshot.length > 0 &&
+      stagedSnapshot.some((a) => a.status !== 'ready' || !a.file_id)
+    ) {
+      Alert.alert('Attachments', 'Wait for uploads to finish, or remove failed ones before sending.');
+      return;
+    }
+
     console.log('📤 [USER-CHAT] ===== SENDING MESSAGE =====');
     console.log('📤 [USER-CHAT] Chat ID:', chatId);
     console.log('📤 [USER-CHAT] Message text:', messageText);
+    console.log('📤 [USER-CHAT] Attachments:', stagedSnapshot.length);
     console.log('📤 [USER-CHAT] User ID:', userProfile?.id);
     console.log('📤 [USER-CHAT] User profile:', userProfile);
     
@@ -1113,9 +1335,20 @@ export default function UserChatScreen() {
       });
     }
 
+    const attachmentMetadata =
+      stagedSnapshot.length > 0
+        ? {
+            attachments: stagedSnapshot.map((att) => ({
+              name: att.name,
+              mimeType: att.mimeType || 'application/octet-stream',
+              file_id: Number(att.file_id),
+            })),
+          }
+        : undefined;
+
     try {
       console.log('📤 [USER-CHAT] Calling API to send message...');
-      const response = await api.sendChatMessageToChat(messageText, chatId);
+      const response = await api.sendChatMessageToChat(messageText, chatId, attachmentMetadata);
       console.log('📤 [USER-CHAT] API response received:', {
         success: response.success,
         hasMessage: !!(response as any).message,
@@ -1128,6 +1361,7 @@ export default function UserChatScreen() {
         const newMsg = (response as any).message;
         const userId = currentUserIdRef.current ?? userProfile?.id;
         const isOwnMessage = !!(userId != null && newMsg.sender_id != null && (Number(newMsg.sender_id) === Number(userId) || String(newMsg.sender_id) === String(userId)));
+        const parsedAttachments = parseMessageAttachments(newMsg);
         const messageObj: ChatMessage = {
           id: newMsg.id,
           content: newMsg.content,
@@ -1136,6 +1370,10 @@ export default function UserChatScreen() {
           sender_id: newMsg.sender_id ?? (userId != null ? Number(userId) : undefined),
           created_at: newMsg.created_at || new Date().toISOString(),
           receipt_status: isOwnMessage ? (newMsg.receipt_status || 'sent') : null,
+          attachments:
+            parsedAttachments.length > 0
+              ? parsedAttachments
+              : (attachmentMetadata?.attachments as ChatAttachment[] | undefined),
         };
         
         // Add message locally (socket will also broadcast it, but we prevent duplicates)
@@ -1152,12 +1390,17 @@ export default function UserChatScreen() {
         
         setChats(prev => prev.map(chat => 
           chat.id === chatId 
-            ? { ...chat, last_message: newMsg.content.substring(0, 50), updated_at: newMsg.created_at || new Date().toISOString() }
+            ? {
+                ...chat,
+                last_message: (newMsg.content || (stagedSnapshot[0]?.name ? `📎 ${stagedSnapshot[0].name}` : 'Attachment')).substring(0, 50),
+                updated_at: newMsg.created_at || new Date().toISOString(),
+              }
             : chat
         ));
         clearNetworkFailures();
       }
       setNewMessage('');
+      setAttachedFiles([]);
       console.log('📤 [USER-CHAT] Message sent successfully, cleared input');
     } catch (error: any) {
       const limitData = extractLimitErrorData(getErrorResponseData(error));
@@ -1532,6 +1775,41 @@ export default function UserChatScreen() {
               />
               <Text style={dynamicStyles.chatMenuItemText}>
                 {favoriteChatIds.has(menuChatId) ? "Remove from Favorite" : "Add to Favorite"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.chatMenuItem}
+              onPress={async () => {
+                const chatId = menuChatId;
+                setMenuChatId(null);
+                const swipeableRef = chatSwipeableRefs.current.get(chatId);
+                if (swipeableRef) swipeableRef.close();
+                try {
+                  if (listMode === 'archived') {
+                    await api.unarchiveUserChat(chatId);
+                    Toast.show({ type: 'success', text1: 'Chat restored' });
+                  } else {
+                    await api.archiveUserChat(chatId);
+                    Toast.show({ type: 'success', text1: 'Chat archived' });
+                  }
+                  setChats((prev) => prev.filter((c) => c.id !== chatId));
+                  if (selectedChat?.id === chatId) {
+                    setSelectedChat(null);
+                    setMessages([]);
+                  }
+                } catch (error: any) {
+                  Alert.alert('Error', error?.message || 'Failed to update chat');
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={listMode === 'archived' ? 'arrow-undo-outline' : 'archive-outline'}
+                size={20}
+                color="#007AFF"
+              />
+              <Text style={dynamicStyles.chatMenuItemText}>
+                {listMode === 'archived' ? 'Unarchive' : 'Archive'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -1961,7 +2239,244 @@ export default function UserChatScreen() {
     chatMenuItemDanger: {
       color: '#FF3B30',
     },
-  }), [colors, insets]);
+    popoverOverlay: anchoredPopoverOverlayStyle(isDark),
+    popoverCard: anchoredPopoverCardStyle(colors, isDark),
+    popoverItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 14,
+      paddingHorizontal: 16,
+    },
+    popoverItemBorder: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    popoverItemIcon: { marginRight: 12 },
+    popoverItemText: { fontSize: 16, color: colors.text, flex: 1 },
+    attachChipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      paddingHorizontal: 12,
+      paddingTop: 8,
+      paddingBottom: 4,
+    },
+    attachChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      maxWidth: '100%',
+      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      backgroundColor: colors.card,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      gap: 6,
+    },
+    attachChipText: {
+      flexShrink: 1,
+      fontSize: 13,
+      color: colors.text,
+      maxWidth: 180,
+    },
+    messageAttachment: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 6,
+      paddingVertical: 4,
+    },
+    messageAttachmentText: {
+      fontSize: 14,
+      textDecorationLine: 'underline',
+      flexShrink: 1,
+    },
+    composerAttachBtn: {
+      paddingHorizontal: 8,
+      paddingVertical: 8,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+  }), [colors, insets, isDark]);
+
+  const canSendMessage =
+    !sendingMessage &&
+    !connectivitySendDisabled &&
+    !selectedChat?.invite_pending &&
+    (!!newMessage.trim() || attachedFiles.length > 0) &&
+    !(attachedFiles.length > 0 && attachmentsBlockingSend);
+
+  const renderMessageItem = ({ item }: { item: ChatMessage }) => {
+    const isOwnMessage =
+      currentUserIdRef.current != null && item.sender_id != null
+        ? String(item.sender_id) === String(currentUserIdRef.current)
+        : item.is_own_message;
+    const preview = (item.content || '').trim().substring(0, 80);
+    const msgLabel = isOwnMessage
+      ? `Your message${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`
+      : `Message from ${item.sender?.username || 'unknown'}${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`;
+    const atts = item.attachments || [];
+    return (
+      <View
+        style={[dynamicStyles.messageItem, isOwnMessage ? dynamicStyles.myMessage : dynamicStyles.otherMessage]}
+        accessibilityRole="listitem"
+        accessibilityLabel={msgLabel}
+      >
+        <View style={{ maxWidth: '75%' }}>
+          {!isOwnMessage && item.sender && (
+            <Text style={dynamicStyles.senderName}>{item.sender.username}</Text>
+          )}
+          <View
+            style={[
+              dynamicStyles.messageBubble,
+              isOwnMessage ? dynamicStyles.myMessageBubble : dynamicStyles.otherMessageBubble,
+            ]}
+          >
+            {atts.map((att) => (
+              <TouchableOpacity
+                key={`${item.id}-${att.file_id}`}
+                style={dynamicStyles.messageAttachment}
+                onPress={() => {
+                  setViewerFileId(att.file_id);
+                  setViewerFileName(att.name);
+                }}
+              >
+                <Ionicons
+                  name="document-attach-outline"
+                  size={16}
+                  color={isOwnMessage ? '#fff' : colors.primary}
+                />
+                <Text
+                  style={[
+                    dynamicStyles.messageAttachmentText,
+                    { color: isOwnMessage ? '#fff' : colors.primary },
+                  ]}
+                  numberOfLines={2}
+                >
+                  {att.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {!!item.content && (
+              <Text
+                style={[
+                  dynamicStyles.messageText,
+                  isOwnMessage ? dynamicStyles.myMessageText : dynamicStyles.otherMessageText,
+                ]}
+              >
+                {item.content}
+              </Text>
+            )}
+            <Text
+              style={[
+                dynamicStyles.messageTime,
+                isOwnMessage ? dynamicStyles.myMessageTime : dynamicStyles.otherMessageTime,
+              ]}
+            >
+              {formatMessageTime(item.created_at)}
+              {isOwnMessage ? (
+                <Text
+                  style={[
+                    dynamicStyles.receiptTick,
+                    item.receipt_status === 'read' && dynamicStyles.receiptTickRead,
+                  ]}
+                >
+                  {item.receipt_status === 'sent' || !item.receipt_status ? ' ✓' : ' ✓✓'}
+                </Text>
+              ) : null}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const renderStagedAttachments = () =>
+    attachedFiles.length === 0 ? null : (
+      <View style={dynamicStyles.attachChipRow}>
+        {attachedFiles.map((att) => (
+          <View key={att.id} style={dynamicStyles.attachChip}>
+            {att.status === 'uploading' ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Ionicons
+                name={att.status === 'failed' ? 'alert-circle-outline' : 'document-outline'}
+                size={16}
+                color={att.status === 'failed' ? '#FF3B30' : colors.text}
+              />
+            )}
+            <Text style={dynamicStyles.attachChipText} numberOfLines={1}>
+              {att.name}
+              {att.status === 'failed' ? ' · failed' : att.status === 'uploading' ? ' · uploading' : ''}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setAttachedFiles((prev) => prev.filter((a) => a.id !== att.id))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        ))}
+      </View>
+    );
+
+  const renderComposer = () => (
+    <>
+      {renderStagedAttachments()}
+      <View
+        ref={inputContainerRef}
+        style={[
+          dynamicStyles.inputContainer,
+          { zIndex: 10 },
+          keyboardTop != null && {
+            marginBottom: Math.max(0, Dimensions.get('window').height - insets.bottom - keyboardTop),
+          },
+        ]}
+      >
+        {!isNewChat && selectedChat && !selectedChat.invite_pending ? (
+          <TouchableOpacity
+            style={dynamicStyles.composerAttachBtn}
+            onPress={() => setShowAttachMenu(true)}
+            accessibilityLabel="Attach files"
+            disabled={sendingMessage || connectivitySendDisabled}
+          >
+            <Ionicons name="attach" size={24} color={colors.primary || '#007AFF'} />
+          </TouchableOpacity>
+        ) : null}
+        <ChatComposerInput
+          ref={messageInputRef}
+          shellStyle={dynamicStyles.messageInputShell}
+          inputStyle={dynamicStyles.messageInput}
+          placeholder={
+            isNewChat
+              ? 'Type @ to search for a user or workspace...'
+              : selectedChat?.invite_pending
+                ? 'Invite pending — messaging disabled'
+                : 'Type a message...'
+          }
+          placeholderTextColor={colors.textSecondary}
+          value={newMessage}
+          onChangeText={handleTyping}
+          editable={!connectivitySendDisabled && !selectedChat?.invite_pending}
+          returnKeyType="default"
+          maxLength={4000}
+        />
+        <View style={dynamicStyles.composerSendWrap}>
+          <TouchableOpacity
+            style={[dynamicStyles.sendButton, !canSendMessage && { opacity: 0.5 }]}
+            onPress={handleSendMessage}
+            disabled={!canSendMessage && !selectedRecipient}
+          >
+            {sendingMessage ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Ionicons name="arrow-up" size={18} color="#fff" />
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </>
+  );
 
   if (isNewChat || selectedChat) {
     return (
@@ -1974,6 +2489,7 @@ export default function UserChatScreen() {
               setIsNewChat(false);
               setSelectedRecipient(null);
               setNewMessage('');
+              setAttachedFiles([]);
             } else {
               // If on chat list, go back to previous screen
               router.back();
@@ -2030,20 +2546,31 @@ export default function UserChatScreen() {
             </View>
           )}
           {!isNewChat && selectedChat && (
-            <TouchableOpacity 
-              onPress={() => {
-                setRefreshing(true);
-                loadMessages(selectedChat.id).finally(() => setRefreshing(false));
-              }}
-              style={dynamicStyles.newChatButton}
-              disabled={refreshing}
-            >
-              <Ionicons 
-                name="refresh" 
-                size={28} 
-                color={refreshing ? "#999" : "#007AFF"} 
-              />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setRefreshing(true);
+                  loadMessages(selectedChat.id).finally(() => setRefreshing(false));
+                }}
+                style={dynamicStyles.newChatButton}
+                disabled={refreshing}
+              >
+                <Ionicons 
+                  name="refresh" 
+                  size={28} 
+                  color={refreshing ? "#999" : "#007AFF"} 
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                ref={chatMoreButtonRef}
+                onPress={handleOpenChatMenu}
+                style={dynamicStyles.newChatButton}
+                accessibilityLabel="More options"
+                accessibilityRole="button"
+              >
+                <Ionicons name="ellipsis-horizontal-circle" size={30} color="#007AFF" />
+              </TouchableOpacity>
+            </View>
           )}
           {isNewChat && <View style={{ width: APP_BACK_BUTTON_SLOT }} />}
         </View>
@@ -2076,46 +2603,7 @@ export default function UserChatScreen() {
                   sections={messageSections}
                   accessibilityRole="list"
                   accessibilityLabel="Chat messages"
-                  renderItem={({ item }) => {
-                    const isOwnMessage = (currentUserIdRef.current != null && item.sender_id != null)
-                      ? String(item.sender_id) === String(currentUserIdRef.current)
-                      : item.is_own_message;
-                    const preview = (item.content || '').trim().substring(0, 80);
-                    const msgLabel = isOwnMessage
-                      ? `Your message${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`
-                      : `Message from ${item.sender?.username || 'unknown'}${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`;
-                    return (
-                    <View
-                      style={[dynamicStyles.messageItem, isOwnMessage ? dynamicStyles.myMessage : dynamicStyles.otherMessage]}
-                      accessibilityRole="listitem"
-                      accessibilityLabel={msgLabel}
-                    >
-                      <View style={{ maxWidth: '75%' }}>
-                        {!isOwnMessage && item.sender && (
-                          <Text style={dynamicStyles.senderName}>{item.sender.username}</Text>
-                        )}
-                        <View style={[dynamicStyles.messageBubble, isOwnMessage ? dynamicStyles.myMessageBubble : dynamicStyles.otherMessageBubble]}>
-                          <Text style={[dynamicStyles.messageText, isOwnMessage ? dynamicStyles.myMessageText : dynamicStyles.otherMessageText]}>
-                            {item.content}
-                          </Text>
-                          <Text style={[dynamicStyles.messageTime, isOwnMessage ? dynamicStyles.myMessageTime : dynamicStyles.otherMessageTime]}>
-                            {formatMessageTime(item.created_at)}
-                            {isOwnMessage ? (
-                              <Text
-                                style={[
-                                  dynamicStyles.receiptTick,
-                                  item.receipt_status === 'read' && dynamicStyles.receiptTickRead,
-                                ]}
-                              >
-                                {item.receipt_status === 'sent' || !item.receipt_status ? ' ✓' : ' ✓✓'}
-                              </Text>
-                            ) : null}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    );
-                  }}
+                  renderItem={renderMessageItem}
                   keyExtractor={(item) => item.id.toString()}
                   renderSectionHeader={({ section: { title } }) => (
                     <View style={dynamicStyles.messageDateSectionHeader}>
@@ -2187,42 +2675,7 @@ export default function UserChatScreen() {
               textStyle={dynamicStyles.connectivityBannerText}
             />
 
-            <View 
-              ref={inputContainerRef}
-              style={[
-                dynamicStyles.inputContainer,
-                { zIndex: 10 },
-                keyboardTop != null && {
-                  marginBottom: Math.max(0, Dimensions.get('window').height - insets.bottom - keyboardTop),
-                },
-              ]}
-            >
-              <ChatComposerInput
-                ref={messageInputRef}
-                shellStyle={dynamicStyles.messageInputShell}
-                inputStyle={dynamicStyles.messageInput}
-                placeholder={isNewChat ? "Type @ to search for a user or workspace..." : "Type a message..."}
-                placeholderTextColor={colors.textSecondary}
-                value={newMessage}
-                onChangeText={handleTyping}
-                editable={!connectivitySendDisabled}
-                returnKeyType="default"
-                maxLength={4000}
-              />
-              <View style={dynamicStyles.composerSendWrap}>
-                <TouchableOpacity 
-                  style={[dynamicStyles.sendButton, ((!newMessage.trim() && !selectedRecipient) || sendingMessage || connectivitySendDisabled) && { opacity: 0.5 }]} 
-                  onPress={handleSendMessage} 
-                  disabled={sendingMessage || connectivitySendDisabled || (!newMessage.trim() && !selectedRecipient)}
-                >
-                  {sendingMessage ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons name="arrow-up" size={18} color="#fff" />
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
+            {renderComposer()}
           </KeyboardAvoidingView>
         ) : (
           <>
@@ -2248,46 +2701,7 @@ export default function UserChatScreen() {
                   sections={messageSections}
                   accessibilityRole="list"
                   accessibilityLabel="Chat messages"
-                  renderItem={({ item }) => {
-                    const isOwnMessage = (currentUserIdRef.current != null && item.sender_id != null)
-                      ? String(item.sender_id) === String(currentUserIdRef.current)
-                      : item.is_own_message;
-                    const preview = (item.content || '').trim().substring(0, 80);
-                    const msgLabel = isOwnMessage
-                      ? `Your message${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`
-                      : `Message from ${item.sender?.username || 'unknown'}${preview ? `: ${preview}${preview.length >= 80 ? '…' : ''}` : ''}`;
-                    return (
-                    <View
-                      style={[dynamicStyles.messageItem, isOwnMessage ? dynamicStyles.myMessage : dynamicStyles.otherMessage]}
-                      accessibilityRole="listitem"
-                      accessibilityLabel={msgLabel}
-                    >
-                      <View style={{ maxWidth: '75%' }}>
-                        {!isOwnMessage && item.sender && (
-                          <Text style={dynamicStyles.senderName}>{item.sender.username}</Text>
-                        )}
-                        <View style={[dynamicStyles.messageBubble, isOwnMessage ? dynamicStyles.myMessageBubble : dynamicStyles.otherMessageBubble]}>
-                          <Text style={[dynamicStyles.messageText, isOwnMessage ? dynamicStyles.myMessageText : dynamicStyles.otherMessageText]}>
-                            {item.content}
-                          </Text>
-                          <Text style={[dynamicStyles.messageTime, isOwnMessage ? dynamicStyles.myMessageTime : dynamicStyles.otherMessageTime]}>
-                            {formatMessageTime(item.created_at)}
-                            {isOwnMessage ? (
-                              <Text
-                                style={[
-                                  dynamicStyles.receiptTick,
-                                  item.receipt_status === 'read' && dynamicStyles.receiptTickRead,
-                                ]}
-                              >
-                                {item.receipt_status === 'sent' || !item.receipt_status ? ' ✓' : ' ✓✓'}
-                              </Text>
-                            ) : null}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                    );
-                  }}
+                  renderItem={renderMessageItem}
                   keyExtractor={(item) => item.id.toString()}
                   renderSectionHeader={({ section: { title } }) => (
                     <View style={dynamicStyles.messageDateSectionHeader}>
@@ -2359,44 +2773,85 @@ export default function UserChatScreen() {
               textStyle={dynamicStyles.connectivityBannerText}
             />
 
-            <View 
-              ref={inputContainerRef}
-              style={[
-                dynamicStyles.inputContainer,
-                { zIndex: 10 },
-                Platform.OS === 'android' && keyboardTop != null && {
-                  marginBottom: Math.max(0, Dimensions.get('window').height - insets.bottom - keyboardTop),
-                },
-              ]}
-            >
-              <ChatComposerInput
-                ref={messageInputRef}
-                shellStyle={dynamicStyles.messageInputShell}
-                inputStyle={dynamicStyles.messageInput}
-                placeholder={isNewChat ? "Type @ to search for a user or workspace..." : "Type a message..."}
-                placeholderTextColor={colors.textSecondary}
-                value={newMessage}
-                onChangeText={handleTyping}
-                editable={!connectivitySendDisabled}
-                returnKeyType="default"
-                maxLength={4000}
-              />
-              <View style={dynamicStyles.composerSendWrap}>
-                <TouchableOpacity 
-                  style={[dynamicStyles.sendButton, ((!newMessage.trim() && !selectedRecipient) || sendingMessage || connectivitySendDisabled) && { opacity: 0.5 }]} 
-                  onPress={handleSendMessage} 
-                  disabled={sendingMessage || connectivitySendDisabled || (!newMessage.trim() && !selectedRecipient)}
+            {renderComposer()}
+          </>
+        )}
+
+
+        <ActionMenuModal
+          visible={showAttachMenu}
+          title="Attach"
+          items={attachMenuItems}
+          onClose={() => setShowAttachMenu(false)}
+        />
+        <GrabDocsAttachPicker
+          visible={showGrabDocsPicker}
+          onClose={() => setShowGrabDocsPicker(false)}
+          onAddFiles={addLibraryAttachments}
+        />
+        {viewerFileId != null ? (
+          <GeneralFileViewerModal
+            visible
+            fileId={viewerFileId}
+            title={viewerFileName}
+            onClose={() => {
+              setViewerFileId(null);
+              setViewerFileName(undefined);
+            }}
+          />
+        ) : null}
+
+        <Modal
+          visible={chatMenuVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setChatMenuVisible(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setChatMenuVisible(false)}>
+            <View style={dynamicStyles.popoverOverlay}>
+              <View style={[dynamicStyles.popoverCard, { top: chatMenuAnchor.top, right: chatMenuAnchor.right }]}>
+                <TouchableOpacity
+                  style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]}
+                  onPress={() => {
+                    setChatMenuVisible(false);
+                    void setTheme(isDark ? 'light' : 'dark');
+                  }}
                 >
-                  {sendingMessage ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons name="arrow-up" size={18} color="#fff" />
-                  )}
+                  <Ionicons
+                    name={isDark ? 'sunny-outline' : 'moon-outline'}
+                    size={20}
+                    color={colors.text}
+                    style={dynamicStyles.popoverItemIcon}
+                  />
+                  <Text style={dynamicStyles.popoverItemText}>
+                    {isDark ? 'Light Background' : 'Dark Background'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={dynamicStyles.popoverItem}
+                  onPress={() => {
+                    setChatMenuVisible(false);
+                    void handleArchiveSelectedChat();
+                  }}
+                >
+                  <Ionicons
+                    name={
+                      selectedChat?.is_archived || listMode === 'archived'
+                        ? 'arrow-undo-outline'
+                        : 'archive-outline'
+                    }
+                    size={20}
+                    color={colors.text}
+                    style={dynamicStyles.popoverItemIcon}
+                  />
+                  <Text style={dynamicStyles.popoverItemText}>
+                    {selectedChat?.is_archived || listMode === 'archived' ? 'Unarchive' : 'Archive'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </>
-        )}
+          </TouchableWithoutFeedback>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -2405,15 +2860,18 @@ export default function UserChatScreen() {
     <SafeAreaView style={dynamicStyles.container} edges={['top']}>
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={() => {
-          // Navigate back to home
+          if (listMode === 'archived') {
+            setListMode('active');
+            return;
+          }
           router.back();
         }} />
-        <AppHeaderTitle>Messages</AppHeaderTitle>
+        <AppHeaderTitle>{listMode === 'archived' ? 'Archived' : 'Messages'}</AppHeaderTitle>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity 
             onPress={() => {
               setRefreshing(true);
-              loadChats();
+              void loadChats(listMode);
             }}
             style={dynamicStyles.newChatButton}
             disabled={refreshing}
@@ -2424,12 +2882,23 @@ export default function UserChatScreen() {
               color={refreshing ? "#999" : "#007AFF"} 
             />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowInviteModal(true)} style={dynamicStyles.newChatButton}>
-            <Ionicons name="person-add-outline" size={28} color="#007AFF" />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleNewChat} style={dynamicStyles.newChatButton}>
-            <Ionicons name="add" size={28} color="#007AFF" />
-          </TouchableOpacity>
+          {listMode === 'active' ? (
+            <>
+              <TouchableOpacity
+                onPress={() => setListMode('archived')}
+                style={dynamicStyles.newChatButton}
+                accessibilityLabel="Archived conversations"
+              >
+                <Ionicons name="archive-outline" size={26} color="#007AFF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowInviteModal(true)} style={dynamicStyles.newChatButton}>
+                <Ionicons name="person-add-outline" size={28} color="#007AFF" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleNewChat} style={dynamicStyles.newChatButton}>
+                <Ionicons name="add" size={28} color="#007AFF" />
+              </TouchableOpacity>
+            </>
+          ) : null}
         </View>
       </View>
 
@@ -2462,7 +2931,11 @@ export default function UserChatScreen() {
         <View style={dynamicStyles.emptyContainer}>
           <Ionicons name="chatbubbles-outline" size={64} color={colors.textSecondary} />
           <Text style={dynamicStyles.emptyText}>
-            {searchQuery ? 'No conversations found' : 'No conversations yet\nStart a new chat to get started'}
+            {searchQuery
+              ? 'No conversations found'
+              : listMode === 'archived'
+                ? 'No archived conversations'
+                : 'No conversations yet\nStart a new chat to get started'}
           </Text>
         </View>
       ) : (

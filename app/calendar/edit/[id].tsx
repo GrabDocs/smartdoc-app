@@ -43,6 +43,8 @@ import {
   convertLocalTimeToUTC,
   formatLocalTime12h,
   getDeviceIanaTimezone,
+  inclusiveToExclusiveEnd,
+  isoDatePart,
   parseUTC,
   toLocalDateString,
 } from '../../../utils/calendarTime';
@@ -110,6 +112,7 @@ export default function CalendarEditScreen() {
   const [eventDate, setEventDate] = useState('');
   const [eventTime, setEventTime] = useState('');
   const [durationMin, setDurationMin] = useState(60);
+  const [allDay, setAllDay] = useState(false);
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [newEmail, setNewEmail] = useState('');
@@ -258,15 +261,23 @@ export default function CalendarEditScreen() {
     setRecordId(event.linked_category_record_id ?? null);
 
     if (event.start_time) {
-      const s = parseUTC(event.start_time);
-      setEventDate(toLocalDateString(s));
-      setEventTime(formatLocalTime12h(s));
-      if (event.end_time) {
-        const e = parseUTC(event.end_time);
-        const mins = Math.round((e.getTime() - s.getTime()) / 60000);
-        setDurationMin(Number.isFinite(mins) && mins > 0 ? mins : 60);
-      } else {
+      const isAllDay = !!event.all_day;
+      setAllDay(isAllDay);
+      if (isAllDay) {
+        setEventDate(isoDatePart(event.start_time));
+        setEventTime('12:00 AM');
         setDurationMin(60);
+      } else {
+        const s = parseUTC(event.start_time);
+        setEventDate(toLocalDateString(s));
+        setEventTime(formatLocalTime12h(s));
+        if (event.end_time) {
+          const e = parseUTC(event.end_time);
+          const mins = Math.round((e.getTime() - s.getTime()) / 60000);
+          setDurationMin(Number.isFinite(mins) && mins > 0 ? mins : 60);
+        } else {
+          setDurationMin(60);
+        }
       }
     }
 
@@ -420,7 +431,11 @@ export default function CalendarEditScreen() {
       );
       return;
     }
-    if (!eventDate || !eventTime) {
+    if (!eventDate) {
+      Alert.alert('Date', 'Select a date');
+      return;
+    }
+    if (!allDay && !eventTime) {
       Alert.alert('Time', 'Select date and start time');
       return;
     }
@@ -428,10 +443,15 @@ export default function CalendarEditScreen() {
     let startDt: Date;
     let endDt: Date;
     try {
-      startDt = convertLocalTimeToUTC(eventDate, eventTime, tz);
-      endDt = new Date(startDt.getTime() + Math.max(1, durationMin) * 60 * 1000);
+      if (allDay) {
+        startDt = convertLocalTimeToUTC(eventDate, '00:00', tz);
+        endDt = convertLocalTimeToUTC(inclusiveToExclusiveEnd(eventDate), '00:00', tz);
+      } else {
+        startDt = convertLocalTimeToUTC(eventDate, eventTime, tz);
+        endDt = new Date(startDt.getTime() + Math.max(1, durationMin) * 60 * 1000);
+      }
     } catch {
-      Alert.alert('Time', 'Enter a valid start time (for example 5:00 PM).');
+      Alert.alert('Time', allDay ? 'Select a valid date.' : 'Enter a valid start time (for example 5:00 PM).');
       return;
     }
 
@@ -452,7 +472,7 @@ export default function CalendarEditScreen() {
     try {
       let meetingUrlForPut = meetingUrl.trim() || undefined;
 
-      if (useReach && !existingVideoCallId) {
+      if (!allDay && useReach && !existingVideoCallId) {
         try {
           const durationMinutes = Math.max(1, durationMin);
           const videoMeetingData = {
@@ -491,8 +511,9 @@ export default function CalendarEditScreen() {
         start_time: startDt.toISOString(),
         end_time: endDt.toISOString(),
         timezone: tz,
+        all_day: allDay,
         location: location.trim() || undefined,
-        meeting_url: useReach ? meetingUrlForPut : meetingUrl.trim() || undefined,
+        meeting_url: allDay ? undefined : (useReach ? meetingUrlForPut : meetingUrl.trim() || undefined),
         participants,
         reminders,
         reminder_minutes: reminders.map((r) => r.minutes),
@@ -612,31 +633,51 @@ export default function CalendarEditScreen() {
           </>
         ) : null}
 
-        <Text style={styles.label}>Starts</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginBottom: 4 }}>
+          <Text style={{ flex: 1, color: colors.text, fontWeight: '600' }}>All day</Text>
+          <Switch
+            value={allDay}
+            onValueChange={(next) => {
+              setAllDay(next);
+              if (next) setUseReach(false);
+            }}
+            trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+            thumbColor={colors.switchThumbAndroid(allDay)}
+            ios_backgroundColor={colors.switchTrackOff}
+          />
+        </View>
+
+        <Text style={styles.label}>{allDay ? 'Date' : 'Starts'}</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openDatePicker}>
             <Text style={{ color: colors.text }}>{eventDate}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openTimePicker}>
-            <Text style={{ color: colors.text }}>{eventTime}</Text>
-          </TouchableOpacity>
+          {!allDay ? (
+            <TouchableOpacity style={[styles.input, { flex: 1 }]} onPress={openTimePicker}>
+              <Text style={{ color: colors.text }}>{eventTime}</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
-        <Text style={styles.label}>Duration</Text>
-        <TouchableOpacity
-          style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
-          onPress={openDurationPicker}
-          accessibilityRole="button"
-          accessibilityLabel={`Duration, ${durationLabel}`}
-        >
-          <Text style={{ color: colors.text }}>{durationLabel}</Text>
-          <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
+        {!allDay ? (
+          <>
+            <Text style={styles.label}>Duration</Text>
+            <TouchableOpacity
+              style={[styles.input, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}
+              onPress={openDurationPicker}
+              accessibilityRole="button"
+              accessibilityLabel={`Duration, ${durationLabel}`}
+            >
+              <Text style={{ color: colors.text }}>{durationLabel}</Text>
+              <Ionicons name="chevron-down" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </>
+        ) : null}
 
         <Text style={styles.label}>Location</Text>
         <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholderTextColor={colors.textSecondary} />
 
-        {existingVideoCallId == null ? (
+        {!allDay && existingVideoCallId == null ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
             <Text style={{ flex: 1, color: colors.text, fontWeight: '600' }}>Add Reach meeting</Text>
             <Switch
@@ -649,7 +690,7 @@ export default function CalendarEditScreen() {
           </View>
         ) : null}
 
-        {!useReach || existingVideoCallId != null ? (
+        {!allDay && (!useReach || existingVideoCallId != null) ? (
           <>
             <Text style={styles.label}>Meeting URL</Text>
             <TextInput style={styles.input} value={meetingUrl} onChangeText={setMeetingUrl} placeholderTextColor={colors.textSecondary} />

@@ -288,10 +288,53 @@ export function eventHasReachMeeting(ev: {
   return false;
 }
 
+/** YYYY-MM-DD from ISO (avoids timezone day-shift for all-day events). */
+export function isoDatePart(iso: string | null | undefined): string {
+  const m = String(iso || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+export function addCalendarDays(yyyyMmDd: string, days: number): string {
+  const [y, m, d] = yyyyMmDd.split('-').map(Number);
+  if (!y || !m || !d) return yyyyMmDd;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + days);
+  return toLocalDateString(dt);
+}
+
+export function inclusiveToExclusiveEnd(inclusiveEnd: string): string {
+  return addCalendarDays(inclusiveEnd, 1);
+}
+
+export function exclusiveToInclusiveEnd(startDate: string, exclusiveEnd: string): string {
+  if (!exclusiveEnd) return startDate;
+  const inclusive = addCalendarDays(exclusiveEnd, -1);
+  return inclusive < startDate ? startDate : inclusive;
+}
+
 /** Display start time like list/calendar rows: medium date + short time on device clock. */
-export function formatEventWhen(ev: { start_time?: string | null }): string {
+export function formatEventWhen(ev: { start_time?: string | null; end_time?: string | null; all_day?: boolean }): string {
   try {
     if (!ev.start_time) return '';
+    if (ev.all_day) {
+      const start = isoDatePart(ev.start_time);
+      if (!start) return 'All day';
+      const endInclusive = exclusiveToInclusiveEnd(start, isoDatePart(ev.end_time || ''));
+      const startLabel = new Date(
+        Number(start.slice(0, 4)),
+        Number(start.slice(5, 7)) - 1,
+        Number(start.slice(8, 10))
+      ).toLocaleDateString(undefined, { dateStyle: 'medium' });
+      if (endInclusive && endInclusive !== start) {
+        const endLabel = new Date(
+          Number(endInclusive.slice(0, 4)),
+          Number(endInclusive.slice(5, 7)) - 1,
+          Number(endInclusive.slice(8, 10))
+        ).toLocaleDateString(undefined, { dateStyle: 'medium' });
+        return `${startLabel} – ${endLabel} · All day`;
+      }
+      return `${startLabel} · All day`;
+    }
     return formatUtcIsoForDevice(ev.start_time, { dateStyle: 'medium', timeStyle: 'short' });
   } catch {
     return '';
