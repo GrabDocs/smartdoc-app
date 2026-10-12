@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
@@ -413,25 +414,24 @@ export default function ClientDetailScreen() {
         <AppHeaderTitle shrink={false}>
           {truncateAppHeaderTitle(client?.display_name || 'Client')}
         </AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={() => void refresh()}
             disabled={loading}
-            hitSlop={8}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={loading ? '#999' : '#0D9488'} />
+            <AppHeaderIcon name="refresh" color={loading ? '#999' : '#0D9488'} />
           </TouchableOpacity>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleArchive}
-            hitSlop={8}
             accessibilityLabel={client?.status === 'archived' ? 'Unarchive client' : 'Archive client'}
             accessibilityRole="button"
           >
-            <Ionicons
+            <AppHeaderIcon
               name={client?.status === 'archived' ? 'refresh-outline' : 'archive-outline'}
-              size={28}
               color={colors.textSecondary}
             />
           </TouchableOpacity>

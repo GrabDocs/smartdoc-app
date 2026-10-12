@@ -34,6 +34,7 @@ import { UploadOptionsModal } from '../components/UploadOptionsModal';
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 /** Rows shown initially in Recent Receipts / Recent Invoices; full lists stay in state for charts & summaries. */
@@ -2036,7 +2037,7 @@ export default function AnalyticsDashboard() {
           <AppBackButton />
           <AppHeaderTitle>Financials</AppHeaderTitle>
           <TouchableOpacity style={styles.headerButton} onPress={() => loadAnalytics()}>
-            <Ionicons name="refresh" size={28} color={colors.primary || '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={colors.primary || '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={styles.errorContainer}>
@@ -2129,13 +2130,13 @@ export default function AnalyticsDashboard() {
             accessibilityLabel="Upload document"
             accessibilityRole="button"
           >
-            <Ionicons name="cloud-upload-outline" size={28} color={colors.primary || '#007AFF'} />
+            <AppHeaderIcon name="cloud-upload-outline" color={colors.primary || '#007AFF'} />
           </TouchableOpacity>
           <FeedbackTouchable onPress={handleShareReport} style={styles.shareButton} spinnerColor="#10B981">
-            <Ionicons name="share-outline" size={28} color="#10B981" />
+            <AppHeaderIcon name="share-outline" color="#10B981" />
           </FeedbackTouchable>
           <TouchableOpacity style={styles.headerButton} onPress={onRefresh}>
-            <Ionicons name="refresh" size={28} color={colors.primary || '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={colors.primary || '#007AFF'} />
           </TouchableOpacity>
         </View>
       </View>

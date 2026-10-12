@@ -37,6 +37,7 @@ import { hubSignRoute } from '../../utils/signatureRouteResolver';
 import { loadDraftStep, saveDraftStep } from '../../services/signatureSessionCache';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 
 export default function EnvelopeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -212,12 +213,12 @@ export default function EnvelopeDetailScreen() {
           </View>
         </View>
         <TouchableOpacity
+          style={appHeaderButtonStyle}
           onPress={() => void load()}
           accessibilityLabel="Refresh"
           accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={22} color={colors.primary || '#007AFF'} />
+          <AppHeaderIcon name="refresh" color={colors.primary || '#007AFF'} />
         </TouchableOpacity>
       </View>
 

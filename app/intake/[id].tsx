@@ -63,6 +63,7 @@ import { useAuth } from '../context/auth';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createIntakeShareAdapter } from '../../components/share/resourceAdapters';
@@ -1186,13 +1187,13 @@ export default function IntakeDetailScreen() {
           <AppBackButton />
           <AppHeaderTitle>Intake</AppHeaderTitle>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -1223,15 +1224,15 @@ export default function IntakeDetailScreen() {
         <AppHeaderTitle shrink={false} style={{ marginRight: 8 }}>
           {truncateAppHeaderTitle(intake.title || 'Intake')}
         </AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <View style={[appHeaderActionsStyle, { flexShrink: 0 }]}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           {intake.status !== 'archived' ? (
             <TouchableOpacity

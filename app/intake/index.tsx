@@ -36,6 +36,7 @@ import {
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 /** In-memory TTL — soft-refresh still runs on focus. */
@@ -1003,22 +1004,23 @@ export default function IntakeListScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton />
           <AppHeaderTitle>Intake</AppHeaderTitle>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={appHeaderActionsStyle}>
             <TouchableOpacity
+              style={appHeaderButtonStyle}
               onPress={handleRefresh}
               disabled={refreshing}
               accessibilityLabel="Refresh"
               accessibilityRole="button"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+              <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
             </TouchableOpacity>
             <TouchableOpacity
+              style={appHeaderButtonStyle}
               onPress={() => router.push('/intake/create')}
               accessibilityLabel="Create intake"
               accessibilityRole="button"
             >
-              <Ionicons name="add" size={28} color="#007AFF" />
+              <AppHeaderIcon name="add" color="#007AFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -1040,22 +1042,23 @@ export default function IntakeListScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton />
         <AppHeaderTitle>Intake</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={() => router.push('/intake/create')}
             accessibilityLabel="Create intake"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={28} color="#007AFF" />
+            <AppHeaderIcon name="add" color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

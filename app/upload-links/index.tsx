@@ -27,6 +27,7 @@ import { buildUploadLinkUrl, getUploadToBaseUrl } from '../../utils/uploadLinkHe
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createUploadLinkShareAdapter } from '../../components/share/resourceAdapters';
@@ -652,13 +653,13 @@ export default function UploadLinksScreen() {
           <AppBackButton />
           <AppHeaderTitle>File Request</AppHeaderTitle>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -674,23 +675,23 @@ export default function UploadLinksScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton />
         <AppHeaderTitle>File Request</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleCreateLink}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityLabel="Create file request"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={28} color="#007AFF" />
+            <AppHeaderIcon name="add" color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

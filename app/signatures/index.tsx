@@ -49,6 +49,7 @@ import {
 } from '../../utils/signatureRouteResolver';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 const TABS: { key: EnvelopeTab; label?: string; icon?: keyof typeof Ionicons.glyphMap }[] = [
@@ -542,15 +543,14 @@ export default function SignaturesHubScreen() {
         <AppBackButton />
         <AppHeaderTitle>Signatures</AppHeaderTitle>
         <TouchableOpacity
+          style={appHeaderButtonStyle}
           onPress={() => void handleRefresh()}
           disabled={refreshing}
           accessibilityLabel="Refresh"
           accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons
+          <AppHeaderIcon
             name="refresh"
-            size={28}
             color={refreshing ? '#999' : colors.primary || '#007AFF'}
           />
         </TouchableOpacity>

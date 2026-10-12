@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import 'react-native-url-polyfill/auto';
 import { WebView } from 'react-native-webview';
 import { io, Socket } from 'socket.io-client';
+import AppHeaderIcon from '../../../components/AppHeaderIcon';
 import { API_BASE_URL, STORAGE_KEYS } from '../../../constants/Config';
 import {
     shouldRestoreHeaderAfterScrollToEdge,
@@ -1917,7 +1918,7 @@ export default function DraftEditScreen() {
       margin: 0,
     },
     headerActions: { flexDirection: 'row', alignItems: 'center' },
-    headerBtn: { paddingHorizontal: 6, paddingVertical: 8 },
+    headerBtn: { padding: 8, marginTop: 4 },
     offlineBanner: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -2213,9 +2214,9 @@ export default function DraftEditScreen() {
             </View>
             <View style={dynamicStyles.headerActions}>
               {saving ? (
-                <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginRight: 4, padding: 10 }} />
+                <ActivityIndicator size="small" color={colors.textSecondary} style={{ marginRight: 4, padding: 8 }} />
               ) : saveStatus === 'saved' ? (
-                <Ionicons name="checkmark-circle" size={30} color="#34C759" style={{ marginRight: 2, padding: 8 }} />
+                <AppHeaderIcon name="checkmark-circle" color="#34C759" style={{ marginRight: 2, padding: 8 }} />
               ) : null}
               {draftId && !isNaN(draftId) && !draftsCache.isLocalDraftId(draftId) ? (
                 <View style={{ marginRight: 8, justifyContent: 'center' }}>
@@ -2233,7 +2234,7 @@ export default function DraftEditScreen() {
                   {creatingNote ? (
                     <ActivityIndicator size="small" color={colors.primary || '#007AFF'} />
                   ) : (
-                    <Ionicons name="create-outline" size={30} color={colors.primary || '#007AFF'} />
+                    <AppHeaderIcon name="create-outline" color={colors.primary || '#007AFF'} />
                   )}
                 </TouchableOpacity>
               )}
@@ -2241,10 +2242,10 @@ export default function DraftEditScreen() {
                 style={dynamicStyles.headerBtn}
                 onPress={() => { if (shareLink) setShowSendLinkModal(true); else setShowShareModal(true); }}
               >
-                <Ionicons name="share-outline" size={30} color={colors.primary || '#007AFF'} />
+                <AppHeaderIcon name="share-outline" color={colors.primary || '#007AFF'} />
               </TouchableOpacity>
               <TouchableOpacity ref={editorMoreButtonRef} style={dynamicStyles.headerBtn} onPress={handleEditorMoreOptions}>
-                <Ionicons name="ellipsis-horizontal-circle" size={30} color={colors.primary || '#007AFF'} />
+                <AppHeaderIcon name="ellipsis-horizontal-circle" color={colors.primary || '#007AFF'} />
               </TouchableOpacity>
             </View>
           </View>

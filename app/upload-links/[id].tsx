@@ -31,6 +31,7 @@ import { getUploadToBaseUrl } from '../../utils/uploadLinkHelpers';
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createUploadLinkShareAdapter } from '../../components/share/resourceAdapters';
@@ -844,13 +845,13 @@ export default function UploadLinkDetailsScreen() {
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle>File Request</AppHeaderTitle>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.centerContainer}>
@@ -885,18 +886,23 @@ export default function UploadLinkDetailsScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={handleBack} />
         <AppHeaderTitle>File Request</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
-          <FeedbackTouchable onPress={handleDeleteLink} loading={deleting} spinnerColor="#FF3B30" hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Ionicons name="trash" size={28} color="#FF3B30" />
+          <FeedbackTouchable
+            style={appHeaderButtonStyle}
+            onPress={handleDeleteLink}
+            loading={deleting}
+            spinnerColor="#FF3B30"
+          >
+            <AppHeaderIcon name="trash" color="#FF3B30" />
           </FeedbackTouchable>
         </View>
       </View>

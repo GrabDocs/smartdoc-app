@@ -20,6 +20,7 @@ import { screenCache } from '../../utils/screenCache';
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 interface Workspace {
@@ -257,8 +258,8 @@ export default function WorkspacesScreen() {
       marginHorizontal: 4,
     },
     headerIconButton: {
-      minWidth: 44,
-      minHeight: 44,
+      padding: 8,
+      marginTop: 4,
       alignItems: 'center',
       justifyContent: 'center',
       zIndex: 3,
@@ -489,25 +490,23 @@ export default function WorkspacesScreen() {
         <View style={dynamicStyles.header}>
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle pointerEvents="none">Workspaces</AppHeaderTitle>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={appHeaderActionsStyle}>
             <TouchableOpacity
               style={dynamicStyles.headerIconButton}
               onPress={handleRefresh}
               disabled={refreshing}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               accessibilityRole="button"
               accessibilityLabel="Refresh"
             >
-              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+              <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.headerIconButton}
               onPress={() => router.push('/workspaces/create')}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               accessibilityRole="button"
               accessibilityLabel="Create workspace"
             >
-              <Ionicons name="add" size={28} color="#007AFF" />
+              <AppHeaderIcon name="add" color="#007AFF" />
             </TouchableOpacity>
           </View>
         </View>
@@ -524,25 +523,23 @@ export default function WorkspacesScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton onPress={handleBack} />
         <AppHeaderTitle pointerEvents="none">Workspaces</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
             style={dynamicStyles.headerIconButton}
             onPress={handleRefresh}
             disabled={refreshing}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityRole="button"
             accessibilityLabel="Refresh"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             style={dynamicStyles.headerIconButton}
             onPress={() => router.push('/workspaces/create')}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             accessibilityRole="button"
             accessibilityLabel="Create workspace"
           >
-            <Ionicons name="add" size={28} color="#007AFF" />
+            <AppHeaderIcon name="add" color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

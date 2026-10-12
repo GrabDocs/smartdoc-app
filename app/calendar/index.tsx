@@ -86,6 +86,7 @@ import { ConnectCalendarModal } from './_components/ConnectCalendarModal';
 import { ConnectionChips } from './_components/ConnectionChips';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 type EventRow = Record<string, any>;
@@ -799,7 +800,6 @@ export default function CalendarHomeScreen() {
           flexDirection: 'row',
           alignItems: 'center',
           flexShrink: 0,
-          gap: 2,
         },
         chip: {
           paddingHorizontal: 12,
@@ -1029,7 +1029,8 @@ export default function CalendarHomeScreen() {
         },
         filterRowActions: { flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 },
         headerIconBtn: {
-          padding: 6,
+          padding: 8,
+          marginTop: 4,
           justifyContent: 'center',
           alignItems: 'center',
         },
@@ -1345,9 +1346,8 @@ export default function CalendarHomeScreen() {
             accessibilityRole="button"
             style={styles.headerIconBtn}
           >
-            <Ionicons
+            <AppHeaderIcon
               name="refresh"
-              size={28}
               color={refreshing ? '#999' : colors.tint ?? '#007AFF'}
             />
           </TouchableOpacity>
@@ -1357,7 +1357,7 @@ export default function CalendarHomeScreen() {
             accessibilityRole="button"
             style={styles.headerIconBtn}
           >
-            <Ionicons name="link-outline" size={28} color={colors.tint ?? '#007AFF'} />
+            <AppHeaderIcon name="link-outline" color={colors.tint ?? '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={openCreateChooser}
@@ -1365,7 +1365,7 @@ export default function CalendarHomeScreen() {
             accessibilityRole="button"
             style={styles.headerIconBtn}
           >
-            <Ionicons name="add" size={28} color={colors.tint ?? '#007AFF'} />
+            <AppHeaderIcon name="add" color={colors.tint ?? '#007AFF'} />
           </TouchableOpacity>
         </View>
       </View>

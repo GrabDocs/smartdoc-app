@@ -86,6 +86,7 @@ import { GrabDocsAttachPicker } from '../_components/GrabDocsAttachPicker';
 import { emailsFromAddressText, RecipientAddressField } from '../_components/RecipientAddressField';
 
 import AppBackButton from '../../../components/AppBackButton';
+import AppHeaderIcon from '../../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../../utils/chatTitleDisplay';
 import {
@@ -1056,7 +1057,7 @@ export default function EmailThreadScreen() {
         header: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 4, paddingBottom: 4, backgroundColor: colors.headerBackground },
         headerBody: { flex: 1, minWidth: 0, marginHorizontal: 4, paddingTop: 8 },
         h1: { fontSize: 17, fontWeight: '700', color: colors.text },
-        iconBtn: { padding: 10 },
+        iconBtn: { padding: 8, marginTop: 4 },
         bubble: {
           marginHorizontal: 16,
           marginBottom: 12,
@@ -1816,7 +1817,7 @@ export default function EmailThreadScreen() {
               onPress={() => setFullscreenMessage(null)}
               accessibilityLabel="Exit full screen"
             >
-              <Ionicons name="contract-outline" size={22} color={colors.text} />
+              <AppHeaderIcon name="contract-outline" color={colors.text} />
             </FeedbackTouchable>
           </View>
         ) : composeFullscreen ? (
@@ -1868,9 +1869,8 @@ export default function EmailThreadScreen() {
                   }
                 }}
               >
-                <Ionicons
+                <AppHeaderIcon
                   name={thread.attention_status === 'awaiting_reply' ? 'pause-circle-outline' : 'time-outline'}
-                  size={22}
                   color={colors.text}
                 />
               </FeedbackTouchable>
@@ -1884,7 +1884,7 @@ export default function EmailThreadScreen() {
               }}
               accessibilityLabel={dismissed ? 'Restore' : 'Dismiss'}
             >
-              <Ionicons name={dismissed ? 'arrow-undo' : 'close-circle-outline'} size={22} color={colors.text} />
+              <AppHeaderIcon name={dismissed ? 'arrow-undo' : 'close-circle-outline'} color={colors.text} />
             </FeedbackTouchable>
             {!dismissed && !isNewCompose && (
               <FeedbackTouchable
@@ -1894,7 +1894,7 @@ export default function EmailThreadScreen() {
                 }}
                 accessibilityLabel="Skip to next thread"
               >
-                <Ionicons name="play-skip-forward-outline" size={22} color={colors.text} />
+                <AppHeaderIcon name="play-skip-forward-outline" color={colors.text} />
               </FeedbackTouchable>
             )}
           </View>

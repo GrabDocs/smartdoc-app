@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
@@ -211,7 +212,7 @@ export default function ProcessScanScreen() {
           onPress={handleClose}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          <Ionicons name="close" size={28} color="#fff" />
+          <AppHeaderIcon name="close" color="#fff" />
         </Pressable>
         <AppHeaderTitle style={{ color: '#fff' }}>Review Scan</AppHeaderTitle>
         <Pressable
@@ -309,11 +310,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f0f0f',
   },
   headerButton: {
-    width: 46,
-    height: 46,
+    ...appHeaderButtonStyle,
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 4,
   },
   headerTitle: {
     fontSize: 17,

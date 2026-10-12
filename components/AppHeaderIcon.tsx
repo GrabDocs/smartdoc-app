@@ -1,11 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleProp, TextStyle } from 'react-native';
+import { StyleProp, TextStyle, ViewStyle } from 'react-native';
 
 /** Matches Financials screen header actions (cloud-upload / share / refresh). */
 export const APP_HEADER_ICON_SIZE = 28;
 /** Matches Financials / AppHeaderTitle default. */
 export const APP_HEADER_TITLE_SIZE = 24;
+
+/** Row for header action icons — no gap; spacing comes from each button's padding. */
+export const appHeaderActionsStyle: ViewStyle = {
+  flexDirection: 'row',
+  alignItems: 'center',
+};
+
+/** Touch target for a header action icon — matches Financials `headerButton`. */
+export const appHeaderButtonStyle: ViewStyle = {
+  padding: 8,
+  marginTop: 4,
+};
 
 type AppHeaderIconProps = {
   name: React.ComponentProps<typeof Ionicons>['name'];

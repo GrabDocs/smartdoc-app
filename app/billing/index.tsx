@@ -38,6 +38,7 @@ import {
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import PlanChangePicker from '../../components/billing/PlanChangePicker';
 import ExtraAiCreditsBanner from '../../components/ExtraAiCreditsBanner';
@@ -446,7 +447,7 @@ export default function BillingScreen() {
           borderBottomColor: colors.border,
           backgroundColor: colors.headerBackground,
         },
-        headerBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+        headerBtn: { ...appHeaderButtonStyle, alignItems: 'center', justifyContent: 'center' },
         headerTitle: {
           flex: 1,
           textAlign: 'left',
@@ -937,7 +938,7 @@ export default function BillingScreen() {
           accessibilityLabel="Refresh"
           accessibilityRole="button"
         >
-          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#2563EB'} />
+          <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#2563EB'} />
         </TouchableOpacity>
       </View>
 

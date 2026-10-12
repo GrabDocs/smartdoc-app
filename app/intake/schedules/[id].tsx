@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
 import { useThemeColors } from '../../../hooks/useThemeColors';
@@ -315,6 +316,7 @@ export default function IntakeScheduleDetailScreen() {
           {truncateAppHeaderTitle(schedule.title || 'Schedule')}
         </AppHeaderTitle>
         <TouchableOpacity
+          style={appHeaderButtonStyle}
           onPress={() => {
             setRefreshing(true);
             void load(true);
@@ -322,9 +324,8 @@ export default function IntakeScheduleDetailScreen() {
           disabled={refreshing}
           accessibilityLabel="Refresh"
           accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#0D9488'} />
+          <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#0D9488'} />
         </TouchableOpacity>
       </View>
 

@@ -18,6 +18,8 @@ import { useAuth } from '../context/auth';
 import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen } from '../services/pushNotifications';
 import { formatUtcIsoForDevice } from '../../utils/calendarTime';
 import { AnimatedHeaderContainer } from './AnimatedHeaderContainer';
+import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
 export interface AppNotification {
@@ -522,38 +524,38 @@ export function NotificationsInboxContent({
     time: { fontSize: 12, color: colors.textSecondary, marginTop: 6 },
   });
 
-  const headerLeft = (
-    <TouchableOpacity
-      onPress={() => (variant === 'modal' ? onDismiss?.() : router.back())}
-      style={{ padding: 8 }}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-    >
-      <Ionicons
-        name={variant === 'modal' ? 'close' : 'arrow-back'}
-        size={24}
-        color={colors.text}
-      />
-    </TouchableOpacity>
-  );
+  const headerLeft =
+    variant === 'modal' ? (
+      <TouchableOpacity
+        onPress={() => onDismiss?.()}
+        style={appHeaderButtonStyle}
+        accessibilityLabel="Close"
+        accessibilityRole="button"
+      >
+        <AppHeaderIcon name="close" color={colors.text} />
+      </TouchableOpacity>
+    ) : (
+      <AppBackButton />
+    );
 
   const headerActions = (
-    <View style={{ flexDirection: 'row', gap: variant === 'modal' ? 10 : 16, alignItems: 'center' }}>
+    <View style={appHeaderActionsStyle}>
       <TouchableOpacity
+        style={appHeaderButtonStyle}
         onPress={onRefresh}
         disabled={refreshing}
         accessibilityLabel="Refresh"
         accessibilityRole="button"
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
-        <Ionicons name="refresh" size={22} color={refreshing ? '#999' : '#007AFF'} />
+        <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
       </TouchableOpacity>
       {notifications.length > 0 && (
-        <TouchableOpacity onPress={clearAll}>
+        <TouchableOpacity onPress={clearAll} style={{ paddingHorizontal: 8, paddingVertical: 8, marginTop: 4 }}>
           <Text style={[dynamicStyles.markAll, { color: '#FF3B30' }]}>Clear all</Text>
         </TouchableOpacity>
       )}
       {unreadCount > 0 && (
-        <TouchableOpacity onPress={markAllAsRead}>
+        <TouchableOpacity onPress={markAllAsRead} style={{ paddingHorizontal: 8, paddingVertical: 8, marginTop: 4 }}>
           <Text style={dynamicStyles.markAll}>Mark all read</Text>
         </TouchableOpacity>
       )}

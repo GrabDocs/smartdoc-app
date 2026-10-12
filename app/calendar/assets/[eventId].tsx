@@ -21,6 +21,7 @@ import {
 import { secureStorage } from '../../../utils/storage';
 
 import AppBackButton from '../../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 
 type LazyAssetType = 'transcript' | 'summary' | 'chat' | 'recap';
@@ -256,13 +257,13 @@ export default function CalendarEventAssetsScreen() {
         <AppBackButton />
         <AppHeaderTitle>Meeting assets</AppHeaderTitle>
         <TouchableOpacity
+          style={appHeaderButtonStyle}
           onPress={() => void load()}
           disabled={loading}
           accessibilityLabel="Refresh"
           accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={28} color={loading ? '#999' : colors.tint ?? '#007AFF'} />
+          <AppHeaderIcon name="refresh" color={loading ? '#999' : colors.tint ?? '#007AFF'} />
         </TouchableOpacity>
       </View>
 

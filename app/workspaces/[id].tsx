@@ -49,6 +49,7 @@ import {
 import { useAuth } from '../context/auth';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
@@ -991,13 +992,13 @@ export default function WorkspaceDetailsScreen() {
           <AppBackButton onPress={handleBack} />
           <AppHeaderTitle pointerEvents="none">Workspace</AppHeaderTitle>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={dynamicStyles.loadingContainer}>
@@ -1028,19 +1029,19 @@ export default function WorkspaceDetailsScreen() {
         <AppHeaderTitle pointerEvents="none" shrink={false}>
           {truncateAppHeaderTitle(workspace.name || 'Workspace')}
         </AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={handleRefresh}
             disabled={refreshing}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           {workspace.user_role !== 'owner' && workspace.user_role !== 'admin' ? (
-            <FeedbackTouchable onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
-              <Ionicons name="exit-outline" size={28} color="#FF3B30" />
+            <FeedbackTouchable style={appHeaderButtonStyle} onPress={handleExitWorkspace} loading={exiting} spinnerColor="#FF3B30">
+              <AppHeaderIcon name="exit-outline" color="#FF3B30" />
             </FeedbackTouchable>
           ) : (
             <View style={{ width: APP_BACK_BUTTON_SLOT }} />

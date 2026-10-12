@@ -15,6 +15,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { GoogleLogo } from '../../components/GoogleLogo';
@@ -434,7 +435,7 @@ export default function EmailInboxScreen() {
       StyleSheet.create({
         safe: { flex: 1, backgroundColor: colors.headerBackground },
         header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, paddingBottom: 4, backgroundColor: colors.headerBackground },
-        iconBtn: { padding: 10 },
+        iconBtn: { padding: 8, marginTop: 4 },
         pills: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -698,7 +699,7 @@ export default function EmailInboxScreen() {
       <View style={styles.header}>
         {selectMode ? (
           <FeedbackTouchable onPress={exitSelect} accessibilityLabel="Cancel" style={styles.iconBtn}>
-            <Ionicons name="close" size={28} color={colors.text} />
+            <AppHeaderIcon name="close" color={colors.text} />
           </FeedbackTouchable>
         ) : (
           <AppBackButton />
@@ -718,12 +719,12 @@ export default function EmailInboxScreen() {
               }
             }}
           >
-            <Ionicons name="close-circle-outline" size={28} color={colors.text} />
+            <AppHeaderIcon name="close-circle-outline" color={colors.text} />
           </FeedbackTouchable>
         ) : selectMode ? (
           <View style={{ width: 44 }} />
         ) : (
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={appHeaderActionsStyle}>
             <FeedbackTouchable
               style={styles.iconBtn}
               onPress={() => void onHeaderRefresh()}
@@ -731,9 +732,8 @@ export default function EmailInboxScreen() {
               accessibilityLabel="Refresh"
               accessibilityRole="button"
             >
-              <Ionicons
+              <AppHeaderIcon
                 name="refresh"
-                size={28}
                 color={refreshing || (tab === 'replies' && syncing) ? colors.textSecondary : colors.text}
               />
             </FeedbackTouchable>
@@ -744,7 +744,7 @@ export default function EmailInboxScreen() {
                 disabled={!canSend || composing}
                 accessibilityLabel="Compose"
               >
-                <Ionicons name="create-outline" size={24} color={canSend ? colors.text : colors.textSecondary} />
+                <AppHeaderIcon name="create-outline" color={canSend ? colors.text : colors.textSecondary} />
               </FeedbackTouchable>
             ) : null}
           </View>

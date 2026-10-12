@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -337,7 +338,8 @@ export default function ManageBookmarksScreen() {
       color: colors.text,
     },
     addButton: {
-      padding: 4,
+      padding: 8,
+      marginTop: 4,
     },
     loadingContainer: {
       flex: 1,
@@ -647,7 +649,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
         </View>
         <View style={[dynamicStyles.loadingContainer, dynamicStyles.content]}>
@@ -663,7 +665,7 @@ export default function ManageBookmarksScreen() {
       <View style={dynamicStyles.header}>
         <AppBackButton />
         <AppHeaderTitle>Manage Bookmarks</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
             style={dynamicStyles.addButton}
             onPress={onRefresh}
@@ -671,7 +673,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           <TouchableOpacity
             style={dynamicStyles.addButton}
@@ -679,7 +681,7 @@ export default function ManageBookmarksScreen() {
             accessibilityLabel="Add bookmark"
             accessibilityRole="button"
           >
-            <Ionicons name="add" size={28} color="#007AFF" />
+            <AppHeaderIcon name="add" color="#007AFF" />
           </TouchableOpacity>
         </View>
       </View>

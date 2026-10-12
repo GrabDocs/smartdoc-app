@@ -27,6 +27,7 @@ import ChatGDBottomSheetHost from '../../components/chatgd/ChatGDBottomSheet';
 import ClientsButton from '../../components/clients/ClientsButton';
 import DeletedFolderGroups from '../../components/documents/DeletedFolderGroups';
 import FilesSharedSection from '../../components/documents/FilesSharedSection';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import DocumentsFolderBar from '../../components/documents/DocumentsFolderBar';
 import DocumentViewer from '../../components/DocumentViewer';
 import ExternalFilePicker from '../../components/ExternalFilePicker';
@@ -2723,10 +2724,10 @@ export default function QuickFilesScreen() {
     },
     headerActions: {
       flexDirection: 'row',
-      gap: 8,
+      alignItems: 'center',
     },
     headerButton: {
-      padding: 10,
+      padding: 8,
       marginTop: 4,
     },
     refreshingButton: {
@@ -3538,7 +3539,7 @@ export default function QuickFilesScreen() {
                     accessibilityLabel="AI File Manager"
                     accessibilityRole="button"
                   >
-                    <FolderCogIcon size={26} color={AI_FM_ICON_COLOR} />
+                    <FolderCogIcon size={28} color={AI_FM_ICON_COLOR} />
                   </TouchableOpacity>
                 ) : null}
                 <TouchableOpacity
@@ -3547,7 +3548,7 @@ export default function QuickFilesScreen() {
                   accessibilityLabel="Upload"
                   accessibilityRole="button"
                 >
-                  <Ionicons name="cloud-upload-outline" size={28} color={colors.primary || '#007AFF'} />
+                  <AppHeaderIcon name="cloud-upload-outline" color={colors.primary || '#007AFF'} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[dynamicStyles.headerButton, refreshing && dynamicStyles.refreshingButton]}
@@ -3556,9 +3557,8 @@ export default function QuickFilesScreen() {
                   accessibilityLabel="Refresh file list"
                   accessibilityRole="button"
                 >
-                  <Ionicons
+                  <AppHeaderIcon
                     name="refresh"
-                    size={28}
                     color={refreshing ? '#999' : colors.primary || '#007AFF'}
                   />
                 </TouchableOpacity>
@@ -3628,7 +3628,7 @@ export default function QuickFilesScreen() {
                 accessibilityLabel="AI File Manager"
                 accessibilityRole="button"
               >
-                <FolderCogIcon size={26} color={AI_FM_ICON_COLOR} />
+                <FolderCogIcon size={28} color={AI_FM_ICON_COLOR} />
               </TouchableOpacity>
             ) : null}
             <TouchableOpacity
@@ -3637,9 +3637,8 @@ export default function QuickFilesScreen() {
               accessibilityLabel={gridView ? 'Switch to list view' : 'Switch to grid view'}
               accessibilityRole="button"
             >
-              <Ionicons
+              <AppHeaderIcon
                 name={gridView ? 'list-outline' : 'grid-outline'}
-                size={28}
                 color={colors.primary || '#007AFF'}
               />
             </TouchableOpacity>
@@ -3649,7 +3648,7 @@ export default function QuickFilesScreen() {
               accessibilityLabel="Upload"
               accessibilityRole="button"
             >
-              <Ionicons name="cloud-upload-outline" size={28} color={colors.primary || '#007AFF'} />
+              <AppHeaderIcon name="cloud-upload-outline" color={colors.primary || '#007AFF'} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[dynamicStyles.headerButton, refreshing && dynamicStyles.refreshingButton]}
@@ -3658,9 +3657,8 @@ export default function QuickFilesScreen() {
               accessibilityLabel="Refresh file list"
               accessibilityRole="button"
             >
-              <Ionicons
+              <AppHeaderIcon
                 name="refresh"
-                size={24}
                 color={refreshing ? '#999' : colors.primary || '#007AFF'}
               />
             </TouchableOpacity>

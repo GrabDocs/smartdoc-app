@@ -54,6 +54,7 @@ import { navigateJoinMeeting } from '../../utils/calendarReachJoin';
 import { calendarDisplayLocation, formatEventWhen, formatUtcIsoForDevice } from '../../utils/calendarTime';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
@@ -559,13 +560,13 @@ export default function CalendarEventDetailScreen() {
           {truncateAppHeaderTitle(event.title || 'Event')}
         </AppHeaderTitle>
         <TouchableOpacity
+          style={appHeaderButtonStyle}
           onPress={() => void onRefresh()}
           disabled={refreshing}
           accessibilityLabel="Refresh"
           accessibilityRole="button"
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Ionicons name="refresh" size={28} color={refreshing ? '#999' : colors.tint ?? '#007AFF'} />
+          <AppHeaderIcon name="refresh" color={refreshing ? '#999' : colors.tint ?? '#007AFF'} />
         </TouchableOpacity>
       </View>
 

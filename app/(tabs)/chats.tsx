@@ -90,6 +90,7 @@ import { TapToToggleHeaderView } from '../components/TapToToggleHeaderView';
 import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ClientsButton from '../../components/clients/ClientsButton';
 import {
@@ -173,7 +174,7 @@ const ChatConversationHeader = React.memo(function ChatConversationHeader({
           <Text style={subtitleStyle}>{subtitle}</Text>
         </View>
 
-        <View style={{ flexDirection: 'row', gap: 8, zIndex: 2 }} collapsable={false}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', zIndex: 2 }} collapsable={false}>
           <GHTouchableOpacity
             style={actionButtonStyle}
             onPress={onOpenHistory}
@@ -181,7 +182,7 @@ const ChatConversationHeader = React.memo(function ChatConversationHeader({
             accessibilityRole="button"
             hitSlop={HEADER_ACTION_HIT_SLOP}
           >
-            <Ionicons name="time-outline" size={30} color="#007AFF" />
+            <AppHeaderIcon name="time-outline" color="#007AFF" />
           </GHTouchableOpacity>
           <GHTouchableOpacity
             style={actionButtonStyle}
@@ -189,9 +190,8 @@ const ChatConversationHeader = React.memo(function ChatConversationHeader({
             disabled={shareDisabled}
             hitSlop={HEADER_ACTION_HIT_SLOP}
           >
-            <Ionicons
+            <AppHeaderIcon
               name="share-outline"
-              size={30}
               color={shareDisabled ? '#999' : '#007AFF'}
             />
           </GHTouchableOpacity>
@@ -202,7 +202,7 @@ const ChatConversationHeader = React.memo(function ChatConversationHeader({
             accessibilityRole="button"
             hitSlop={HEADER_ACTION_HIT_SLOP}
           >
-            <Ionicons name="add" size={30} color="#007AFF" />
+            <AppHeaderIcon name="add" color="#007AFF" />
           </GHTouchableOpacity>
         </View>
       </View>
@@ -8321,7 +8321,7 @@ export default function ChatsScreen() {
           <View style={dynamicStyles.header}>
             <AppBackButton />
             <AppHeaderTitle>ChatGD</AppHeaderTitle>
-            <View style={{ flexDirection: 'row' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <TouchableOpacity
                 style={dynamicStyles.newChatButton}
                 onPress={onRefresh}
@@ -8329,10 +8329,9 @@ export default function ChatsScreen() {
                 accessibilityLabel="Refresh chats"
                 accessibilityRole="button"
               >
-                <Ionicons
+                <AppHeaderIcon
                   name="refresh"
-                  size={30}
-                  color={refreshing ? "#999" : "#007AFF"}
+                  color={refreshing ? '#999' : '#007AFF'}
                 />
               </TouchableOpacity>
               <TouchableOpacity
@@ -8341,7 +8340,7 @@ export default function ChatsScreen() {
                 accessibilityLabel="New chat"
                 accessibilityRole="button"
               >
-                <Ionicons name="add" size={30} color="#007AFF" />
+                <AppHeaderIcon name="add" color="#007AFF" />
               </TouchableOpacity>
             </View>
           </View>

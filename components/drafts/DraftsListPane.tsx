@@ -46,6 +46,7 @@ import { TapToToggleHeaderView } from '../../app/components/TapToToggleHeaderVie
 import { useAuth } from '../../app/context/auth';
 
 import AppBackButton from '../AppBackButton';
+import AppHeaderIcon from '../AppHeaderIcon';
 import AppHeaderTitle from '../AppHeaderTitle';
 
 const CHATGD_PLACEHOLDER_FROM_DRAFTS = 'Ask about your notes';
@@ -332,7 +333,7 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
         headerTitleWrap: { flex: 1, minWidth: 0, paddingHorizontal: 4 },
         headerTitle: { fontSize: 17, fontWeight: '600', color: colors.text },
         headerSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-        headerActionBtn: { paddingHorizontal: 10, paddingVertical: 8 },
+        headerActionBtn: { padding: 8, marginTop: 4 },
         searchContainer: {
           paddingHorizontal: 16,
           paddingVertical: 10,
@@ -479,7 +480,7 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
               {refreshing ? (
                 <ActivityIndicator size="small" color={accentColor} />
               ) : (
-                <Ionicons name="refresh-outline" size={30} color={accentColor} />
+                <AppHeaderIcon name="refresh-outline" color={accentColor} />
               )}
             </TouchableOpacity>
             <TouchableOpacity
@@ -489,7 +490,7 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
               accessibilityLabel="More options"
               accessibilityRole="button"
             >
-              <Ionicons name="ellipsis-horizontal-circle" size={28} color={accentColor} />
+              <AppHeaderIcon name="ellipsis-horizontal-circle" color={accentColor} />
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.headerActionBtn}
@@ -501,7 +502,7 @@ export default function DraftsListPane({ mode, width, style }: DraftsListPanePro
               {creating ? (
                 <ActivityIndicator size="small" color={accentColor} />
               ) : (
-                <Ionicons name="create-outline" size={30} color={accentColor} />
+                <AppHeaderIcon name="create-outline" color={accentColor} />
               )}
             </TouchableOpacity>
           </View>

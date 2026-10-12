@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -334,7 +335,8 @@ export default function CreateMeetingScreen() {
       color: colors.text,
     },
     closeButton: {
-      padding: 4,
+      padding: 8,
+      marginTop: 4,
     },
     content: {
       flex: 1,
@@ -487,7 +489,7 @@ export default function CreateMeetingScreen() {
         <View style={dynamicStyles.header}>
           <AppHeaderTitle>Create New Meeting</AppHeaderTitle>
           <TouchableOpacity onPress={() => router.back()} style={dynamicStyles.closeButton}>
-            <Ionicons name="close" size={28} color={colors.textSecondary} />
+            <AppHeaderIcon name="close" color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
 

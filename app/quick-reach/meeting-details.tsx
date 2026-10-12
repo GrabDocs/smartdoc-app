@@ -64,6 +64,7 @@ import {
 import { secureStorage } from '../../utils/storage';
 
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 
@@ -2646,11 +2647,12 @@ export default function MeetingDetailsScreen() {
       paddingVertical: 8,
     },
     deleteAllButton: {
-      padding: 4,
-      marginRight: 8,
+      padding: 8,
+      marginTop: 4,
     },
     refreshButton: {
-      padding: 4,
+      padding: 8,
+      marginTop: 4,
     },
     searchContainer: {
       flexDirection: 'row',
@@ -2954,7 +2956,7 @@ export default function MeetingDetailsScreen() {
               loading={deletingAll}
               spinnerColor="#FF3B30"
             >
-              <Ionicons name="trash-outline" size={28} color="#FF3B30" />
+              <AppHeaderIcon name="trash-outline" color="#FF3B30" />
             </FeedbackTouchable>
           )}
           <FeedbackTouchable
@@ -2963,7 +2965,7 @@ export default function MeetingDetailsScreen() {
             disabled={deletingAll || loading}
             spinnerColor={themeColors.tint || '#007AFF'}
           >
-            <Ionicons name="refresh" size={28} color={themeColors.tint || '#007AFF'} />
+            <AppHeaderIcon name="refresh" color={themeColors.tint || '#007AFF'} />
           </FeedbackTouchable>
         </View>
       </View>

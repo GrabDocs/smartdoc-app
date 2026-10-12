@@ -57,6 +57,7 @@ import { GrabDocsAttachPicker } from './email-sync/_components/GrabDocsAttachPic
 import { useAuth } from './context/auth';
 
 import AppBackButton, { APP_BACK_BUTTON_SLOT } from '../components/AppBackButton';
+import AppHeaderIcon from '../components/AppHeaderIcon';
 import AppHeaderTitle from '../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../utils/chatTitleDisplay';
 
@@ -167,6 +168,10 @@ export default function UserChatScreen() {
   const [chatOffset, setChatOffset] = useState(0);
   const [hasMoreChats, setHasMoreChats] = useState(false);
   const [isLoadingMoreChats, setIsLoadingMoreChats] = useState(false);
+  /** Ignore stale getChats responses when switching active ↔ archived quickly. */
+  const chatsLoadSeqRef = useRef(0);
+  const listModeRef = useRef(listMode);
+  listModeRef.current = listMode;
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -735,12 +740,17 @@ export default function UserChatScreen() {
     };
   };
 
-  const loadChats = useCallback(async (mode: 'active' | 'archived' = listMode) => {
+  const loadChats = useCallback(async (mode: 'active' | 'archived' = listModeRef.current) => {
+    const seq = ++chatsLoadSeqRef.current;
+    const archivedOnly = mode === 'archived';
     try {
       setLoading(true);
-      const response = await api.getChats(USER_CHAT_PAGE_SIZE, 0, mode === 'archived');
-      if (response.success && (response as any).chats) {
-        const rawChats = (response as any).chats as any[];
+      const response = await api.getChats(USER_CHAT_PAGE_SIZE, 0, archivedOnly);
+      if (seq !== chatsLoadSeqRef.current) return;
+      if (response.success && Array.isArray((response as any).chats)) {
+        const rawChats = ((response as any).chats as any[]).filter(
+          (c) => !!c.is_archived === archivedOnly,
+        );
         setChats(rawChats.map(rawChatToChat));
         setHasMoreChats((response as any).pagination?.has_more ?? false);
         setChatOffset(USER_CHAT_PAGE_SIZE);
@@ -753,28 +763,48 @@ export default function UserChatScreen() {
           persistFavoriteChats(next);
           return next;
         });
+      } else {
+        // Don't keep the previous mode's list under the wrong title.
+        setChats([]);
+        setHasMoreChats(false);
+        setChatOffset(0);
       }
     } catch (error) {
       console.error('Failed to load chats:', error);
+      if (seq === chatsLoadSeqRef.current) {
+        setChats([]);
+        setHasMoreChats(false);
+        setChatOffset(0);
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (seq === chatsLoadSeqRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [listMode, persistFavoriteChats]);
+  }, [persistFavoriteChats]);
 
   useEffect(() => {
+    setChats([]);
     setChatOffset(0);
     setHasMoreChats(false);
+    setLoading(true);
     void loadChats(listMode);
   }, [listMode, authUser?.id, loadChats]);
 
   const loadMoreChats = async () => {
     if (isLoadingMoreChats || !hasMoreChats) return;
+    const mode = listModeRef.current;
+    const archivedOnly = mode === 'archived';
+    const seq = chatsLoadSeqRef.current;
     setIsLoadingMoreChats(true);
     try {
-      const response = await api.getChats(USER_CHAT_PAGE_SIZE, chatOffset, listMode === 'archived');
-      if (response.success && (response as any).chats) {
-        const rawChats = (response as any).chats as any[];
+      const response = await api.getChats(USER_CHAT_PAGE_SIZE, chatOffset, archivedOnly);
+      if (seq !== chatsLoadSeqRef.current || listModeRef.current !== mode) return;
+      if (response.success && Array.isArray((response as any).chats)) {
+        const rawChats = ((response as any).chats as any[]).filter(
+          (c) => !!c.is_archived === archivedOnly,
+        );
         const newChats = rawChats.map(rawChatToChat);
         setChats(prev => {
           const existing = new Set(prev.map(c => c.id));
@@ -1540,7 +1570,9 @@ export default function UserChatScreen() {
   };
 
   const filteredChats = useMemo(() => {
-    const chatsToFilter = sortedChats;
+    const wantArchived = listMode === 'archived';
+    // Defense in depth: never show the other mode's rows if a stale fetch sneaks in.
+    const chatsToFilter = sortedChats.filter((c) => !!c.is_archived === wantArchived);
     if (!searchQuery.trim()) return chatsToFilter;
     const query = searchQuery.toLowerCase();
     return chatsToFilter.filter(chat => {
@@ -1554,7 +1586,7 @@ export default function UserChatScreen() {
         return name.includes(query);
       });
     });
-  }, [sortedChats, searchQuery]);
+  }, [sortedChats, searchQuery, listMode]);
 
   /** Section label for date grouping in conversation: Today, Yesterday, or "Monday, 10 Feb" (with year if different). */
   const getDateSectionLabel = (timestamp: number): string => {
@@ -1867,6 +1899,11 @@ export default function UserChatScreen() {
     backButton: {
       padding: 8,
       marginTop: 4,
+    },
+    /** Matches Financials headerActions / headerButton (no gap; spacing from padding). */
+    headerActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     newChatButton: {
       padding: 8,
@@ -2546,7 +2583,7 @@ export default function UserChatScreen() {
             </View>
           )}
           {!isNewChat && selectedChat && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <View style={dynamicStyles.headerActions}>
               <TouchableOpacity 
                 onPress={() => {
                   setRefreshing(true);
@@ -2555,11 +2592,7 @@ export default function UserChatScreen() {
                 style={dynamicStyles.newChatButton}
                 disabled={refreshing}
               >
-                <Ionicons 
-                  name="refresh" 
-                  size={28} 
-                  color={refreshing ? "#999" : "#007AFF"} 
-                />
+                <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
               </TouchableOpacity>
               <TouchableOpacity
                 ref={chatMoreButtonRef}
@@ -2568,7 +2601,7 @@ export default function UserChatScreen() {
                 accessibilityLabel="More options"
                 accessibilityRole="button"
               >
-                <Ionicons name="ellipsis-horizontal-circle" size={30} color="#007AFF" />
+                <AppHeaderIcon name="ellipsis-horizontal-circle" color="#007AFF" />
               </TouchableOpacity>
             </View>
           )}
@@ -2867,7 +2900,7 @@ export default function UserChatScreen() {
           router.back();
         }} />
         <AppHeaderTitle>{listMode === 'archived' ? 'Archived' : 'Messages'}</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <View style={dynamicStyles.headerActions}>
           <TouchableOpacity 
             onPress={() => {
               setRefreshing(true);
@@ -2876,11 +2909,7 @@ export default function UserChatScreen() {
             style={dynamicStyles.newChatButton}
             disabled={refreshing}
           >
-            <Ionicons 
-              name="refresh" 
-              size={28} 
-              color={refreshing ? "#999" : "#007AFF"} 
-            />
+            <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
           </TouchableOpacity>
           {listMode === 'active' ? (
             <>
@@ -2889,13 +2918,13 @@ export default function UserChatScreen() {
                 style={dynamicStyles.newChatButton}
                 accessibilityLabel="Archived conversations"
               >
-                <Ionicons name="archive-outline" size={26} color="#007AFF" />
+                <AppHeaderIcon name="archive-outline" color="#007AFF" />
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setShowInviteModal(true)} style={dynamicStyles.newChatButton}>
-                <Ionicons name="person-add-outline" size={28} color="#007AFF" />
+                <AppHeaderIcon name="person-add-outline" color="#007AFF" />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleNewChat} style={dynamicStyles.newChatButton}>
-                <Ionicons name="add" size={28} color="#007AFF" />
+                <AppHeaderIcon name="add" color="#007AFF" />
               </TouchableOpacity>
             </>
           ) : null}
@@ -3015,7 +3044,15 @@ export default function UserChatScreen() {
           )}
           keyExtractor={(item) => item.id.toString()}
           style={dynamicStyles.chatsList}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadChats} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                void loadChats(listMode);
+              }}
+            />
+          }
           onEndReached={() => {
             if (!searchQuery.trim() && hasMoreChats) {
               loadMoreChats();

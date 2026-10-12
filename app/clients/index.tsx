@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import ClientPickerModal from '../../components/clients/ClientPickerModal';
 import PendingTasksModal from '../../components/clients/PendingTasksModal';
@@ -148,23 +149,23 @@ export default function ClientsIndexScreen() {
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <AppBackButton onPress={() => router.back()} />
         <AppHeaderTitle>My Clients</AppHeaderTitle>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={appHeaderActionsStyle}>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={() => void load()}
             disabled={loading}
-            hitSlop={12}
             accessibilityLabel="Refresh"
             accessibilityRole="button"
           >
-            <Ionicons name="refresh" size={28} color={loading ? '#999' : '#0D9488'} />
+            <AppHeaderIcon name="refresh" color={loading ? '#999' : '#0D9488'} />
           </TouchableOpacity>
           <TouchableOpacity
+            style={appHeaderButtonStyle}
             onPress={() => setShowCreate(true)}
-            hitSlop={12}
             accessibilityLabel="Add client"
             accessibilityRole="button"
           >
-            <Ionicons name="add-circle" size={28} color="#0D9488" />
+            <AppHeaderIcon name="add-circle" color="#0D9488" />
           </TouchableOpacity>
         </View>
       </View>

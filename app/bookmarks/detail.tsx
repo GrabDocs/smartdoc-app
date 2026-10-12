@@ -19,6 +19,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AppBackButton from '../../components/AppBackButton';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import DocumentViewer from '../../components/DocumentViewer';
@@ -696,10 +697,10 @@ export default function BookmarkDetailScreen() {
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
     },
     headerIconButton: {
-      padding: 4,
+      padding: 8,
+      marginTop: 4,
     },
     bookmarkInfo: {
       flexDirection: 'row',
@@ -1067,7 +1068,7 @@ export default function BookmarkDetailScreen() {
               accessibilityLabel="Refresh"
               accessibilityRole="button"
             >
-              <Ionicons name="refresh" size={28} color={refreshing ? '#999' : '#007AFF'} />
+              <AppHeaderIcon name="refresh" color={refreshing ? '#999' : '#007AFF'} />
             </TouchableOpacity>
             <FeedbackTouchable
               onPress={handleToggleLock}
@@ -1076,11 +1077,11 @@ export default function BookmarkDetailScreen() {
               loading={togglingLock}
               spinnerColor="#F59E0B"
             >
-              <Ionicons name={bookmark.is_locked ? 'lock-open' : 'lock-closed-outline'} size={28} color="#F59E0B" />
+              <AppHeaderIcon name={bookmark.is_locked ? 'lock-open' : 'lock-closed-outline'} color="#F59E0B" />
             </FeedbackTouchable>
             {!bookmark.is_locked && (
               <TouchableOpacity onPress={handleShowAddFilesModal} style={dynamicStyles.headerIconButton} accessibilityLabel="Add files to bookmark">
-                <Ionicons name="add" size={28} color="#007AFF" />
+                <AppHeaderIcon name="add" color="#007AFF" />
               </TouchableOpacity>
             )}
             {!bookmark.is_locked && (
@@ -1090,7 +1091,7 @@ export default function BookmarkDetailScreen() {
                 loading={deletingBookmark}
                 spinnerColor="#FF3B30"
               >
-                <Ionicons name="trash-outline" size={24} color="#FF3B30" />
+                <AppHeaderIcon name="trash-outline" color="#FF3B30" />
               </FeedbackTouchable>
             )}
           </View>

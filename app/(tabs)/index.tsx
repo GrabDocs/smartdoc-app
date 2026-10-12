@@ -17,6 +17,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AppHeaderIcon from '../../components/AppHeaderIcon';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { SignatureIcon } from '../../components/SignatureIcon';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
@@ -1041,11 +1042,11 @@ function DashboardScreen() {
           </View>
           <View style={dynamicStyles.headerActions}>
             {!user ? (
-              <TouchableOpacity
+                <TouchableOpacity
                 style={dynamicStyles.headerButton}
                 onPress={() => router.push('/(auth)')}
               >
-                  <Ionicons name="log-in-outline" size={26} color="#007AFF" />
+                  <AppHeaderIcon name="log-in-outline" color="#007AFF" />
               </TouchableOpacity>
             ) : (
               <>
@@ -1057,7 +1058,7 @@ function DashboardScreen() {
                   accessibilityRole="button"
                 >
                   <View style={{ position: 'relative' }}>
-                    <Ionicons name="notifications-outline" size={30} color="#007AFF" />
+                    <AppHeaderIcon name="notifications-outline" color="#007AFF" />
                     {stats.unreadNotifications > 0 ? (
                       <View style={dynamicStyles.headerBadge}>
                         <Text style={dynamicStyles.headerBadgeText}>{String(stats.unreadNotifications)}</Text>
@@ -1069,7 +1070,7 @@ function DashboardScreen() {
                   style={dynamicStyles.headerButton}
                   onPress={() => navigatePrimaryShell(router, '/(tabs)/help')}
                 >
-                  <Ionicons name="help-circle-outline" size={30} color="#007AFF" />
+                  <AppHeaderIcon name="help-circle-outline" color="#007AFF" />
                 </TouchableOpacity>
                 <ProfileMenuPopover user={user} buttonStyle={dynamicStyles.headerButton} />
               </>
