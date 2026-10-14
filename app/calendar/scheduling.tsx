@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Keyboard,
     Linking,
@@ -20,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import GuestPreviewCalendar from '../../components/scheduling/GuestPreviewCalendar';
 import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
@@ -41,8 +43,10 @@ import {
     bookingListForms,
     bookingListSignups,
     bookingPeriodImpact,
+    bookingSlotHealth,
     bookingUpdateProfile,
 } from '../../services/bookingApi';
+import { localSlotFitConflicts, losesGuestTimes } from '../../utils/schedulingAvailability';
 import { useFileStore } from '../../stores/fileStore';
 import { compressImageForUpload, convertHeicToPng, isHeicFile } from '../../utils/imageConversion';
 import { takeQueuedGuestFiles } from '../../utils/schedulingGuestFiles';
@@ -75,6 +79,7 @@ type AvailabilityConflict = {
   code: string;
   message: string;
   dates?: string[];
+  details?: string[];
   booking_window_locked?: boolean;
   suggested_booking_window_days?: number;
   blocking?: boolean;
@@ -227,6 +232,7 @@ type EventType = {
   seat_limit?: number | null;
   add_reach_link?: boolean;
   custom_meeting_url?: string | null;
+  form_problem?: string | null;
 };
 type Signup = {
   id: number;
@@ -318,6 +324,14 @@ export default function CalendarSchedulingScreen() {
   const [signups, setSignups] = useState<Signup[]>([]);
   const [message, setMessage] = useState('');
   const [savingHours, setSavingHours] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [slotHealth, setSlotHealth] = useState<AvailabilityConflict[]>([]);
+  const [slotHealthLoading, setSlotHealthLoading] = useState(false);
+  const [slotHealthInfo, setSlotHealthInfo] = useState<{
+    window_last_date?: string | null;
+    horizon_days?: number;
+    horizon_limited?: boolean;
+  } | null>(null);
   const [creating, setCreating] = useState(false);
   const [draftFiles, setDraftFiles] = useState<PendingFile[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -339,7 +353,22 @@ export default function CalendarSchedulingScreen() {
 
   const styles = useMemo(() => createStyles(colors), [colors]);
 
+  const refreshSlotHealth = useCallback(async () => {
+    setSlotHealthLoading(true);
+    try {
+      const res = await bookingSlotHealth();
+      setSlotHealth(Array.isArray(res?.conflicts) ? res.conflicts : []);
+      setSlotHealthInfo(res || null);
+    } catch {
+      setSlotHealth([]);
+      setSlotHealthInfo(null);
+    } finally {
+      setSlotHealthLoading(false);
+    }
+  }, []);
+
   const load = useCallback(async () => {
+    void refreshSlotHealth();
     const [profile, list, formList] = await Promise.all([
       bookingGetProfile(),
       bookingListEventTypes(),
@@ -366,7 +395,7 @@ export default function CalendarSchedulingScreen() {
     setBufferAfter(String(saved.buffer_after_minutes ?? 0));
     setTypes(list.event_types || []);
     setForms(formList.forms || []);
-  }, []);
+  }, [refreshSlotHealth]);
 
   React.useEffect(() => {
     load().catch(() => setMessage('Could not load scheduling.'));
@@ -512,7 +541,6 @@ export default function CalendarSchedulingScreen() {
 
   const formTitle = forms.find((form) => form.id === formId)?.title || 'No form';
   const slugInvalid = !!slug && !SLUG_RE.test(slug);
-  const messageIsError = /could not/i.test(message);
 
   const todayIso = hostTodayIso(timezone);
   const openDateCount = Object.values(dateHours).filter((rows) => Array.isArray(rows) && rows.length > 0).length;
@@ -521,8 +549,8 @@ export default function CalendarSchedulingScreen() {
   ).length;
 
   const availabilityConflicts = useMemo(
-    () =>
-      localAvailabilityConflicts({
+    () => [
+      ...localAvailabilityConflicts({
         mode: availabilityMode,
         dateHours,
         periodStart: availabilityStartDate,
@@ -530,7 +558,20 @@ export default function CalendarSchedulingScreen() {
         windowDays: Number(windowDays) || 1,
         timezone,
       }),
-    [availabilityMode, dateHours, availabilityStartDate, availabilityEndDate, windowDays, timezone],
+      ...localSlotFitConflicts({
+        mode: availabilityMode,
+        weeklyHours: hours,
+        dateHours,
+        periodStart: availabilityStartDate,
+        periodEnd: availabilityEndDate,
+        windowDays: Number(windowDays) || 1,
+        slotInterval: Number(interval) || 30,
+        noticeMinutes: Number(notice) || 0,
+        eventTypes: types,
+        timezone,
+      }),
+    ],
+    [availabilityMode, hours, dateHours, availabilityStartDate, availabilityEndDate, windowDays, interval, notice, types, timezone],
   );
   const suggestedWindowDays = availabilityConflicts.reduce<number | null>((max, c) => {
     if (c.suggested_booking_window_days == null) return max;
@@ -541,17 +582,68 @@ export default function CalendarSchedulingScreen() {
   const displayConflicts = useMemo(() => {
     const seen = new Set<string>();
     const out: AvailabilityConflict[] = [];
-    for (const conflict of availabilityConflicts) {
+    const savedChecks = slotHealth.map((c) => ({ ...c, message: `${c.message} (Checked against your saved schedule; save to recheck.)` }));
+    for (const conflict of [...availabilityConflicts, ...savedChecks]) {
       if (seen.has(conflict.code)) continue;
       seen.add(conflict.code);
       out.push(conflict);
     }
     return out;
-  }, [availabilityConflicts]);
+  }, [availabilityConflicts, slotHealth]);
+  /** One banner only — prefer a blocking conflict over warnings. */
+  const primaryConflict = useMemo(
+    () => displayConflicts.find((c) => c.blocking) || displayConflicts[0] || null,
+    [displayConflicts],
+  );
+  // Drop stale conflict text left in `message` once the schedule is valid again
+  // (otherwise it renders as a green success banner).
+  useEffect(() => {
+    if (primaryConflict || !message) return;
+    const isActionFeedback =
+      /could not|saved|created|updated|sent|finished|meeting link|turn Reach/i.test(message);
+    if (!isActionFeedback) setMessage('');
+  }, [primaryConflict, message]);
+  const messageIsError = /could not/i.test(message);
+  const messageIsSuccess = /saved|sent|finished|created|updated/i.test(message) && !messageIsError;
+  const messageBannerError = messageIsError || (!!message && !messageIsSuccess);
   const windowNeedsSync =
     suggestedWindowDays != null && (Number(windowDays) || 0) < suggestedWindowDays;
 
+  const previewSettings = {
+    weekly_hours: hours,
+    availability_mode: availabilityMode,
+    date_hours: dateHours,
+    availability_start_date: availabilityStartDate || null,
+    availability_end_date: availabilityEndDate || null,
+    slot_interval_minutes: Number(interval) || 30,
+    minimum_notice_minutes: Number(notice) || 0,
+    booking_window_days: Number(windowDays) || 1,
+    buffer_before_minutes: Number(bufferBefore) || 0,
+    buffer_after_minutes: Number(bufferAfter) || 0,
+  };
+
   const saveHours = async () => {
+    const blocking = availabilityConflicts.find((c) => c.blocking);
+    if (blocking) {
+      // Keep the conflict banner as the only source of truth (do not stash it in
+      // `message`, or it turns into a green "success" banner after the fix).
+      setMessage('');
+      return;
+    }
+    const zeroTimes = availabilityConflicts.filter(losesGuestTimes);
+    if (zeroTimes.length) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Guests will lose times',
+          `${zeroTimes.map((c) => `• ${c.message}`).join('\n\n')}\n\nSave anyway?`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Save', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!proceed) return;
+    }
     if (availabilityMode === 'specific_dates' && (openDateCount === 0 || futureOpenDateCount === 0)) {
       const proceed = await new Promise<boolean>((resolve) => {
         Alert.alert(
@@ -636,6 +728,7 @@ export default function CalendarSchedulingScreen() {
       } else {
         setMessage('Hours saved.');
       }
+      void refreshSlotHealth();
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not save hours.');
     } finally {
@@ -893,8 +986,25 @@ export default function CalendarSchedulingScreen() {
           scrollYRef.current = event.nativeEvent.contentOffset.y;
         }}
       >
-        {message ? (
-          <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
+        {message && messageIsError ? (
+          <Text style={[styles.banner, styles.bannerError]}>{message}</Text>
+        ) : primaryConflict ? (
+          <View style={[styles.conflictBanner, primaryConflict.blocking && styles.conflictBannerBlocking, styles.topConflictBanner]}>
+            <Text style={[styles.conflictText, primaryConflict.blocking && styles.conflictTextBlocking]}>
+              {primaryConflict.message}
+            </Text>
+            {primaryConflict.details?.slice(0, 5).map((line) => (
+              <Text key={line} style={styles.conflictDates}>• {line}</Text>
+            ))}
+            {primaryConflict.dates?.length ? (
+              <Text style={styles.conflictDates}>
+                Dates: {primaryConflict.dates.slice(0, 8).join(', ')}
+                {primaryConflict.dates.length > 8 ? '…' : ''}
+              </Text>
+            ) : null}
+          </View>
+        ) : message ? (
+          <Text style={[styles.banner, messageBannerError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
         ) : null}
 
         {tab === 'hours' && eventsView === 'list' ? (
@@ -1114,7 +1224,10 @@ export default function CalendarSchedulingScreen() {
               <TextInput style={styles.input} value={timezone} onChangeText={setTimezone} autoCapitalize="none" onFocus={revealFocusedField} />
             </View>
             <View style={styles.field}>
-              <Text style={styles.label}>Slot interval</Text>
+              <Text style={styles.label}>Offer starts every</Text>
+              <Text style={styles.conflictDates}>
+                Starts begin when each window opens, then every this many minutes. The meeting must finish before the window ends.
+              </Text>
               <View style={styles.chipRow}>
                 {INTERVALS.map((minutes) => {
                   const on = interval === String(minutes);
@@ -1152,6 +1265,14 @@ export default function CalendarSchedulingScreen() {
               ) : null}
             </View>
             <View style={styles.field}>
+              <Text style={styles.label}>Buffer before (min)</Text>
+              <TextInput style={styles.input} value={bufferBefore} onChangeText={setBufferBefore} keyboardType="number-pad" onFocus={revealFocusedField} />
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Buffer after (min)</Text>
+              <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" onFocus={revealFocusedField} />
+            </View>
+            <View style={styles.field}>
               <Text style={styles.label}>Available from</Text>
               <TouchableOpacity
                 style={styles.pickerField}
@@ -1179,38 +1300,25 @@ export default function CalendarSchedulingScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Buffer before (min)</Text>
-              <TextInput style={styles.input} value={bufferBefore} onChangeText={setBufferBefore} keyboardType="number-pad" onFocus={revealFocusedField} />
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Buffer after (min)</Text>
-              <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" onFocus={revealFocusedField} />
-            </View>
           </View>
-          {displayConflicts.length > 0 ? (
-            <View style={styles.conflictList}>
-              {displayConflicts.map((conflict) => (
-                <View
-                  key={conflict.code}
-                  style={[styles.conflictBanner, conflict.blocking && styles.conflictBannerBlocking]}
-                >
-                  <Text style={[styles.conflictText, conflict.blocking && styles.conflictTextBlocking]}>
-                    {conflict.message}
-                  </Text>
-                  {conflict.dates?.length ? (
-                    <Text style={styles.conflictDates}>
-                      Dates: {conflict.dates.slice(0, 8).join(', ')}
-                      {conflict.dates.length > 8 ? '…' : ''}
-                    </Text>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ) : null}
-          <TouchableOpacity style={styles.button} onPress={() => void saveHours()} disabled={savingHours}>
-            <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save hours'}</Text>
-          </TouchableOpacity>
+          <View style={styles.healthRow}>
+            {slotHealthLoading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+            <Text style={styles.conflictDates}>
+              {slotHealthLoading
+                ? 'Checking your calendar for days guests would see as empty…'
+                : slotHealthInfo?.horizon_limited
+                  ? `Your window runs to ${slotHealthInfo.window_last_date}; days after the first ${slotHealthInfo.horizon_days} are not checked for calendar conflicts.`
+                  : ''}
+            </Text>
+          </View>
+          <View style={styles.hoursActions}>
+            <TouchableOpacity style={styles.button} onPress={() => void saveHours()} disabled={savingHours}>
+              <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save hours'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryButton} onPress={() => setPreviewOpen(true)}>
+              <Text style={styles.secondaryButtonText}>Preview guest calendar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         </>
         ) : null}
@@ -1370,6 +1478,9 @@ export default function CalendarSchedulingScreen() {
                   {!item.active ? <Text style={styles.badgeMuted}>Inactive</Text> : null}
                 </View>
                 <Text style={styles.path} numberOfLines={1}>{item.public_path}</Text>
+                {item.form_problem ? (
+                  <Text style={styles.conflictTextBlocking}>Form {item.form_problem} — guests can't book</Text>
+                ) : null}
                 <View style={styles.actionRow}>
                   <TouchableOpacity
                     style={styles.action}
@@ -1483,6 +1594,37 @@ export default function CalendarSchedulingScreen() {
         ) : null}
       </ScrollView>
       </View>
+
+      <Modal
+        visible={previewOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.previewModalCard}>
+            <View style={styles.previewModalHeader}>
+              <View style={styles.previewModalTitleWrap}>
+                <Text style={styles.sectionTitle}>Preview what guests see</Text>
+                <Text style={styles.sectionHint}>
+                  Pick an event type to see the times guests would get from your current schedule and calendar. This preview does not save anything.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewOpen(false)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.previewModalBody} keyboardShouldPersistTaps="handled">
+              <GuestPreviewCalendar types={types} settings={previewSettings} />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={filesOpen}
@@ -1749,6 +1891,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     inputDisabled: { opacity: 0.55 },
     conflictHint: { fontSize: 11, color: '#b45309', marginTop: 2 },
     conflictList: { marginTop: 10, gap: 6 },
+    topConflictBanner: { marginBottom: 12 },
     conflictBanner: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: '#f59e0b',
@@ -1764,6 +1907,29 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     conflictText: { fontSize: 12, color: colors.isDark ? '#fde68a' : '#92400e' },
     conflictTextBlocking: { color: colors.isDark ? '#fecaca' : '#991b1b' },
     conflictDates: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+    healthRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+    hoursActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+    secondaryButton: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      alignSelf: 'flex-start',
+      backgroundColor: colors.card,
+    },
+    secondaryButtonText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+    previewModalCard: {
+      width: '100%',
+      maxWidth: 520,
+      maxHeight: '88%',
+      borderRadius: 12,
+      backgroundColor: colors.card,
+      padding: 16,
+    },
+    previewModalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 },
+    previewModalTitleWrap: { flex: 1, minWidth: 0 },
+    previewModalBody: { flexGrow: 0 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
     modeRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
     modeChip: {

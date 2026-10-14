@@ -23,6 +23,21 @@ export async function bookingPeriodImpact(body: {
   return response.data;
 }
 
+export async function bookingSlotHealth() {
+  const response = await client().get('/api/v1/booking/profile/slot-health');
+  return response.data;
+}
+
+export async function bookingPreviewSlots(body: {
+  event_type_id: number;
+  start: string;
+  end: string;
+  settings: Record<string, unknown>;
+}) {
+  const response = await client().post('/api/v1/booking/profile/preview-slots', body);
+  return response.data;
+}
+
 export async function bookingListEventTypes() {
   const response = await client().get('/api/v1/booking/event-types');
   return response.data;
