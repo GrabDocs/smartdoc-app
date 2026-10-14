@@ -12,6 +12,17 @@ export async function bookingUpdateProfile(body: Record<string, unknown>) {
   return response.data;
 }
 
+export async function bookingPeriodImpact(body: {
+  availability_start_date?: string | null;
+  availability_end_date?: string | null;
+  availability_mode?: string;
+  date_hours?: Record<string, unknown>;
+  weekly_hours?: Record<string, unknown>;
+}) {
+  const response = await client().post('/api/v1/booking/profile/period-impact', body);
+  return response.data;
+}
+
 export async function bookingListEventTypes() {
   const response = await client().get('/api/v1/booking/event-types');
   return response.data;

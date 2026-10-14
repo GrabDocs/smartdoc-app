@@ -4,50 +4,51 @@ import * as Clipboard from 'expo-clipboard';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
-  Keyboard,
-  Linking,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Keyboard,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
-import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
-import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
+import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import {
-  pickDocumentsLikeFilesScreen,
-  pickGalleryImagesLikeFilesScreen,
+    pickDocumentsLikeFilesScreen,
+    pickGalleryImagesLikeFilesScreen,
 } from '../../components/signatures/DocumentSourcePicker';
-import { GrabDocsAttachPicker } from '../email-sync/_components/GrabDocsAttachPicker';
-import { UploadOptionsModal } from '../components/UploadOptionsModal';
 import { FRONTEND_URL } from '../../constants/Config';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import {
-  bookingAttachEventFile,
-  bookingCreateEventType,
-  bookingDeactivateEventType,
-  bookingGetProfile,
-  bookingListEventTypes,
-  bookingListForms,
-  bookingListSignups,
-  bookingUpdateProfile,
+    bookingAttachEventFile,
+    bookingCreateEventType,
+    bookingDeactivateEventType,
+    bookingGetProfile,
+    bookingListEventTypes,
+    bookingListForms,
+    bookingListSignups,
+    bookingPeriodImpact,
+    bookingUpdateProfile,
 } from '../../services/bookingApi';
 import { useFileStore } from '../../stores/fileStore';
-import { takeQueuedGuestFiles } from '../../utils/schedulingGuestFiles';
 import { compressImageForUpload, convertHeicToPng, isHeicFile } from '../../utils/imageConversion';
+import { takeQueuedGuestFiles } from '../../utils/schedulingGuestFiles';
 import { getUserPreferences } from '../../utils/userPreferences';
+import { UploadOptionsModal } from '../components/UploadOptionsModal';
+import { GrabDocsAttachPicker } from '../email-sync/_components/GrabDocsAttachPicker';
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 const DAY_LABELS: Record<(typeof DAYS)[number], string> = {
@@ -68,6 +69,153 @@ type LocalAsset = { uri: string; name: string; type: string; size?: number };
 
 type Interval = { start: string; end: string };
 type Hours = Record<string, Interval[]>;
+type DateHours = Record<string, Interval[]>;
+type AvailabilityMode = 'weekly' | 'specific_dates' | 'weekly_with_overrides';
+type AvailabilityConflict = {
+  code: string;
+  message: string;
+  dates?: string[];
+  booking_window_locked?: boolean;
+  suggested_booking_window_days?: number;
+  blocking?: boolean;
+};
+
+function parseIsoDateParts(value: string): { y: number; m: number; d: number } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return { y, m, d };
+}
+
+function hostTodayIso(timezone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+function daysBetweenIso(startIso: string, endIso: string): number {
+  const a = parseIsoDateParts(startIso);
+  const b = parseIsoDateParts(endIso);
+  if (!a || !b) return 0;
+  return Math.round(
+    (Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86400000,
+  );
+}
+
+function requiredBookingWindowDays(todayIso: string, targetIso: string): number {
+  const delta = daysBetweenIso(todayIso, targetIso);
+  if (delta < 0) return 1;
+  return Math.max(1, Math.min(365, delta + 1));
+}
+
+function openDateKeys(dateHours: DateHours): string[] {
+  return Object.entries(dateHours)
+    .filter(([, rows]) => Array.isArray(rows) && rows.length > 0)
+    .map(([key]) => key)
+    .filter((key) => !!parseIsoDateParts(key))
+    .sort();
+}
+
+function scheduleBoundEndIso(
+  mode: AvailabilityMode,
+  dateHours: DateHours,
+  periodStart: string,
+  periodEnd: string,
+): string | null {
+  let open = openDateKeys(dateHours);
+  if (periodStart) open = open.filter((d) => d >= periodStart);
+  if (periodEnd) open = open.filter((d) => d <= periodEnd);
+  if (mode === 'specific_dates') {
+    if (!open.length) return periodEnd || null;
+    return open[open.length - 1];
+  }
+  return periodEnd || null;
+}
+
+function localAvailabilityConflicts(args: {
+  mode: AvailabilityMode;
+  dateHours: DateHours;
+  periodStart: string;
+  periodEnd: string;
+  windowDays: number;
+  timezone: string;
+}): AvailabilityConflict[] {
+  const { mode, dateHours, periodStart, periodEnd, windowDays, timezone } = args;
+  const conflicts: AvailabilityConflict[] = [];
+  const today = hostTodayIso(timezone);
+  const days = Math.max(1, Math.min(365, Number(windowDays) || 1));
+  const todayParts = parseIsoDateParts(today);
+  let windowLast = today;
+  if (todayParts) {
+    const last = new Date(Date.UTC(todayParts.y, todayParts.m - 1, todayParts.d));
+    last.setUTCDate(last.getUTCDate() + (days - 1));
+    windowLast = last.toISOString().slice(0, 10);
+  }
+
+  if (periodStart && periodEnd && periodEnd < periodStart) {
+    conflicts.push({
+      code: 'period_inverted',
+      message: 'Available until must be on or after Available from.',
+      blocking: true,
+    });
+  }
+
+  if (periodEnd && periodEnd < today) {
+    conflicts.push({
+      code: 'period_ended',
+      message: 'Available until is in the past, so guests will see no times.',
+      blocking: false,
+    });
+  }
+
+  const open = openDateKeys(dateHours);
+  const futureOpen = open.filter((d) => d >= today);
+  if (mode === 'specific_dates' && open.length === 0) {
+    conflicts.push({
+      code: 'specific_dates_empty',
+      message: 'Specific dates mode has no open dates configured, so guests will see no times.',
+      blocking: false,
+    });
+  } else if (mode === 'specific_dates' && open.length > 0 && futureOpen.length === 0) {
+    conflicts.push({
+      code: 'specific_dates_all_past',
+      message: 'All configured specific dates are in the past, so guests will see no times.',
+      blocking: false,
+    });
+  }
+
+  const outside = open.filter((d) => (periodStart && d < periodStart) || (periodEnd && d > periodEnd));
+  if (outside.length && (mode === 'specific_dates' || mode === 'weekly_with_overrides')) {
+    conflicts.push({
+      code: 'period_excludes_dates',
+      message: 'Some configured dates fall outside the availability period and will not be offered.',
+      dates: outside,
+      blocking: false,
+    });
+  }
+
+  const boundEnd = scheduleBoundEndIso(mode, dateHours, periodStart, periodEnd);
+  if (boundEnd && boundEnd >= today && boundEnd > windowLast) {
+    const suggested = requiredBookingWindowDays(today, boundEnd);
+    conflicts.push({
+      code: 'booking_window_excludes_dates',
+      message: `Booking window (${days} days) ends on ${windowLast}, before availability through ${boundEnd}. Increase to ${suggested} days to cover those dates, or leave as-is if that is intentional.`,
+      suggested_booking_window_days: suggested,
+      booking_window_locked: false,
+      blocking: false,
+    });
+  }
+
+  return conflicts;
+}
+
 type EventType = {
   id: number;
   name: string;
@@ -105,7 +253,10 @@ function kindLabel(kind: string) {
   return kind === 'group' ? 'Group' : 'One-on-one';
 }
 
-type TimeTarget = { day: (typeof DAYS)[number]; index: number; field: 'start' | 'end' };
+type TimeTarget =
+  | { kind: 'weekly'; day: (typeof DAYS)[number]; index: number; field: 'start' | 'end' }
+  | { kind: 'date'; dateKey: string; index: number; field: 'start' | 'end' };
+type BoundDateField = 'availabilityStartDate' | 'availabilityEndDate' | 'newDateKey';
 
 function parseTime(value: string): Date {
   const date = new Date();
@@ -134,6 +285,13 @@ export default function CalendarSchedulingScreen() {
   const [types, setTypes] = useState<EventType[]>([]);
   const [forms, setForms] = useState<{ id: number; title: string }[]>([]);
   const [hours, setHours] = useState<Hours>({});
+  const [availabilityMode, setAvailabilityMode] = useState<AvailabilityMode>('weekly');
+  const [dateHours, setDateHours] = useState<DateHours>({});
+  const [availabilityStartDate, setAvailabilityStartDate] = useState('');
+  const [availabilityEndDate, setAvailabilityEndDate] = useState('');
+  const [savedAvailabilityStartDate, setSavedAvailabilityStartDate] = useState('');
+  const [savedAvailabilityEndDate, setSavedAvailabilityEndDate] = useState('');
+  const [newDateKey, setNewDateKey] = useState('');
   const [timezone, setTimezone] = useState('UTC');
   const [interval, setInterval] = useState('30');
   const [notice, setNotice] = useState('0');
@@ -151,7 +309,9 @@ export default function CalendarSchedulingScreen() {
   const [formId, setFormId] = useState<number | null>(null);
   const [formPickerOpen, setFormPickerOpen] = useState(false);
   const [timeTarget, setTimeTarget] = useState<TimeTarget | null>(null);
+  const [boundDateField, setBoundDateField] = useState<BoundDateField | null>(null);
   const [timePickerNonce, setTimePickerNonce] = useState(0);
+  const [datePickerNonce, setDatePickerNonce] = useState(0);
   const [pickerDate, setPickerDate] = useState(() => new Date());
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [accessTypeId, setAccessTypeId] = useState<number | null>(null);
@@ -188,6 +348,17 @@ export default function CalendarSchedulingScreen() {
     const saved = profile.profile || {};
     setTimezone(saved.timezone || 'UTC');
     setHours(saved.weekly_hours || {});
+    const mode = saved.availability_mode;
+    setAvailabilityMode(
+      mode === 'specific_dates' || mode === 'weekly_with_overrides' ? mode : 'weekly'
+    );
+    setDateHours(saved.date_hours && typeof saved.date_hours === 'object' ? saved.date_hours : {});
+    const startBound = saved.availability_start_date || '';
+    const endBound = saved.availability_end_date || '';
+    setAvailabilityStartDate(startBound);
+    setAvailabilityEndDate(endBound);
+    setSavedAvailabilityStartDate(startBound);
+    setSavedAvailabilityEndDate(endBound);
     setInterval(String(saved.slot_interval_minutes ?? 30));
     setNotice(String(saved.minimum_notice_minutes ?? 0));
     setWindowDays(String(saved.booking_window_days ?? 60));
@@ -259,19 +430,30 @@ export default function CalendarSchedulingScreen() {
 
   const applyPickedTime = useCallback((target: TimeTarget, date: Date) => {
     const next = formatTime(date);
-    setHours((current) => {
-      const intervals = current[target.day] || [];
+    if (target.kind === 'weekly') {
+      setHours((current) => {
+        const intervals = current[target.day] || [];
+        return {
+          ...current,
+          [target.day]: intervals.map((item, itemIndex) =>
+            itemIndex === target.index ? { ...item, [target.field]: next } : item,
+          ),
+        };
+      });
+      return;
+    }
+    setDateHours((current) => {
+      const intervals = current[target.dateKey] || [];
       return {
         ...current,
-        [target.day]: intervals.map((item, itemIndex) =>
+        [target.dateKey]: intervals.map((item, itemIndex) =>
           itemIndex === target.index ? { ...item, [target.field]: next } : item,
         ),
       };
     });
   }, []);
 
-  const openTimePicker = (day: (typeof DAYS)[number], index: number, field: 'start' | 'end', value: string) => {
-    const target = { day, index, field };
+  const openTimePickerFor = (target: TimeTarget, value: string) => {
     if (Platform.OS === 'android') {
       DateTimePickerAndroid.open({
         value: parseTime(value),
@@ -289,23 +471,171 @@ export default function CalendarSchedulingScreen() {
     setTimePickerNonce((nonce) => nonce + 1);
   };
 
+  const openTimePicker = (day: (typeof DAYS)[number], index: number, field: 'start' | 'end', value: string) => {
+    openTimePickerFor({ kind: 'weekly', day, index, field }, value);
+  };
+
+  const openDateHoursTimePicker = (dateKey: string, index: number, field: 'start' | 'end', value: string) => {
+    openTimePickerFor({ kind: 'date', dateKey, index, field }, value);
+  };
+
+  const parseBoundDate = (value: string) => {
+    const parts = parseIsoDateParts(value);
+    if (!parts) return new Date();
+    return new Date(parts.y, parts.m - 1, parts.d);
+  };
+
+  const applyBoundDate = (field: BoundDateField, date: Date) => {
+    const iso = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (field === 'availabilityStartDate') setAvailabilityStartDate(iso);
+    else if (field === 'availabilityEndDate') setAvailabilityEndDate(iso);
+    else setNewDateKey(iso);
+  };
+
+  const openBoundDatePicker = (field: BoundDateField, value: string) => {
+    const current = parseBoundDate(value);
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: current,
+        mode: 'date',
+        onChange: (event, date) => {
+          if (event.type !== 'set' || !date) return;
+          applyBoundDate(field, date);
+        },
+      });
+      return;
+    }
+    setPickerDate(current);
+    setBoundDateField(field);
+    setDatePickerNonce((nonce) => nonce + 1);
+  };
+
   const formTitle = forms.find((form) => form.id === formId)?.title || 'No form';
   const slugInvalid = !!slug && !SLUG_RE.test(slug);
   const messageIsError = /could not/i.test(message);
 
+  const todayIso = hostTodayIso(timezone);
+  const openDateCount = Object.values(dateHours).filter((rows) => Array.isArray(rows) && rows.length > 0).length;
+  const futureOpenDateCount = Object.entries(dateHours).filter(
+    ([key, rows]) => key >= todayIso && Array.isArray(rows) && rows.length > 0,
+  ).length;
+
+  const availabilityConflicts = useMemo(
+    () =>
+      localAvailabilityConflicts({
+        mode: availabilityMode,
+        dateHours,
+        periodStart: availabilityStartDate,
+        periodEnd: availabilityEndDate,
+        windowDays: Number(windowDays) || 1,
+        timezone,
+      }),
+    [availabilityMode, dateHours, availabilityStartDate, availabilityEndDate, windowDays, timezone],
+  );
+  const suggestedWindowDays = availabilityConflicts.reduce<number | null>((max, c) => {
+    if (c.suggested_booking_window_days == null) return max;
+    const next = Number(c.suggested_booking_window_days);
+    if (!Number.isFinite(next)) return max;
+    return max == null ? next : Math.max(max, next);
+  }, null);
+  const displayConflicts = useMemo(() => {
+    const seen = new Set<string>();
+    const out: AvailabilityConflict[] = [];
+    for (const conflict of availabilityConflicts) {
+      if (seen.has(conflict.code)) continue;
+      seen.add(conflict.code);
+      out.push(conflict);
+    }
+    return out;
+  }, [availabilityConflicts]);
+  const windowNeedsSync =
+    suggestedWindowDays != null && (Number(windowDays) || 0) < suggestedWindowDays;
+
   const saveHours = async () => {
+    if (availabilityMode === 'specific_dates' && (openDateCount === 0 || futureOpenDateCount === 0)) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          futureOpenDateCount === 0 && openDateCount > 0 ? 'Dates are in the past' : 'No open dates',
+          futureOpenDateCount === 0 && openDateCount > 0
+            ? 'All configured specific dates are in the past. Guests will see no available times. Save anyway?'
+            : 'Specific dates mode has no open dates configured. Guests will see no available times. Save anyway?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Save', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!proceed) return;
+    }
+    if (availabilityEndDate && availabilityEndDate < todayIso) {
+      const proceed = await new Promise<boolean>((resolve) => {
+        Alert.alert(
+          'Period ended',
+          'Available until is in the past. Guests will see no available times. Save anyway?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Save', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!proceed) return;
+    }
+    try {
+      const impact = await bookingPeriodImpact({
+        availability_start_date: availabilityStartDate || null,
+        availability_end_date: availabilityEndDate || null,
+        availability_mode: availabilityMode,
+        date_hours: dateHours,
+        weekly_hours: hours,
+      });
+      const affected = Number(impact?.affected_bookings || 0);
+      if (affected > 0) {
+        const proceed = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            'Existing bookings outside schedule',
+            `${affected} upcoming confirmed booking${affected === 1 ? '' : 's'} fall outside this schedule. Those bookings will remain scheduled unless you cancel them. Save anyway?`,
+            [
+              { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Save', onPress: () => resolve(true) },
+            ]
+          );
+        });
+        if (!proceed) return;
+      }
+    } catch {
+      // Allow save; server validates period shape.
+    }
     setSavingHours(true);
     try {
-      await bookingUpdateProfile({
+      const res = await bookingUpdateProfile({
         timezone,
         weekly_hours: hours,
+        availability_mode: availabilityMode,
+        date_hours: dateHours,
+        availability_start_date: availabilityStartDate || null,
+        availability_end_date: availabilityEndDate || null,
         slot_interval_minutes: Number(interval),
         minimum_notice_minutes: Number(notice),
         booking_window_days: Number(windowDays),
         buffer_before_minutes: Number(bufferBefore),
         buffer_after_minutes: Number(bufferAfter),
       });
-      setMessage('Hours saved.');
+      const saved = res?.profile;
+      if (saved?.booking_window_days != null) {
+        setWindowDays(String(saved.booking_window_days));
+      }
+      if (saved?.date_hours && typeof saved.date_hours === 'object') {
+        setDateHours(saved.date_hours);
+      }
+      setSavedAvailabilityStartDate(availabilityStartDate);
+      setSavedAvailabilityEndDate(availabilityEndDate);
+      if (res?.window_adjusted) {
+        setMessage(
+          `Hours saved. Booking window set to ${saved?.booking_window_days} days so it reaches your availability dates.`,
+        );
+      } else {
+        setMessage('Hours saved.');
+      }
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not save hours.');
     } finally {
@@ -570,74 +900,210 @@ export default function CalendarSchedulingScreen() {
         {tab === 'hours' && eventsView === 'list' ? (
         <>
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Weekly hours</Text>
+          <Text style={styles.sectionTitle}>Availability schedule</Text>
           <Text style={styles.sectionHint}>{timezone}</Text>
-          {DAYS.map((day) => {
-            const intervals = hours[day] || [];
-            const open = intervals.length > 0;
-            return (
-              <View key={day} style={styles.dayRow}>
+          <View style={styles.modeRow}>
+            {(
+              [
+                { value: 'weekly' as const, label: 'Weekly', help: 'Offer appointments on a recurring weekly schedule.' },
+                { value: 'specific_dates' as const, label: 'Specific dates', help: 'Offer appointments only on the dates you select. These dates do not repeat weekly.' },
+                { value: 'weekly_with_overrides' as const, label: 'Weekly + overrides', help: 'Use your regular weekly hours, with the ability to open or close individual dates.' },
+              ] as const
+            ).map((option) => {
+              const on = availabilityMode === option.value;
+              return (
                 <TouchableOpacity
-                  style={styles.dayToggle}
-                  onPress={() => {
-                    if (open) setDayIntervals(day, []);
-                    else setDayIntervals(day, [{ start: '09:00', end: '17:00' }]);
-                  }}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: open }}
-                  accessibilityLabel={`${DAY_LABELS[day]} available`}
+                  key={option.value}
+                  style={[styles.modeChip, on && styles.chipOn]}
+                  onPress={() => setAvailabilityMode(option.value)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={option.label}
+                  accessibilityHint={option.help}
                 >
-                  <Ionicons
-                    name={open ? 'checkbox' : 'square-outline'}
-                    size={18}
-                    color={open ? '#2563eb' : colors.textSecondary}
-                  />
-                  <Text style={styles.dayLabel}>{DAY_LABELS[day]}</Text>
+                  <Text style={[styles.modeChipText, on && styles.chipTextOn]} numberOfLines={2}>
+                    {option.label}
+                  </Text>
                 </TouchableOpacity>
-                {!open ? (
-                  <Text style={styles.unavailable}>Unavailable</Text>
-                ) : (
-                  <View style={styles.intervalCol}>
-                    {intervals.map((row, index) => (
-                      <View key={`${day}-${index}`} style={styles.intervalRow}>
+              );
+            })}
+          </View>
+
+          {availabilityMode !== 'specific_dates' ? (
+            <>
+              <Text style={[styles.label, { marginTop: 8 }]}>Weekly hours</Text>
+              {DAYS.map((day) => {
+                const intervals = hours[day] || [];
+                const open = intervals.length > 0;
+                return (
+                  <View key={day} style={styles.dayRow}>
+                    <TouchableOpacity
+                      style={styles.dayToggle}
+                      onPress={() => {
+                        if (open) setDayIntervals(day, []);
+                        else setDayIntervals(day, [{ start: '09:00', end: '17:00' }]);
+                      }}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: open }}
+                      accessibilityLabel={`${DAY_LABELS[day]} available`}
+                    >
+                      <Ionicons
+                        name={open ? 'checkbox' : 'square-outline'}
+                        size={18}
+                        color={open ? '#2563eb' : colors.textSecondary}
+                      />
+                      <Text style={styles.dayLabel}>{DAY_LABELS[day]}</Text>
+                    </TouchableOpacity>
+                    {!open ? (
+                      <Text style={styles.unavailable}>Unavailable</Text>
+                    ) : (
+                      <View style={styles.intervalCol}>
+                        {intervals.map((row, index) => (
+                          <View key={`${day}-${index}`} style={styles.intervalRow}>
+                            <TouchableOpacity
+                              style={styles.time}
+                              onPress={() => openTimePicker(day, index, 'start', row.start)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${DAY_LABELS[day]} start`}
+                            >
+                              <Text style={styles.timeText}>{row.start}</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.dash}>–</Text>
+                            <TouchableOpacity
+                              style={styles.time}
+                              onPress={() => openTimePicker(day, index, 'end', row.end)}
+                              accessibilityRole="button"
+                              accessibilityLabel={`${DAY_LABELS[day]} end`}
+                            >
+                              <Text style={styles.timeText}>{row.end}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={() => setDayIntervals(day, intervals.filter((_, itemIndex) => itemIndex !== index))}
+                              hitSlop={8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Remove ${DAY_LABELS[day]} hours`}
+                              style={styles.removeBtn}
+                            >
+                              <Ionicons name="close" size={16} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
                         <TouchableOpacity
-                          style={styles.time}
-                          onPress={() => openTimePicker(day, index, 'start', row.start)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${DAY_LABELS[day]} start`}
+                          onPress={() => setDayIntervals(day, [...intervals, { start: '13:00', end: '17:00' }])}
                         >
-                          <Text style={styles.timeText}>{row.start}</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.dash}>–</Text>
-                        <TouchableOpacity
-                          style={styles.time}
-                          onPress={() => openTimePicker(day, index, 'end', row.end)}
-                          accessibilityRole="button"
-                          accessibilityLabel={`${DAY_LABELS[day]} end`}
-                        >
-                          <Text style={styles.timeText}>{row.end}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={() => setDayIntervals(day, intervals.filter((_, itemIndex) => itemIndex !== index))}
-                          hitSlop={8}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${DAY_LABELS[day]} hours`}
-                          style={styles.removeBtn}
-                        >
-                          <Ionicons name="close" size={16} color={colors.textSecondary} />
+                          <Text style={styles.link}>Add hours</Text>
                         </TouchableOpacity>
                       </View>
-                    ))}
-                    <TouchableOpacity
-                      onPress={() => setDayIntervals(day, [...intervals, { start: '13:00', end: '17:00' }])}
-                    >
-                      <Text style={styles.link}>Add hours</Text>
-                    </TouchableOpacity>
+                    )}
                   </View>
-                )}
-              </View>
-            );
-          })}
+                );
+              })}
+            </>
+          ) : null}
+
+          {(availabilityMode === 'specific_dates' || availabilityMode === 'weekly_with_overrides') ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={styles.label}>
+                {availabilityMode === 'specific_dates' ? 'Specific dates' : 'Date overrides'}
+              </Text>
+              <TouchableOpacity style={styles.pickerField} onPress={() => openBoundDatePicker('newDateKey', newDateKey)}>
+                <Text style={styles.pickerValue}>{newDateKey || 'Pick a date'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ marginTop: 8 }}
+                onPress={() => {
+                  if (!/^\d{4}-\d{2}-\d{2}$/.test(newDateKey)) {
+                    Alert.alert('Date', 'Pick a date first');
+                    return;
+                  }
+                  if (dateHours[newDateKey] !== undefined) {
+                    setNewDateKey('');
+                    return;
+                  }
+                  setDateHours({
+                    ...dateHours,
+                    [newDateKey]:
+                      availabilityMode === 'weekly_with_overrides'
+                        ? []
+                        : [{ start: '09:00', end: '17:00' }],
+                  });
+                  setNewDateKey('');
+                }}
+              >
+                <Text style={styles.link}>Add date</Text>
+              </TouchableOpacity>
+              {Object.keys(dateHours)
+                .sort()
+                .map((dayKey) => {
+                  const intervals = dateHours[dayKey] || [];
+                  const closed = intervals.length === 0;
+                  return (
+                    <View key={dayKey} style={[styles.dayRow, { marginTop: 10 }]}>
+                      <View style={styles.dateLabelRow}>
+                        <Text style={styles.dayLabel}>{dayKey}</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            const next = { ...dateHours };
+                            delete next[dayKey];
+                            setDateHours(next);
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${dayKey} and all hours on that date`}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                        </TouchableOpacity>
+                      </View>
+                      {availabilityMode === 'weekly_with_overrides' ? (
+                        <TouchableOpacity
+                          onPress={() =>
+                            setDateHours({
+                              ...dateHours,
+                              [dayKey]: closed ? [{ start: '09:00', end: '17:00' }] : [],
+                            })
+                          }
+                        >
+                          <Text style={styles.link}>{closed ? 'Mark available' : 'Mark unavailable'}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {closed ? (
+                        <Text style={styles.unavailable}>Unavailable</Text>
+                      ) : (
+                        <View style={styles.intervalCol}>
+                          {intervals.map((row, index) => (
+                            <View key={`${dayKey}-${index}`} style={styles.intervalRow}>
+                              <TouchableOpacity
+                                style={styles.time}
+                                onPress={() => openDateHoursTimePicker(dayKey, index, 'start', row.start)}
+                              >
+                                <Text style={styles.timeText}>{row.start}</Text>
+                              </TouchableOpacity>
+                              <Text style={styles.dash}>–</Text>
+                              <TouchableOpacity
+                                style={styles.time}
+                                onPress={() => openDateHoursTimePicker(dayKey, index, 'end', row.end)}
+                              >
+                                <Text style={styles.timeText}>{row.end}</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ))}
+                          <TouchableOpacity
+                            onPress={() =>
+                              setDateHours({
+                                ...dateHours,
+                                [dayKey]: [...intervals, { start: '13:00', end: '17:00' }],
+                              })
+                            }
+                          >
+                            <Text style={styles.link}>Add hours</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.card}>
@@ -670,7 +1136,48 @@ export default function CalendarSchedulingScreen() {
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Window (days)</Text>
-              <TextInput style={styles.input} value={windowDays} onChangeText={setWindowDays} keyboardType="number-pad" onFocus={revealFocusedField} />
+              <TextInput
+                style={styles.input}
+                value={windowDays}
+                onChangeText={setWindowDays}
+                keyboardType="number-pad"
+                onFocus={revealFocusedField}
+              />
+              {windowNeedsSync && suggestedWindowDays != null ? (
+                <TouchableOpacity onPress={() => setWindowDays(String(suggestedWindowDays))}>
+                  <Text style={styles.conflictHint}>
+                    Set window to {suggestedWindowDays} days so guests can reach your dates (then Save hours)
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Available from</Text>
+              <TouchableOpacity
+                style={styles.pickerField}
+                onPress={() => openBoundDatePicker('availabilityStartDate', availabilityStartDate)}
+              >
+                <Text style={styles.pickerValue}>{availabilityStartDate || 'Optional'}</Text>
+              </TouchableOpacity>
+              {availabilityStartDate ? (
+                <TouchableOpacity onPress={() => setAvailabilityStartDate('')}>
+                  <Text style={styles.link}>Clear</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={styles.field}>
+              <Text style={styles.label}>Available until</Text>
+              <TouchableOpacity
+                style={styles.pickerField}
+                onPress={() => openBoundDatePicker('availabilityEndDate', availabilityEndDate)}
+              >
+                <Text style={styles.pickerValue}>{availabilityEndDate || 'Optional'}</Text>
+              </TouchableOpacity>
+              {availabilityEndDate ? (
+                <TouchableOpacity onPress={() => setAvailabilityEndDate('')}>
+                  <Text style={styles.link}>Clear</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
             <View style={styles.field}>
               <Text style={styles.label}>Buffer before (min)</Text>
@@ -681,6 +1188,26 @@ export default function CalendarSchedulingScreen() {
               <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
           </View>
+          {displayConflicts.length > 0 ? (
+            <View style={styles.conflictList}>
+              {displayConflicts.map((conflict) => (
+                <View
+                  key={conflict.code}
+                  style={[styles.conflictBanner, conflict.blocking && styles.conflictBannerBlocking]}
+                >
+                  <Text style={[styles.conflictText, conflict.blocking && styles.conflictTextBlocking]}>
+                    {conflict.message}
+                  </Text>
+                  {conflict.dates?.length ? (
+                    <Text style={styles.conflictDates}>
+                      Dates: {conflict.dates.slice(0, 8).join(', ')}
+                      {conflict.dates.length > 8 ? '…' : ''}
+                    </Text>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
           <TouchableOpacity style={styles.button} onPress={() => void saveHours()} disabled={savingHours}>
             <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save hours'}</Text>
           </TouchableOpacity>
@@ -1091,6 +1618,29 @@ export default function CalendarSchedulingScreen() {
         </MinimizableBottomSheet>
       ) : null}
 
+      {boundDateField && Platform.OS === 'ios' ? (
+        <MinimizableBottomSheet
+          visible
+          minimizable={false}
+          expandNonce={datePickerNonce}
+          onClose={() => setBoundDateField(null)}
+          title="Date"
+          sheetHeight={300}
+        >
+          <DateTimePicker
+            value={pickerDate}
+            mode="date"
+            display="spinner"
+            themeVariant={colors.isDark ? 'dark' : 'light'}
+            onChange={(_, date) => {
+              if (!date) return;
+              setPickerDate(date);
+              applyBoundDate(boundDateField, date);
+            }}
+          />
+        </MinimizableBottomSheet>
+      ) : null}
+
       <ShareAccessSheet
         visible={accessTypeId != null}
         adapter={accessTypeId != null ? createBookingShareAdapter(accessTypeId) : null}
@@ -1158,6 +1708,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     dayRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 3 },
     dayToggle: { width: 62, flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 4 },
     dayLabel: { fontSize: 13, fontWeight: '600', color: colors.text },
+    dateLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     unavailable: { fontSize: 12, color: colors.textSecondary, paddingTop: 5 },
     intervalCol: { flex: 1, gap: 4 },
     intervalRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -1195,7 +1746,39 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
       color: colors.text,
       backgroundColor: colors.background,
     },
+    inputDisabled: { opacity: 0.55 },
+    conflictHint: { fontSize: 11, color: '#b45309', marginTop: 2 },
+    conflictList: { marginTop: 10, gap: 6 },
+    conflictBanner: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: '#f59e0b',
+      backgroundColor: colors.isDark ? '#422006' : '#fffbeb',
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 6,
+    },
+    conflictBannerBlocking: {
+      borderColor: '#ef4444',
+      backgroundColor: colors.isDark ? '#450a0a' : '#fef2f2',
+    },
+    conflictText: { fontSize: 12, color: colors.isDark ? '#fde68a' : '#92400e' },
+    conflictTextBlocking: { color: colors.isDark ? '#fecaca' : '#991b1b' },
+    conflictDates: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+    modeRow: { flexDirection: 'row', gap: 6, marginTop: 4 },
+    modeChip: {
+      flex: 1,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: 6,
+      paddingHorizontal: 6,
+      paddingVertical: 8,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: 40,
+    },
+    modeChipText: { fontSize: 11, color: colors.text, textAlign: 'center', fontWeight: '600' },
     chip: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,

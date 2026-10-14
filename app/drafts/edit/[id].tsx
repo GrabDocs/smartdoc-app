@@ -56,6 +56,21 @@ import { TapToToggleHeaderView } from '../../components/TapToToggleHeaderView';
 import { useAuth } from '../../context/auth';
 
 import AppBackButton from '../../../components/AppBackButton';
+import DraftFindBar from '../../../components/drafts/DraftFindBar';
+import {
+  DRAFT_EDITOR_FEATURES_JS,
+  draftEditorFeaturesCss,
+  gdCall,
+} from '../../../utils/draftEditorWebViewFeatures';
+import {
+  DEFAULT_FONT_SIZE_PT,
+  FONT_FAMILIES,
+  FONT_SIZE_PRESETS_PT,
+  HEADING_OPTIONS,
+  LINE_HEIGHT_PRESETS,
+  ptToCssPx,
+} from '../../../utils/draftNoteFormat';
+import { exportDraftNotePdf, printDraftNote } from '../../../utils/printDraftNote';
 
 function stripHtmlToText(html: string): string {
   if (!html) return '';
@@ -135,9 +150,6 @@ function ensureDraftHtmlStructure(html: string): string {
   }
   return `<h1 data-placeholder="Title"></h1>${trimmed}`;
 }
-
-/** Allowed font sizes (px) for the rich-text toolbar — applied as inline `font-size` on a wrapping span. */
-const DRAFT_FONT_SIZES_PX = [12, 14, 16, 18, 20, 24, 28, 32] as const;
 
 const LOCAL_SAVE_TOAST_MS = 1000;
 const LOCAL_SAVE_TOAST_COOLDOWN_MS = 60000;
@@ -441,12 +453,15 @@ const DRAFT_EDITOR_SCRIPT = `
         }
       }
 
+${DRAFT_EDITOR_FEATURES_JS}
+
       el.innerHTML='<h1><\\/h1><p><br><\\/p>';
 
       setTimeout(function(){
         el.addEventListener('input',function(){
           if(repairTitleAfterEnter()) return;
           sync();
+          gdFindRefresh();
         });
         el.addEventListener('blur',sync);
         el.addEventListener('paste',function(){ setTimeout(function(){
@@ -603,6 +618,7 @@ function getRichEditorBaseHtml(bgColor: string, textColor: string, isDarkMode: b
     #content [style*="margin-left"]{display:block}
     table{border-collapse:collapse;width:100%;margin:8px 0}
     td,th{border:1px solid ${safeText}40;padding:8px}
+    ${draftEditorFeaturesCss(safeBg, isDarkMode)}
     ${darkModeBlackTextFix}
   </style></head><body><div id="content" contenteditable="true"><h1 data-placeholder="Title"></h1><p><br></p></div>
   <script>${DRAFT_EDITOR_SCRIPT}</script></body></html>`;
@@ -677,6 +693,12 @@ export default function DraftEditScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [showColorPicker, setShowColorPicker] = useState<'fore' | 'back' | null>(null);
   const [showFontSizePicker, setShowFontSizePicker] = useState(false);
+  const [optionPicker, setOptionPicker] = useState<'font' | 'spacing' | 'heading' | null>(null);
+  const [findVisible, setFindVisible] = useState(false);
+  const [findInputFocused, setFindInputFocused] = useState(false);
+  const [findResult, setFindResult] = useState({ count: 0, index: -1 });
+  const [outlineVisible, setOutlineVisible] = useState(false);
+  const [outlineItems, setOutlineItems] = useState<Array<{ level: number; text: string; index: number }> | null>(null);
   const [localSaveToastVisible, setLocalSaveToastVisible] = useState(false);
   const localSaveToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSaveToastAtRef = useRef(0);
@@ -974,7 +996,7 @@ export default function DraftEditScreen() {
             wasCreatedEmptyRef.current = isDraftHtmlEmpty(safeHtml) && (name === 'Untitled Note' || !name);
             // Inject updated content into WebView if already rendered
             if (cached) {
-              const script = `(function(){ var el=document.getElementById('content'); if(el){ el.innerHTML=${JSON.stringify(safeHtml)}; var h1=el.querySelector('h1'); if(h1&&window.ReactNativeWebView){ var t=(h1.textContent||'').replace(/\\u00a0/g,' ').trim(); if(t) window.ReactNativeWebView.postMessage('__TITLE__:'+t); } } })(); true;`;
+              const script = `(function(){ var el=document.getElementById('content'); if(el){ el.innerHTML=${JSON.stringify(safeHtml)}; var h1=el.querySelector('h1'); if(h1&&window.ReactNativeWebView){ var t=(h1.textContent||'').replace(/\\u00a0/g,' ').trim(); if(t) window.ReactNativeWebView.postMessage('__TITLE__:'+t); } if(window.gdFindRefresh) window.gdFindRefresh(); } })(); true;`;
               webViewRef.current?.injectJavaScript(script);
             }
           }
@@ -1272,7 +1294,7 @@ export default function DraftEditScreen() {
       lastKnownVersionRef.current = version;
       lastKnownUpdatedAtRef.current = updatedAt;
       setHasUnsavedChanges(false);
-      const script = `(function(){ var el=document.getElementById('content'); if(el) el.innerHTML=${JSON.stringify(safeHtml)}; })(); true;`;
+      const script = `(function(){ var el=document.getElementById('content'); if(el) el.innerHTML=${JSON.stringify(safeHtml)}; if(window.gdFindRefresh) window.gdFindRefresh(); })(); true;`;
       webViewRef.current?.injectJavaScript(script);
     } catch (_) {
       // ignore refetch errors
@@ -1387,6 +1409,24 @@ export default function DraftEditScreen() {
         setCanUndo(!!state.canUndo);
         setCanRedo(!!state.canRedo);
       } catch {}
+      return;
+    }
+
+    if (rawHtml.startsWith('__FIND__:')) {
+      try {
+        const r = JSON.parse(rawHtml.slice('__FIND__:'.length));
+        setFindResult({ count: Number(r.count) || 0, index: Number.isFinite(r.index) ? r.index : -1 });
+      } catch {}
+      return;
+    }
+
+    if (rawHtml.startsWith('__OUTLINE__:')) {
+      try {
+        const items = JSON.parse(rawHtml.slice('__OUTLINE__:'.length));
+        setOutlineItems(Array.isArray(items) ? items : []);
+      } catch {
+        setOutlineItems([]);
+      }
       return;
     }
 
@@ -1537,27 +1577,84 @@ export default function DraftEditScreen() {
     setShowColorPicker(null);
   }, []);
 
-  const applySelectionFontSize = useCallback((sizePx: (typeof DRAFT_FONT_SIZES_PX)[number]) => {
-    const script = `(function(){
-      var el=document.getElementById('content');
-      if(!el) return;
-      el.focus();
-      var sel=window.getSelection();
-      if(!sel||sel.rangeCount===0) return;
-      var range=sel.getRangeAt(0);
-      if(range.collapsed) return;
-      var span=document.createElement('span');
-      span.style.fontSize='${sizePx}px';
-      try{range.surroundContents(span);}catch(e){
-        var contents=range.extractContents();
-        span.appendChild(contents);
-        range.insertNode(span);
-      }
-      if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
-    })(); true;`;
-    webViewRef.current?.injectJavaScript(script);
+  /** Point sizes stored as the same canonical px strings the web editor writes (e.g. 14pt → 18.667px). */
+  const applySelectionFontSize = useCallback((pt: number) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdApplyInlineStyle', 'fontSize', ptToCssPx(pt)));
     setShowFontSizePicker(false);
   }, []);
+
+  const applySelectionFontFamily = useCallback((family: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdApplyInlineStyle', 'fontFamily', family));
+    setOptionPicker(null);
+  }, []);
+
+  const applyLineHeight = useCallback((value: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdApplyLineHeight', value));
+    setOptionPicker(null);
+  }, []);
+
+  const applyBlockFormat = useCallback((tag: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdFormatBlock', tag));
+    setOptionPicker(null);
+  }, []);
+
+  const openFind = useCallback(() => {
+    setEditorMenuVisible(false);
+    setFindResult({ count: 0, index: -1 });
+    setFindVisible(true);
+  }, []);
+
+  const closeFind = useCallback(() => {
+    setFindVisible(false);
+    setFindInputFocused(false);
+    setFindResult({ count: 0, index: -1 });
+    webViewRef.current?.injectJavaScript(gdCall('gdFindClear'));
+  }, []);
+
+  const handleFindQuery = useCallback((query: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdFindSet', query));
+  }, []);
+
+  const handleFindStep = useCallback((direction: 1 | -1) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdFindStep', direction));
+  }, []);
+
+  const handleFindReplace = useCallback((replacement: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdFindReplace', replacement));
+  }, []);
+
+  const handleFindReplaceAll = useCallback((replacement: string) => {
+    webViewRef.current?.injectJavaScript(gdCall('gdFindReplaceAll', replacement));
+  }, []);
+
+  const openOutline = useCallback(() => {
+    setEditorMenuVisible(false);
+    setOutlineItems(null);
+    setOutlineVisible(true);
+    webViewRef.current?.injectJavaScript(gdCall('gdOutline'));
+  }, []);
+
+  const jumpToHeading = useCallback((index: number) => {
+    setOutlineVisible(false);
+    webViewRef.current?.injectJavaScript(gdCall('gdScrollToHeading', index));
+  }, []);
+
+  const runNoteExport = useCallback(async (kind: 'print' | 'pdf') => {
+    setEditorMenuVisible(false);
+    const title = stripExtension(currentFilenameRef.current || filename) || 'Note';
+    const html = contentHtmlRef.current || '';
+    try {
+      const result = kind === 'print' ? await printDraftNote(title, html) : await exportDraftNotePdf(title, html);
+      if (result === 'html-fallback') {
+        Alert.alert(
+          kind === 'print' ? 'Print' : 'Export as PDF',
+          'Update GrabDocs to print or save PDFs directly. For now the note was shared as a printable web page — open it in a browser to print or save as PDF.'
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Error', toAlertMessage(e?.message, kind === 'print' ? 'Could not print note' : 'Could not export PDF'));
+    }
+  }, [filename]);
 
   const insertTable = useCallback(() => {
     const script = `(function(){
@@ -2263,6 +2360,19 @@ export default function DraftEditScreen() {
           </View>
         </AnimatedHeaderContainer>
 
+        <DraftFindBar
+          visible={findVisible}
+          editable
+          result={findResult}
+          colors={colors}
+          onQueryChange={handleFindQuery}
+          onStep={handleFindStep}
+          onReplace={handleFindReplace}
+          onReplaceAll={handleFindReplaceAll}
+          onClose={closeFind}
+          onInputFocusChange={setFindInputFocused}
+        />
+
         <View style={dynamicStyles.editorWrap}>
           {localSaveToastVisible ? (
             <View style={dynamicStyles.localSaveToast}>
@@ -2308,7 +2418,7 @@ export default function DraftEditScreen() {
         </View>
       </KeyboardAvoidingView>
 
-      {keyboardHeight > 0 ? (
+      {keyboardHeight > 0 && !findInputFocused ? (
         <View style={[dynamicStyles.keyboardToolbar, { bottom: keyboardHeight }]}>
           <ScrollView
             horizontal
@@ -2346,6 +2456,27 @@ export default function DraftEditScreen() {
               accessibilityLabel="Font size"
             >
               <Text style={{ fontSize: 19, fontWeight: '700', color: colors.text }}>Aa</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.toolBtn}
+              onPress={() => { setShowColorPicker(null); setOptionPicker('font'); }}
+              accessibilityLabel="Font"
+            >
+              <Text style={{ fontSize: 19, fontWeight: '600', color: colors.text, fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' }}>F</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.toolBtn}
+              onPress={() => { setShowColorPicker(null); setOptionPicker('heading'); }}
+              accessibilityLabel="Heading"
+            >
+              <Text style={{ fontSize: 19, fontWeight: '800', color: colors.text }}>H</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.toolBtn}
+              onPress={() => { setShowColorPicker(null); setOptionPicker('spacing'); }}
+              accessibilityLabel="Line spacing"
+            >
+              <Ionicons name="reorder-three-outline" size={26} color={colors.text} />
             </TouchableOpacity>
 
             <View style={dynamicStyles.toolBtnDivider} />
@@ -2438,10 +2569,10 @@ export default function DraftEditScreen() {
               </TouchableOpacity>
             </View>
             <View style={{ paddingHorizontal: 8, paddingBottom: 12 }}>
-              {DRAFT_FONT_SIZES_PX.map((px) => (
+              {FONT_SIZE_PRESETS_PT.map((pt) => (
                 <TouchableOpacity
-                  key={px}
-                  onPress={() => applySelectionFontSize(px)}
+                  key={pt}
+                  onPress={() => applySelectionFontSize(pt)}
                   style={{
                     paddingVertical: 10,
                     paddingHorizontal: 12,
@@ -2449,12 +2580,98 @@ export default function DraftEditScreen() {
                     borderBottomColor: colors.border,
                   }}
                 >
-                  <Text style={{ fontSize: px, color: colors.text }}>
-                    {px}px{px === 16 ? ' — default' : ''}
+                  <Text style={{ fontSize: Math.min((pt * 4) / 3, 32), color: colors.text }}>
+                    {pt} pt{pt === DEFAULT_FONT_SIZE_PT ? ' — default' : ''}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={optionPicker !== null} transparent animationType="fade" onRequestClose={() => setOptionPicker(null)}>
+        <TouchableOpacity activeOpacity={1} style={dynamicStyles.modalOverlay} onPress={() => setOptionPicker(null)}>
+          <TouchableOpacity activeOpacity={1} onPress={e => e.stopPropagation()} style={[dynamicStyles.modalBoxCompact, { minWidth: 220, maxWidth: 300 }]}>
+            <View style={[dynamicStyles.modalHeader, { paddingTop: 8, paddingBottom: 6, paddingHorizontal: 12 }]}>
+              <Text style={[dynamicStyles.modalTitle, { fontSize: 14, marginLeft: 4 }]}>
+                {optionPicker === 'font' ? 'Font' : optionPicker === 'heading' ? 'Paragraph style' : 'Line spacing'}
+              </Text>
+              <TouchableOpacity style={dynamicStyles.modalCloseBtn} onPress={() => setOptionPicker(null)}>
+                <Ionicons name="close" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <View style={{ paddingHorizontal: 8, paddingBottom: 12 }}>
+              {(optionPicker === 'font'
+                ? [...FONT_FAMILIES.map((f) => ({ key: f.label, label: f.label, onPress: () => applySelectionFontFamily(f.value) })),
+                   { key: 'default', label: 'Default', onPress: () => applySelectionFontFamily('') }]
+                : optionPicker === 'heading'
+                  ? HEADING_OPTIONS.map((h) => ({ key: h.value, label: h.label, onPress: () => applyBlockFormat(h.value) }))
+                  : [...LINE_HEIGHT_PRESETS.map((l) => ({ key: l.value, label: l.label, onPress: () => applyLineHeight(l.value) })),
+                     { key: 'default', label: 'Default', onPress: () => applyLineHeight('') }]
+              ).map((opt) => (
+                <TouchableOpacity
+                  key={opt.key}
+                  onPress={opt.onPress}
+                  style={{
+                    paddingVertical: 12,
+                    paddingHorizontal: 12,
+                    borderBottomWidth: StyleSheet.hairlineWidth,
+                    borderBottomColor: colors.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: opt.key === 'H2' ? 20 : opt.key === 'H3' ? 17 : 16,
+                      fontWeight: opt.key === 'H2' || opt.key === 'H3' ? '700' : '400',
+                      color: colors.text,
+                    }}
+                  >
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={outlineVisible} transparent animationType="fade" onRequestClose={() => setOutlineVisible(false)}>
+        <TouchableOpacity activeOpacity={1} style={dynamicStyles.modalOverlay} onPress={() => setOutlineVisible(false)}>
+          <TouchableOpacity activeOpacity={1} onPress={e => e.stopPropagation()} style={[dynamicStyles.modalBoxCompact, { minWidth: 260, maxWidth: 340, maxHeight: '70%' }]}>
+            <View style={[dynamicStyles.modalHeader, { paddingTop: 8, paddingBottom: 6, paddingHorizontal: 12 }]}>
+              <Text style={[dynamicStyles.modalTitle, { fontSize: 14, marginLeft: 4 }]}>Outline</Text>
+              <TouchableOpacity style={dynamicStyles.modalCloseBtn} onPress={() => setOutlineVisible(false)}>
+                <Ionicons name="close" size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            {outlineItems === null ? (
+              <ActivityIndicator size="small" color={colors.primary} style={{ margin: 16 }} />
+            ) : outlineItems.filter((o) => o.text).length === 0 ? (
+              <Text style={{ color: colors.textSecondary, fontSize: 14, padding: 16 }}>
+                Add headings (H button in the toolbar) to build an outline.
+              </Text>
+            ) : (
+              <ScrollView style={{ paddingHorizontal: 8, marginBottom: 12 }}>
+                {outlineItems.filter((o) => o.text).map((o) => (
+                  <TouchableOpacity
+                    key={o.index}
+                    onPress={() => jumpToHeading(o.index)}
+                    style={{
+                      paddingVertical: 10,
+                      paddingRight: 12,
+                      paddingLeft: 12 + (o.level - 1) * 14,
+                      borderBottomWidth: StyleSheet.hairlineWidth,
+                      borderBottomColor: colors.border,
+                    }}
+                  >
+                    <Text numberOfLines={2} style={{ color: colors.text, fontSize: o.level === 1 ? 16 : 15, fontWeight: o.level === 1 ? '700' : '500' }}>
+                      {o.text}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -2803,6 +3020,22 @@ export default function DraftEditScreen() {
               >
                 <Ionicons name="link-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
                 <Text style={dynamicStyles.popoverItemText}>Manage Links</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={openFind}>
+                <Ionicons name="search-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
+                <Text style={dynamicStyles.popoverItemText}>Find and Replace</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={openOutline}>
+                <Ionicons name="list-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
+                <Text style={dynamicStyles.popoverItemText}>Outline</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={() => void runNoteExport('print')}>
+                <Ionicons name="print-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
+                <Text style={dynamicStyles.popoverItemText}>Print</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={() => void runNoteExport('pdf')}>
+                <Ionicons name="document-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
+                <Text style={dynamicStyles.popoverItemText}>Export as PDF</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]}
