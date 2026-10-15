@@ -541,6 +541,7 @@ export default function CalendarSchedulingScreen() {
 
   const formTitle = forms.find((form) => form.id === formId)?.title || 'No form';
   const slugInvalid = !!slug && !SLUG_RE.test(slug);
+  const messageIsError = /could not/i.test(message);
 
   const todayIso = hostTodayIso(timezone);
   const openDateCount = Object.values(dateHours).filter((rows) => Array.isArray(rows) && rows.length > 0).length;
@@ -603,9 +604,6 @@ export default function CalendarSchedulingScreen() {
       /could not|saved|created|updated|sent|finished|meeting link|turn Reach/i.test(message);
     if (!isActionFeedback) setMessage('');
   }, [primaryConflict, message]);
-  const messageIsError = /could not/i.test(message);
-  const messageIsSuccess = /saved|sent|finished|created|updated/i.test(message) && !messageIsError;
-  const messageBannerError = messageIsError || (!!message && !messageIsSuccess);
   const windowNeedsSync =
     suggestedWindowDays != null && (Number(windowDays) || 0) < suggestedWindowDays;
 
@@ -986,8 +984,8 @@ export default function CalendarSchedulingScreen() {
           scrollYRef.current = event.nativeEvent.contentOffset.y;
         }}
       >
-        {message && messageIsError ? (
-          <Text style={[styles.banner, styles.bannerError]}>{message}</Text>
+        {message && (messageIsError || !primaryConflict) ? (
+          <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
         ) : primaryConflict ? (
           <View style={[styles.conflictBanner, primaryConflict.blocking && styles.conflictBannerBlocking, styles.topConflictBanner]}>
             <Text style={[styles.conflictText, primaryConflict.blocking && styles.conflictTextBlocking]}>
@@ -1004,7 +1002,7 @@ export default function CalendarSchedulingScreen() {
             ) : null}
           </View>
         ) : message ? (
-          <Text style={[styles.banner, messageBannerError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
+          <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
         ) : null}
 
         {tab === 'hours' && eventsView === 'list' ? (
