@@ -1063,7 +1063,6 @@ export default function CalendarSchedulingScreen() {
         <>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Availability schedule</Text>
-          <Text style={styles.sectionHint}>Timezone: {timezone}</Text>
           <View style={styles.modeRow}>
             {(
               [
@@ -1271,21 +1270,29 @@ export default function CalendarSchedulingScreen() {
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Booking rules</Text>
           <View style={styles.grid}>
-            <View style={styles.field}>
-              <Text style={styles.label}>Offer starts every</Text>
-              <View style={styles.chipRow}>
-                {INTERVALS.map((minutes) => {
-                  const on = interval === String(minutes);
-                  return (
-                    <TouchableOpacity
-                      key={minutes}
-                      style={[styles.chip, on && styles.chipOn]}
-                      onPress={() => setInterval(String(minutes))}
-                    >
-                      <Text style={[styles.chipText, on && styles.chipTextOn]}>{minutes}m</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+            <View style={styles.pair}>
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Timezone</Text>
+                <View style={[styles.pickerField, styles.inputDisabled]}>
+                  <Text style={styles.pickerValue} numberOfLines={1}>{timezone}</Text>
+                </View>
+              </View>
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Offer starts every</Text>
+                <View style={styles.chipRow}>
+                  {INTERVALS.map((minutes) => {
+                    const on = interval === String(minutes);
+                    return (
+                      <TouchableOpacity
+                        key={minutes}
+                        style={[styles.chip, on && styles.chipOn]}
+                        onPress={() => setInterval(String(minutes))}
+                      >
+                        <Text style={[styles.chipText, on && styles.chipTextOn]}>{minutes}m</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             </View>
             <View style={styles.field}>
@@ -1317,33 +1324,35 @@ export default function CalendarSchedulingScreen() {
               <Text style={styles.label}>Buffer after (min)</Text>
               <TextInput style={styles.input} value={bufferAfter} onChangeText={setBufferAfter} keyboardType="number-pad" onFocus={revealFocusedField} />
             </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Available from</Text>
-              <TouchableOpacity
-                style={styles.pickerField}
-                onPress={() => openBoundDatePicker('availabilityStartDate', availabilityStartDate)}
-              >
-                <Text style={styles.pickerValue}>{availabilityStartDate || 'Optional'}</Text>
-              </TouchableOpacity>
-              {availabilityStartDate ? (
-                <TouchableOpacity onPress={() => setAvailabilityStartDate('')}>
-                  <Text style={styles.link}>Clear</Text>
+            <View style={styles.pair}>
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Available from</Text>
+                <TouchableOpacity
+                  style={styles.pickerField}
+                  onPress={() => openBoundDatePicker('availabilityStartDate', availabilityStartDate)}
+                >
+                  <Text style={styles.pickerValue}>{availabilityStartDate || 'Optional'}</Text>
                 </TouchableOpacity>
-              ) : null}
-            </View>
-            <View style={styles.field}>
-              <Text style={styles.label}>Available until</Text>
-              <TouchableOpacity
-                style={styles.pickerField}
-                onPress={() => openBoundDatePicker('availabilityEndDate', availabilityEndDate)}
-              >
-                <Text style={styles.pickerValue}>{availabilityEndDate || 'Optional'}</Text>
-              </TouchableOpacity>
-              {availabilityEndDate ? (
-                <TouchableOpacity onPress={() => setAvailabilityEndDate('')}>
-                  <Text style={styles.link}>Clear</Text>
+                {availabilityStartDate ? (
+                  <TouchableOpacity onPress={() => setAvailabilityStartDate('')}>
+                    <Text style={styles.link}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <View style={styles.pairField}>
+                <Text style={styles.label}>Available until</Text>
+                <TouchableOpacity
+                  style={styles.pickerField}
+                  onPress={() => openBoundDatePicker('availabilityEndDate', availabilityEndDate)}
+                >
+                  <Text style={styles.pickerValue}>{availabilityEndDate || 'Optional'}</Text>
                 </TouchableOpacity>
-              ) : null}
+                {availabilityEndDate ? (
+                  <TouchableOpacity onPress={() => setAvailabilityEndDate('')}>
+                    <Text style={styles.link}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           </View>
           <View style={styles.healthRow}>
@@ -1920,7 +1929,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     removeBtn: { padding: 2 },
     link: { color: '#2563eb', fontSize: 12, fontWeight: '600' },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    pair: { flexDirection: 'row', gap: 8 },
+    pair: { flexDirection: 'row', gap: 8, width: '100%' },
     field: { width: '48%', flexGrow: 1, gap: 2 },
     pairField: { flex: 1, minWidth: 0, gap: 2 },
     label: { fontSize: 11, fontWeight: '600', color: colors.textSecondary },

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
 
@@ -21,14 +22,21 @@ export default function SignatureCreateChooser({
   expandNonce = 0,
 }: Props) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
+  // Sheet sits above the tab bar (z-index); only need home-indicator padding so it sits lower.
+  const bottomPad = Math.max(insets.bottom, 12);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        body: {
+          paddingHorizontal: 20,
+          paddingBottom: 4,
+        },
         subtitle: {
           fontSize: 14,
           color: colors.textSecondary,
-          marginBottom: 20,
+          marginBottom: 16,
           paddingHorizontal: 4,
         },
         option: {
@@ -40,6 +48,9 @@ export default function SignatureCreateChooser({
           borderWidth: 1,
           borderColor: colors.border ?? '#E5E7EB',
           marginBottom: 12,
+        },
+        optionLast: {
+          marginBottom: 0,
         },
         optionIcon: {
           width: 44,
@@ -59,16 +70,6 @@ export default function SignatureCreateChooser({
           marginTop: 2,
           lineHeight: 18,
         },
-        cancel: {
-          marginTop: 8,
-          paddingVertical: 14,
-          alignItems: 'center',
-        },
-        cancelText: {
-          fontSize: 16,
-          fontWeight: '600',
-          color: colors.textSecondary,
-        },
       }),
     [colors]
   );
@@ -82,8 +83,9 @@ export default function SignatureCreateChooser({
       fitContent
       minimizable={false}
       heightRatio={0.55}
+      paddingBottom={bottomPad}
     >
-      <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
+      <View style={styles.body}>
         <Text style={styles.subtitle}>Choose how you want to work with a document</Text>
 
         <TouchableOpacity
@@ -108,7 +110,7 @@ export default function SignatureCreateChooser({
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.option}
+          style={[styles.option, styles.optionLast]}
           onPress={() => {
             onClose();
             onFill();
@@ -126,10 +128,6 @@ export default function SignatureCreateChooser({
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.cancel} onPress={onClose}>
-          <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>
       </View>
     </MinimizableBottomSheet>
