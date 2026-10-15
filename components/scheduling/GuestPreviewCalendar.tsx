@@ -1,5 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import AdaptiveListPickerModal from '../AdaptiveListPickerModal';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { bookingPreviewSlots } from '../../services/bookingApi';
 
@@ -37,6 +39,47 @@ function calendarCells(month: Date) {
   return Array.from({ length: 42 }, (_, index) => new Date(month.getFullYear(), month.getMonth(), 1 - offset + index));
 }
 
+function monthStart(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), 1);
+}
+
+function parseIsoDateLocal(value: unknown): Date | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return null;
+  const y = Number(value.slice(0, 4));
+  const m = Number(value.slice(5, 7));
+  const d = Number(value.slice(8, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  return new Date(y, m - 1, d);
+}
+
+function addDaysLocal(value: Date, days: number) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate() + days);
+}
+
+/** Months guests can reach from booking window + optional Available from/until. */
+function guestMonthBounds(settings: Record<string, unknown>, timeZone: string) {
+  const zone =
+    (typeof settings.timezone === 'string' && settings.timezone.trim()) || timeZone || 'UTC';
+  const todayKey = dayKeyInZone(new Date(), zone);
+  const today = parseIsoDateLocal(todayKey) || new Date();
+  const windowDays = Math.max(1, Math.min(365, Number(settings.booking_window_days) || 1));
+  let first = today;
+  let last = addDaysLocal(today, windowDays - 1);
+  const periodStart = parseIsoDateLocal(settings.availability_start_date);
+  const periodEnd = parseIsoDateLocal(settings.availability_end_date);
+  if (periodStart && periodStart > first) first = periodStart;
+  if (periodEnd && periodEnd < last) last = periodEnd;
+  if (last < first) last = first;
+  return { minMonth: monthStart(first), maxMonth: monthStart(last) };
+}
+
+function clampMonth(value: Date, minMonth: Date, maxMonth: Date) {
+  const start = monthStart(value);
+  if (start < minMonth) return minMonth;
+  if (start > maxMonth) return maxMonth;
+  return start;
+}
+
 /** Shows the exact slots guests would get if the host saved `settings` now. */
 export default function GuestPreviewCalendar({
   types,
@@ -50,6 +93,7 @@ export default function GuestPreviewCalendar({
   const activeTypes = types.filter((t) => t.active);
   const activeIds = activeTypes.map((t) => t.id).join(',');
   const [typeId, setTypeId] = useState<number | null>(activeTypes[0]?.id ?? null);
+  const [typePickerOpen, setTypePickerOpen] = useState(false);
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [slots, setSlots] = useState<Slot[]>([]);
   const [timezone, setTimezone] = useState('UTC');
@@ -59,11 +103,28 @@ export default function GuestPreviewCalendar({
   const [selectedDay, setSelectedDay] = useState('');
   const requestId = useRef(0);
   const settingsKey = JSON.stringify(settings);
+  const { minMonth, maxMonth } = useMemo(
+    () => guestMonthBounds(settings, timezone),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settingsKey, timezone],
+  );
+  const canGoPrev = monthStart(month) > minMonth;
+  const canGoNext = monthStart(month) < maxMonth;
+  const atFutureLimit = !canGoNext;
+  const selectedType = activeTypes.find((t) => t.id === typeId);
+  const selectedLabel = selectedType
+    ? `${selectedType.name} (${selectedType.duration_minutes} min)`
+    : 'Choose event type';
 
   useEffect(() => {
     if (typeId == null || !activeTypes.some((t) => t.id === typeId)) setTypeId(activeTypes[0]?.id ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIds]);
+
+  useEffect(() => {
+    setMonth((current) => clampMonth(current, minMonth, maxMonth));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minMonth.getTime(), maxMonth.getTime()]);
 
   useEffect(() => {
     if (typeId == null) return;
@@ -115,19 +176,39 @@ export default function GuestPreviewCalendar({
 
   return (
     <View>
-      <View style={styles.chips}>
-        {activeTypes.map((t) => (
-          <TouchableOpacity
-            key={t.id}
-            style={[styles.chip, t.id === typeId && styles.chipActive]}
-            onPress={() => setTypeId(t.id)}
-          >
-            <Text style={[styles.chipText, t.id === typeId && styles.chipTextActive]}>
-              {t.name} ({t.duration_minutes}m)
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <TouchableOpacity
+        style={styles.dropdown}
+        onPress={() => setTypePickerOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel="Event type to preview"
+      >
+        <Text style={styles.dropdownText} numberOfLines={1}>{selectedLabel}</Text>
+        <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+      </TouchableOpacity>
+      <AdaptiveListPickerModal
+        visible={typePickerOpen}
+        onClose={() => setTypePickerOpen(false)}
+        title="Event type"
+        itemCount={activeTypes.length}
+      >
+        {activeTypes.map((t) => {
+          const selected = t.id === typeId;
+          return (
+            <TouchableOpacity
+              key={t.id}
+              style={[styles.pickerItem, selected && styles.pickerItemSelected]}
+              onPress={() => {
+                setTypeId(t.id);
+                setTypePickerOpen(false);
+              }}
+            >
+              <Text style={[styles.pickerItemText, selected && styles.pickerItemTextSelected]}>
+                {t.name} ({t.duration_minutes} min)
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </AdaptiveListPickerModal>
       <View style={styles.statusRow}>
         {loading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
         <Text style={styles.muted}>
@@ -141,20 +222,25 @@ export default function GuestPreviewCalendar({
       <View style={[styles.monthRow, loading && styles.dim]}>
         <TouchableOpacity
           accessibilityLabel="Previous month"
-          style={styles.navButton}
-          onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}
+          style={[styles.navButton, !canGoPrev && styles.navButtonDisabled]}
+          disabled={!canGoPrev}
+          onPress={() => setMonth((current) => clampMonth(new Date(current.getFullYear(), current.getMonth() - 1, 1), minMonth, maxMonth))}
         >
-          <Text style={styles.navText}>‹</Text>
+          <Text style={[styles.navText, !canGoPrev && styles.navTextDisabled]}>‹</Text>
         </TouchableOpacity>
         <Text style={styles.monthLabel}>{month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</Text>
         <TouchableOpacity
           accessibilityLabel="Next month"
-          style={styles.navButton}
-          onPress={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}
+          style={[styles.navButton, !canGoNext && styles.navButtonDisabled]}
+          disabled={!canGoNext}
+          onPress={() => setMonth((current) => clampMonth(new Date(current.getFullYear(), current.getMonth() + 1, 1), minMonth, maxMonth))}
         >
-          <Text style={styles.navText}>›</Text>
+          <Text style={[styles.navText, !canGoNext && styles.navTextDisabled]}>›</Text>
         </TouchableOpacity>
       </View>
+      {atFutureLimit ? (
+        <Text style={styles.limitHint}>Past your booking window — guests will not see times beyond this month.</Text>
+      ) : null}
       <View style={[styles.grid, loading && styles.dim]}>
         {WEEKDAYS.map((label, index) => (
           <Text key={`${label}-${index}`} style={[styles.cell, styles.weekday]}>{label}</Text>
@@ -195,19 +281,35 @@ export default function GuestPreviewCalendar({
 function createStyles(colors: ReturnType<typeof useThemeColors>) {
   return StyleSheet.create({
     muted: { fontSize: 12, color: colors.textSecondary },
-    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-    chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 4 },
-    chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-    chipText: { fontSize: 12, color: colors.text },
-    chipTextActive: { color: '#fff', fontWeight: '600' },
+    dropdown: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      marginBottom: 8,
+      backgroundColor: colors.card,
+    },
+    dropdownText: { flex: 1, fontSize: 14, color: colors.text, fontWeight: '500' },
+    pickerItem: { paddingHorizontal: 16, paddingVertical: 12 },
+    pickerItemSelected: { backgroundColor: colors.isDark ? 'rgba(59,130,246,0.2)' : '#eff6ff' },
+    pickerItemText: { fontSize: 15, color: colors.text },
+    pickerItemTextSelected: { fontWeight: '600', color: colors.isDark ? '#bfdbfe' : '#1d4ed8' },
     statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
     problem: { fontSize: 12, color: colors.isDark ? '#fecaca' : '#991b1b', marginBottom: 6 },
     monthRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
     navButton: { paddingHorizontal: 12, paddingVertical: 4, borderWidth: 1, borderColor: colors.border, borderRadius: 6 },
+    navButtonDisabled: { opacity: 0.4 },
     navText: { fontSize: 16, color: colors.text },
+    navTextDisabled: { color: colors.textSecondary },
     monthLabel: { fontSize: 14, fontWeight: '600', color: colors.text },
+    limitHint: { fontSize: 11, color: colors.textSecondary, marginBottom: 6 },
     grid: { flexDirection: 'row', flexWrap: 'wrap' },
-    cell: { width: `${100 / 7}%`, alignItems: 'center', paddingVertical: 2 },
+    cell: { width: `${100 / 7}%` as `${number}%`, alignItems: 'center', paddingVertical: 2 },
     weekday: { fontSize: 11, color: colors.textSecondary, textAlign: 'center' },
     dayInner: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
     dayOpen: { backgroundColor: colors.isDark ? 'rgba(59,130,246,0.25)' : '#eff6ff' },

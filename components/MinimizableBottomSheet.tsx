@@ -363,7 +363,8 @@ export default function MinimizableBottomSheet({
 }
 
 const styles = StyleSheet.create({
-  root: { ...StyleSheet.absoluteFillObject, zIndex: 100 },
+  // Above PersistentBottomNavigation (zIndex 100) so sheet content is not covered by the tab bar.
+  root: { ...StyleSheet.absoluteFillObject, zIndex: 200, elevation: 200 },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     position: 'absolute',

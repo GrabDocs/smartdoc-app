@@ -79,7 +79,9 @@ export default function CalendarCreateChooser({
       onClose={onClose}
       expandNonce={expandNonce}
       title="Create"
-      heightRatio={0.44}
+      fitContent
+      minimizable={false}
+      heightRatio={0.55}
     >
       <View style={{ paddingHorizontal: 20, paddingBottom: 8 }}>
         <Text style={styles.subtitle}>Choose what you want to add</Text>

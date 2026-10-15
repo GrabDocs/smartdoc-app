@@ -277,6 +277,19 @@ function formatTime(date: Date): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Display HH:mm as 12-hour with AM/PM (storage stays 24h). */
+function formatTime12hr(value: string): string {
+  if (!value || typeof value !== 'string') return '';
+  const match = value.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return value;
+  let h = Number(match[1]);
+  const mins = Number(match[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mins)) return value;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${String(mins).padStart(2, '0')} ${ampm}`;
+}
+
 function answerLines(response: Record<string, unknown> | null | undefined) {
   if (!response) return [];
   return Object.entries(response).map(([key, value]) => {
@@ -332,6 +345,9 @@ export default function CalendarSchedulingScreen() {
     horizon_days?: number;
     horizon_limited?: boolean;
   } | null>(null);
+  /** Conflict banner snapshot from the last Save hours click; null while editing. */
+  const [saveTimeConflicts, setSaveTimeConflicts] = useState<AvailabilityConflict[] | null>(null);
+  const skipSaveConflictClearRef = useRef(false);
   const [creating, setCreating] = useState(false);
   const [draftFiles, setDraftFiles] = useState<PendingFile[]>([]);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -487,7 +503,7 @@ export default function CalendarSchedulingScreen() {
       DateTimePickerAndroid.open({
         value: parseTime(value),
         mode: 'time',
-        is24Hour: true,
+        is24Hour: false,
         onChange: (event, date) => {
           if (event.type !== 'set' || !date) return;
           applyPickedTime(target, date);
@@ -574,38 +590,41 @@ export default function CalendarSchedulingScreen() {
     ],
     [availabilityMode, hours, dateHours, availabilityStartDate, availabilityEndDate, windowDays, interval, notice, types, timezone],
   );
-  const suggestedWindowDays = availabilityConflicts.reduce<number | null>((max, c) => {
-    if (c.suggested_booking_window_days == null) return max;
-    const next = Number(c.suggested_booking_window_days);
-    if (!Number.isFinite(next)) return max;
-    return max == null ? next : Math.max(max, next);
-  }, null);
-  const displayConflicts = useMemo(() => {
-    const seen = new Set<string>();
-    const out: AvailabilityConflict[] = [];
-    const savedChecks = slotHealth.map((c) => ({ ...c, message: `${c.message} (Checked against your saved schedule; save to recheck.)` }));
-    for (const conflict of [...availabilityConflicts, ...savedChecks]) {
-      if (seen.has(conflict.code)) continue;
-      seen.add(conflict.code);
-      out.push(conflict);
+  // Drop save-time banners when the hours form changes (not while applying a save response).
+  useEffect(() => {
+    if (skipSaveConflictClearRef.current) {
+      skipSaveConflictClearRef.current = false;
+      return;
     }
-    return out;
-  }, [availabilityConflicts, slotHealth]);
+    setSaveTimeConflicts(null);
+  }, [
+    availabilityMode,
+    hours,
+    dateHours,
+    availabilityStartDate,
+    availabilityEndDate,
+    windowDays,
+    interval,
+    notice,
+    bufferBefore,
+    bufferAfter,
+  ]);
+  const displayConflicts = saveTimeConflicts || [];
   /** One banner only — prefer a blocking conflict over warnings. */
   const primaryConflict = useMemo(
     () => displayConflicts.find((c) => c.blocking) || displayConflicts[0] || null,
     [displayConflicts],
   );
-  // Drop stale conflict text left in `message` once the schedule is valid again
-  // (otherwise it renders as a green success banner).
-  useEffect(() => {
-    if (primaryConflict || !message) return;
-    const isActionFeedback =
-      /could not|saved|created|updated|sent|finished|meeting link|turn Reach/i.test(message);
-    if (!isActionFeedback) setMessage('');
-  }, [primaryConflict, message]);
+  const saveSuggestedWindowDays = displayConflicts.reduce<number | null>((max, c) => {
+    if (c.suggested_booking_window_days == null) return max;
+    const next = Number(c.suggested_booking_window_days);
+    if (!Number.isFinite(next)) return max;
+    return max == null ? next : Math.max(max, next);
+  }, null);
   const windowNeedsSync =
-    suggestedWindowDays != null && (Number(windowDays) || 0) < suggestedWindowDays;
+    saveTimeConflicts != null &&
+    saveSuggestedWindowDays != null &&
+    (Number(windowDays) || 0) < saveSuggestedWindowDays;
 
   const previewSettings = {
     weekly_hours: hours,
@@ -613,6 +632,7 @@ export default function CalendarSchedulingScreen() {
     date_hours: dateHours,
     availability_start_date: availabilityStartDate || null,
     availability_end_date: availabilityEndDate || null,
+    timezone,
     slot_interval_minutes: Number(interval) || 30,
     minimum_notice_minutes: Number(notice) || 0,
     booking_window_days: Number(windowDays) || 1,
@@ -620,11 +640,22 @@ export default function CalendarSchedulingScreen() {
     buffer_after_minutes: Number(bufferAfter) || 0,
   };
 
+  const snapshotHoursConflicts = (extra: AvailabilityConflict[] = []) => {
+    const seen = new Set<string>();
+    const out: AvailabilityConflict[] = [];
+    for (const conflict of [...availabilityConflicts, ...extra]) {
+      if (seen.has(conflict.code)) continue;
+      seen.add(conflict.code);
+      out.push(conflict);
+    }
+    return out;
+  };
+
   const saveHours = async () => {
     const blocking = availabilityConflicts.find((c) => c.blocking);
     if (blocking) {
-      // Keep the conflict banner as the only source of truth (do not stash it in
-      // `message`, or it turns into a green "success" banner after the fix).
+      // Show conflict at top on Save only (do not copy into success `message`).
+      setSaveTimeConflicts(snapshotHoursConflicts());
       setMessage('');
       return;
     }
@@ -640,7 +671,10 @@ export default function CalendarSchedulingScreen() {
           ]
         );
       });
-      if (!proceed) return;
+      if (!proceed) {
+        setSaveTimeConflicts(snapshotHoursConflicts());
+        return;
+      }
     }
     if (availabilityMode === 'specific_dates' && (openDateCount === 0 || futureOpenDateCount === 0)) {
       const proceed = await new Promise<boolean>((resolve) => {
@@ -698,7 +732,6 @@ export default function CalendarSchedulingScreen() {
     setSavingHours(true);
     try {
       const res = await bookingUpdateProfile({
-        timezone,
         weekly_hours: hours,
         availability_mode: availabilityMode,
         date_hours: dateHours,
@@ -711,6 +744,10 @@ export default function CalendarSchedulingScreen() {
         buffer_after_minutes: Number(bufferAfter),
       });
       const saved = res?.profile;
+      const patchesFormFields =
+        saved?.booking_window_days != null ||
+        (saved?.date_hours != null && typeof saved.date_hours === 'object');
+      if (patchesFormFields) skipSaveConflictClearRef.current = true;
       if (saved?.booking_window_days != null) {
         setWindowDays(String(saved.booking_window_days));
       }
@@ -726,7 +763,24 @@ export default function CalendarSchedulingScreen() {
       } else {
         setMessage('Hours saved.');
       }
-      void refreshSlotHealth();
+      try {
+        const health = await bookingSlotHealth();
+        const healthConflicts = Array.isArray(health?.conflicts) ? health.conflicts : [];
+        setSlotHealth(healthConflicts);
+        setSlotHealthInfo(health || null);
+        setSaveTimeConflicts(
+          snapshotHoursConflicts(
+            healthConflicts.map((c) => ({
+              ...c,
+              message: `${c.message} (Checked against your saved schedule; save to recheck.)`,
+            })),
+          ),
+        );
+      } catch {
+        setSlotHealth([]);
+        setSlotHealthInfo(null);
+        setSaveTimeConflicts(snapshotHoursConflicts());
+      }
     } catch (err: any) {
       setMessage(err?.response?.data?.error || 'Could not save hours.');
     } finally {
@@ -984,8 +1038,8 @@ export default function CalendarSchedulingScreen() {
           scrollYRef.current = event.nativeEvent.contentOffset.y;
         }}
       >
-        {message && (messageIsError || !primaryConflict) ? (
-          <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
+        {message && messageIsError ? (
+          <Text style={[styles.banner, styles.bannerError]}>{message}</Text>
         ) : primaryConflict ? (
           <View style={[styles.conflictBanner, primaryConflict.blocking && styles.conflictBannerBlocking, styles.topConflictBanner]}>
             <Text style={[styles.conflictText, primaryConflict.blocking && styles.conflictTextBlocking]}>
@@ -1002,14 +1056,14 @@ export default function CalendarSchedulingScreen() {
             ) : null}
           </View>
         ) : message ? (
-          <Text style={[styles.banner, messageIsError ? styles.bannerError : styles.bannerOk]}>{message}</Text>
+          <Text style={[styles.banner, styles.bannerOk]}>{message}</Text>
         ) : null}
 
         {tab === 'hours' && eventsView === 'list' ? (
         <>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Availability schedule</Text>
-          <Text style={styles.sectionHint}>{timezone}</Text>
+          <Text style={styles.sectionHint}>Timezone: {timezone}</Text>
           <View style={styles.modeRow}>
             {(
               [
@@ -1074,7 +1128,7 @@ export default function CalendarSchedulingScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`${DAY_LABELS[day]} start`}
                             >
-                              <Text style={styles.timeText}>{row.start}</Text>
+                              <Text style={styles.timeText}>{formatTime12hr(row.start)}</Text>
                             </TouchableOpacity>
                             <Text style={styles.dash}>–</Text>
                             <TouchableOpacity
@@ -1083,7 +1137,7 @@ export default function CalendarSchedulingScreen() {
                               accessibilityRole="button"
                               accessibilityLabel={`${DAY_LABELS[day]} end`}
                             >
-                              <Text style={styles.timeText}>{row.end}</Text>
+                              <Text style={styles.timeText}>{formatTime12hr(row.end)}</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                               onPress={() => setDayIntervals(day, intervals.filter((_, itemIndex) => itemIndex !== index))}
@@ -1184,14 +1238,14 @@ export default function CalendarSchedulingScreen() {
                                 style={styles.time}
                                 onPress={() => openDateHoursTimePicker(dayKey, index, 'start', row.start)}
                               >
-                                <Text style={styles.timeText}>{row.start}</Text>
+                                <Text style={styles.timeText}>{formatTime12hr(row.start)}</Text>
                               </TouchableOpacity>
                               <Text style={styles.dash}>–</Text>
                               <TouchableOpacity
                                 style={styles.time}
                                 onPress={() => openDateHoursTimePicker(dayKey, index, 'end', row.end)}
                               >
-                                <Text style={styles.timeText}>{row.end}</Text>
+                                <Text style={styles.timeText}>{formatTime12hr(row.end)}</Text>
                               </TouchableOpacity>
                             </View>
                           ))}
@@ -1218,14 +1272,7 @@ export default function CalendarSchedulingScreen() {
           <Text style={styles.sectionTitle}>Booking rules</Text>
           <View style={styles.grid}>
             <View style={styles.field}>
-              <Text style={styles.label}>Timezone</Text>
-              <TextInput style={styles.input} value={timezone} onChangeText={setTimezone} autoCapitalize="none" onFocus={revealFocusedField} />
-            </View>
-            <View style={styles.field}>
               <Text style={styles.label}>Offer starts every</Text>
-              <Text style={styles.conflictDates}>
-                Starts begin when each window opens, then every this many minutes. The meeting must finish before the window ends.
-              </Text>
               <View style={styles.chipRow}>
                 {INTERVALS.map((minutes) => {
                   const on = interval === String(minutes);
@@ -1254,10 +1301,10 @@ export default function CalendarSchedulingScreen() {
                 keyboardType="number-pad"
                 onFocus={revealFocusedField}
               />
-              {windowNeedsSync && suggestedWindowDays != null ? (
-                <TouchableOpacity onPress={() => setWindowDays(String(suggestedWindowDays))}>
+              {windowNeedsSync && saveSuggestedWindowDays != null ? (
+                <TouchableOpacity onPress={() => setWindowDays(String(saveSuggestedWindowDays))}>
                   <Text style={styles.conflictHint}>
-                    Set window to {suggestedWindowDays} days so guests can reach your dates (then Save hours)
+                    Set window to {saveSuggestedWindowDays} days so guests can reach your dates (then Save hours)
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -1748,6 +1795,7 @@ export default function CalendarSchedulingScreen() {
             value={pickerDate}
             mode="time"
             display="spinner"
+            is24Hour={false}
             themeVariant={colors.isDark ? 'dark' : 'light'}
             onChange={(_, date) => {
               if (!date) return;
@@ -1853,7 +1901,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     intervalCol: { flex: 1, gap: 4 },
     intervalRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     time: {
-      width: 72,
+      width: 96,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
       borderRadius: 6,
