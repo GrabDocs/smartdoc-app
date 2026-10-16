@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
+    Linking,
     Platform,
     ScrollView,
     StyleSheet,
@@ -12,6 +13,8 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+
+const LEARN_FEATURES_URL = 'https://grabdocs.com/features#features-grid';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
@@ -241,6 +244,45 @@ export default function HelpScreen() {
             </Text>
           </View>
 
+          {/* Learn — features & videos */}
+          <TouchableOpacity
+            style={[
+              dynamicStyles.section,
+              {
+                flexDirection: 'row',
+                alignItems: 'center',
+                borderWidth: 1,
+                borderColor: colors.border,
+              },
+            ]}
+            onPress={() => {
+              void Linking.openURL(LEARN_FEATURES_URL);
+            }}
+            accessibilityRole="link"
+            accessibilityLabel="Learn about GrabDocs features"
+          >
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: '#007AFF15',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: 12,
+              }}
+            >
+              <Ionicons name="book-outline" size={22} color="#007AFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 16, fontWeight: '600', color: colors.text }}>Learn</Text>
+              <Text style={[dynamicStyles.infoText, { marginTop: 2 }]}>
+                Watch videos and explore GrabDocs features
+              </Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+
           {/* Category Selection */}
           <View style={dynamicStyles.section}>
             <Text style={dynamicStyles.label}>Category *</Text>
@@ -323,9 +365,20 @@ export default function HelpScreen() {
             <Text style={[dynamicStyles.label, { marginBottom: 8 }]}>Need More Help?</Text>
             <Text style={dynamicStyles.infoText}>
               • Contact support at support@grabdocs.com{'\n'}
-              • Visit our website for more resources{'\n'}
-              • Check our documentation and guides
+              • Visit Learn for feature videos and guides{'\n'}
+              • Check our documentation on grabdocs.com
             </Text>
+            <TouchableOpacity
+              onPress={() => {
+                void Linking.openURL(LEARN_FEATURES_URL);
+              }}
+              style={{ marginTop: 10 }}
+              accessibilityRole="link"
+            >
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#007AFF' }}>
+                Open Learn →
+              </Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

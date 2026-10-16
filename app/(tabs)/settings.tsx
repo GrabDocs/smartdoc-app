@@ -2668,6 +2668,19 @@ export default function SettingsScreen() {
             onPress={() => router.navigate('/(tabs)/help')}
           />
           <InfoItem
+            icon="book-outline"
+            title="Learn"
+            value="Watch videos and explore features"
+            onPress={() => {
+              const url = 'https://grabdocs.com/features#features-grid';
+              if (Platform.OS === 'web') {
+                window.open(url, '_blank');
+              } else {
+                void Linking.openURL(url);
+              }
+            }}
+          />
+          <InfoItem
             icon="accessibility-outline"
             title="Report Accessibility Issue"
             value="Contact us about accessibility"

@@ -130,6 +130,7 @@ export default function PendingTasksModal({
           parentId: task.parent_id,
           sourceType: task.source_type,
           sourceId: task.source_id,
+          action: task.action,
         }) || (`/clients/${task.clientId}` as any);
       onClose();
       router.push(href as any);

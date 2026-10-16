@@ -359,6 +359,7 @@ export interface PendingAttentionTask {
   parent_id?: number;
   source_type?: string | null;
   source_id?: number | null;
+  action?: string | null;
 }
 
 function pendingTaskDueMs(task: PendingAttentionTask): number {
@@ -402,6 +403,7 @@ export function flattenPendingAttentionTasks(
         parent_id: t.parent_id,
         source_type: t.source_type,
         source_id: t.source_id,
+        action: t.action,
       });
     };
     us.forEach((t, i) => add(t, 'us', i));
