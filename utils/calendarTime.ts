@@ -244,6 +244,23 @@ export function filterEventsByTab<T extends { start_time?: string; end_time?: st
   });
 }
 
+/** Stat tiles that match `filterEventsByTab` (local day), not server UTC-day stats. */
+export function computeListTabStats<T extends { start_time?: string; end_time?: string }>(
+  events: T[]
+): {
+  total_events: number;
+  upcoming_events: number;
+  events_today: number;
+  past_events: number;
+} {
+  return {
+    total_events: events.length,
+    upcoming_events: filterEventsByTab(events, 'upcoming').length,
+    events_today: filterEventsByTab(events, 'today').length,
+    past_events: filterEventsByTab(events, 'past').length,
+  };
+}
+
 /**
  * Lightweight client substring search for hybrid list UX (baseline window + refinement from server).
  */

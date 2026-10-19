@@ -163,12 +163,28 @@ export async function pickDocumentPdf(): Promise<DocumentPicker.DocumentPickerAs
   return result.assets[0];
 }
 
-const FILES_SCREEN_DOCUMENT_TYPES = [
+/** MIME types for document pickers (matches web/backend allowlist). */
+export const ACCEPTED_DOCUMENT_MIME_TYPES = [
   'application/pdf',
   'image/*',
+  'text/plain',
+  'text/csv',
+  'text/html',
+  'application/rtf',
+  'text/rtf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
 ] as const;
+
+/** @deprecated Use ACCEPTED_DOCUMENT_MIME_TYPES */
+const FILES_SCREEN_DOCUMENT_TYPES = ACCEPTED_DOCUMENT_MIME_TYPES;
 
 /** Types Fill and signature-create accept (CSV/txt are covered by text/*). */
 export const FILLABLE_DOCUMENT_TYPES = [

@@ -34,11 +34,15 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { intakeDetailScreenKey, intakesListScreenKey } from '../../services/userScopedCache';
 import { useFileStore } from '../../stores/fileStore';
+import { formatIntakeProgressLabel } from '../../utils/intakeProgress';
 import { screenCache } from '../../utils/screenCache';
 import { sanitizeDisplayFilename } from '../../utils/displayFilename';
+import { invalidEmailsMessage } from '../../utils/emailValidation';
 import {
   buildIntakeSenderList,
   checklistItemsFromIntake,
+  filterValidSenders,
+  getInvalidSenderEmails,
   hasSenderEmail,
   prefillSendersWithEmail,
   primaryEmailFromSenders,
@@ -130,7 +134,9 @@ export default function IntakeDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyAction, setBusyAction] = useState<'send' | 'remind' | 'archive' | 'restore' | null>(null);
-  const [itemBusyId, setItemBusyId] = useState<number | null>(null);
+  const [itemBusy, setItemBusy] = useState<{ id: number; action: 'confirm' | 'reject' | 'na' } | null>(
+    null,
+  );
   const [assignBusyItemId, setAssignBusyItemId] = useState<number | null>(null);
 
   const [viewerFileId, setViewerFileId] = useState<number | null>(null);
@@ -594,8 +600,18 @@ export default function IntakeDetailScreen() {
               if (response.success) {
                 invalidateIntakeCaches();
                 if (response.intake) {
-                  setIntake(response.intake);
-                  if (detailCacheKey) screenCache.set(detailCacheKey, response.intake);
+                  // Merge so a lean mutation payload can't wipe detail-only fields.
+                  const next = response.intake as Intake;
+                  const merged: Intake = {
+                    ...intake,
+                    ...next,
+                    items: next.items ?? intake.items,
+                    progress: next.progress ?? intake.progress,
+                    needs_attention: next.needs_attention ?? intake.needs_attention,
+                    unmatched: next.unmatched ?? intake.unmatched,
+                  };
+                  setIntake(merged);
+                  if (detailCacheKey) screenCache.set(detailCacheKey, merged);
                 } else {
                   reloadAfterMutation();
                 }
@@ -616,8 +632,8 @@ export default function IntakeDetailScreen() {
   };
 
   const handleConfirmItem = async (itemId: number) => {
-    if (!intake || itemBusyId != null) return;
-    setItemBusyId(itemId);
+    if (!intake || itemBusy != null) return;
+    setItemBusy({ id: itemId, action: 'confirm' });
     try {
       const response = await apiService.confirmIntakeItem(intake.id, itemId);
       if (response.success) {
@@ -628,12 +644,12 @@ export default function IntakeDetailScreen() {
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to verify item');
     } finally {
-      setItemBusyId(null);
+      setItemBusy(null);
     }
   };
 
   const handleRejectMatch = (itemId: number) => {
-    if (!intake || itemBusyId != null) return;
+    if (!intake || itemBusy != null) return;
     const current = intake.items?.find((i) => i.id === itemId);
     if (!current || (current.status !== 'matched' && current.status !== 'confirmed')) {
       reloadAfterMutation();
@@ -649,7 +665,7 @@ export default function IntakeDetailScreen() {
           text: 'Reject',
           style: 'destructive',
           onPress: async () => {
-            setItemBusyId(itemId);
+            setItemBusy({ id: itemId, action: 'reject' });
             try {
               // Re-fetch so we don't reject against a stale checklist (polling / prior action).
               const latest = await apiService.getIntake(intake.id);
@@ -694,7 +710,7 @@ export default function IntakeDetailScreen() {
                 Alert.alert('Error', msg);
               }
             } finally {
-              setItemBusyId(null);
+              setItemBusy(null);
             }
           },
         },
@@ -703,8 +719,8 @@ export default function IntakeDetailScreen() {
   };
 
   const handleNotApplicable = async (itemId: number) => {
-    if (!intake || itemBusyId != null) return;
-    setItemBusyId(itemId);
+    if (!intake || itemBusy != null) return;
+    setItemBusy({ id: itemId, action: 'na' });
     try {
       const response = await apiService.markIntakeItemNotApplicable(intake.id, itemId);
       if (response.success) {
@@ -715,7 +731,7 @@ export default function IntakeDetailScreen() {
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to update item');
     } finally {
-      setItemBusyId(null);
+      setItemBusy(null);
     }
   };
 
@@ -841,6 +857,24 @@ export default function IntakeDetailScreen() {
       Alert.alert('Error', 'Add at least one checklist item');
       return;
     }
+    if (!editDueAt) {
+      Alert.alert('Error', 'Due date is required');
+      return;
+    }
+    const invalidSenderEmails = getInvalidSenderEmails(editSenders);
+    if (invalidSenderEmails.length > 0) {
+      Alert.alert('Error', invalidEmailsMessage(invalidSenderEmails));
+      return;
+    }
+    const validEditSenders = filterValidSenders(editSenders);
+    if (!editClientName.trim() && editClientIds.length === 0) {
+      Alert.alert('Error', 'Client name is required');
+      return;
+    }
+    if (validEditSenders.length === 0) {
+      Alert.alert('Error', 'Add at least one authorized sender email');
+      return;
+    }
     setSavingEdit(true);
     try {
       const reminderFields =
@@ -853,7 +887,6 @@ export default function IntakeDetailScreen() {
             }
           : { reminder_preset: editReminderPreset };
 
-      const validEditSenders = editSenders.filter((s) => s.email.trim());
       const response = await apiService.updateIntake(intake.id, {
         title: editTitle.trim(),
         client_name: editClientName.trim() || null,
@@ -1371,13 +1404,13 @@ export default function IntakeDetailScreen() {
               <View style={[dynamicStyles.progressBarFill, { width: `${intake.progress?.percent ?? 0}%` }]} />
             </View>
             <Text style={dynamicStyles.progressLabel}>
-              {intake.progress?.received ?? 0}/{intake.progress?.total ?? 0} &middot; {intake.progress?.percent ?? 0}%
+              {formatIntakeProgressLabel(intake.progress ?? { received: 0, total: 0, percent: 0 })}
             </Text>
           </View>
         </View>
 
-        {/* Share panel */}
-        {clientShareUrl && intake.upload_link && (
+        {/* Share panel — hidden when archived (upload link is deactivated) */}
+        {clientShareUrl && intake.upload_link && intake.status !== 'archived' && (
           <View style={dynamicStyles.card}>
             <Text style={dynamicStyles.cardTitle}>Share with client</Text>
             <View style={dynamicStyles.shareRow}>
@@ -1425,7 +1458,10 @@ export default function IntakeDetailScreen() {
             const itemColor = ITEM_STATUS_COLORS[item.status] || ITEM_STATUS_COLORS.pending;
             const isClassifying = item.matched_file_id != null && classifyingFileIds[item.matched_file_id];
             const isUploading = uploadingItemId === item.id;
-            const isItemBusy = itemBusyId === item.id;
+            const itemActionsLocked = itemBusy != null || busy;
+            const confirmLoading = itemBusy?.id === item.id && itemBusy.action === 'confirm';
+            const rejectLoading = itemBusy?.id === item.id && itemBusy.action === 'reject';
+            const naLoading = itemBusy?.id === item.id && itemBusy.action === 'na';
             return (
               <View key={item.id} style={dynamicStyles.itemRow}>
                 <View style={dynamicStyles.itemTopRow}>
@@ -1457,7 +1493,7 @@ export default function IntakeDetailScreen() {
                     <FeedbackTouchable
                       style={[dynamicStyles.smallActionBtn, dynamicStyles.naBtn]}
                       onPress={() => openUploadOptions(item)}
-                      disabled={isUploading || busy || itemBusyId != null}
+                      disabled={isUploading || itemActionsLocked}
                       loading={isUploading}
                       spinnerColor="#007AFF"
                     >
@@ -1469,8 +1505,8 @@ export default function IntakeDetailScreen() {
                     <FeedbackTouchable
                       style={[dynamicStyles.smallActionBtn, dynamicStyles.verifyBtn]}
                       onPress={() => handleConfirmItem(item.id)}
-                      disabled={itemBusyId != null || busy}
-                      loading={isItemBusy}
+                      disabled={itemActionsLocked}
+                      loading={confirmLoading}
                       spinnerColor="#fff"
                     >
                       <Ionicons name="checkmark" size={14} color="#fff" />
@@ -1481,8 +1517,8 @@ export default function IntakeDetailScreen() {
                     <FeedbackTouchable
                       style={[dynamicStyles.smallActionBtn, dynamicStyles.rejectBtn]}
                       onPress={() => handleRejectMatch(item.id)}
-                      disabled={itemBusyId != null || busy}
-                      loading={isItemBusy}
+                      disabled={itemActionsLocked}
+                      loading={rejectLoading}
                       spinnerColor="#B91C1C"
                     >
                       <Ionicons name="close" size={14} color="#B91C1C" />
@@ -1493,8 +1529,8 @@ export default function IntakeDetailScreen() {
                     <FeedbackTouchable
                       style={[dynamicStyles.smallActionBtn, dynamicStyles.naBtn]}
                       onPress={() => handleNotApplicable(item.id)}
-                      disabled={itemBusyId != null || busy}
-                      loading={isItemBusy}
+                      disabled={itemActionsLocked}
+                      loading={naLoading}
                       spinnerColor={colors.text}
                     >
                       <Text style={[dynamicStyles.smallActionBtnText, { color: colors.text, marginLeft: 0 }]}>Mark N/A</Text>
@@ -1671,11 +1707,15 @@ export default function IntakeDetailScreen() {
             </View>
             <View style={dynamicStyles.row}>
               <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
-                <Text style={dynamicStyles.label}>Client name</Text>
+                <Text style={dynamicStyles.label}>
+                  Client name <Text style={{ color: '#EF4444' }}>*</Text>
+                </Text>
                 <TextInput style={dynamicStyles.input} value={editClientName} onChangeText={setEditClientName} placeholderTextColor={colors.textLight} />
               </View>
               <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
-                <Text style={dynamicStyles.label}>Due date</Text>
+                <Text style={dynamicStyles.label}>
+                  Due date <Text style={{ color: '#EF4444' }}>*</Text>
+                </Text>
                 <TouchableOpacity style={dynamicStyles.pickerButton} onPress={openEditDatePicker}>
                   <Text style={dynamicStyles.pickerButtonText}>{editDueAt || 'None'}</Text>
                   <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
@@ -1683,15 +1723,20 @@ export default function IntakeDetailScreen() {
               </View>
             </View>
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Authorized senders</Text>
+              <Text style={dynamicStyles.label}>
+                Authorized senders <Text style={{ color: '#EF4444' }}>*</Text>
+              </Text>
               {editSenders.map((sender, idx) => (
-                <View key={idx} style={dynamicStyles.senderRow}>
+                <View key={`edit-sender-${idx}`} style={dynamicStyles.senderRow}>
                   <TextInput
                     style={[dynamicStyles.smallInput, { flex: 1 }]}
                     value={sender.name}
                     onChangeText={(v) => setEditSenders((prev) => prev.map((s, i) => (i === idx ? { ...s, name: v } : s)))}
                     placeholder="Name"
                     placeholderTextColor={colors.textLight}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
                   />
                   <TextInput
                     style={[dynamicStyles.smallInput, { flex: 1.5 }]}
@@ -1701,6 +1746,11 @@ export default function IntakeDetailScreen() {
                     placeholderTextColor={colors.textLight}
                     keyboardType="email-address"
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    nativeID={`intake-edit-sender-email-${idx}`}
                   />
                   <TouchableOpacity onPress={() => setEditSenders((prev) => prev.filter((_, i) => i !== idx))} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Ionicons name="trash-outline" size={18} color={colors.textLight} />
@@ -1714,7 +1764,9 @@ export default function IntakeDetailScreen() {
             </View>
 
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Checklist</Text>
+              <Text style={dynamicStyles.label}>
+                Checklist <Text style={{ color: '#EF4444' }}>*</Text>
+              </Text>
               <Text style={dynamicStyles.labelHint}>
                 Specify the documents you want to collect.
               </Text>

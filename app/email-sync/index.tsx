@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    AppState,
+    type AppStateStatus,
     FlatList,
     RefreshControl,
     StyleSheet,
@@ -213,6 +215,33 @@ export default function EmailInboxScreen() {
       alive = false;
     };
   }, [load, workspaceId, filter, params.oauth]);
+
+  // Quiet poll while Replies is focused so background mailbox sync shows up
+  // without a pull-to-refresh. Pauses when the app is backgrounded or Sync is running.
+  useEffect(() => {
+    if (!workspaceId || tab !== 'replies') return;
+    let alive = true;
+    const quietLoad = async () => {
+      if (!alive || syncing || AppState.currentState !== 'active') return;
+      try {
+        await load();
+      } catch {
+        /* keep current list */
+      }
+    };
+    const interval = setInterval(() => {
+      void quietLoad();
+    }, 45_000);
+    const onAppState = (next: AppStateStatus) => {
+      if (next === 'active') void quietLoad();
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [workspaceId, tab, load, syncing]);
 
   const reloadAfterOAuth = useCallback(async () => {
     if (!workspaceId) return;

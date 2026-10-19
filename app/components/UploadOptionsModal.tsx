@@ -12,7 +12,7 @@ export type UploadOptionsModalProps = {
   onCamera: () => void;
   onGallery: () => void;
   onLink: () => void;
-  /** Bump on every open so a minimized sheet expands again. */
+  /** Kept for callers; sheet is not minimizable so this only forces a full open. */
   expandNonce?: number;
 };
 
@@ -80,7 +80,8 @@ export function UploadOptionsModal({
       title="Upload"
       fitContent
       heightRatio={0.85}
-      minimizedSubtitle="Swipe up to upload"
+      // Stay fully open until the user closes (X / back) — no peek / auto-minimize.
+      minimizable={false}
     >
       <TouchableOpacity
         style={[styles.uploadOption, isUploading && styles.uploadOptionDisabled]}

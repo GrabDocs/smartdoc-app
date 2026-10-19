@@ -67,6 +67,7 @@ import { navigateReachJoinFromCalendarListRow } from '../../utils/calendarReachJ
 import {
   calendarDisplayLocation,
   calendarEventMatchesLocalSearch,
+  computeListTabStats,
   defaultCalendarListWindow,
   eventHasReachMeeting,
   filterEventsByTab,
@@ -342,6 +343,7 @@ export default function CalendarHomeScreen() {
     const statsParams: Parameters<typeof calendarGetStats>[0] = {
       start_date: params.start_date,
       end_date: params.end_date,
+      include_cancelled: showCancelled,
     };
     if (viewUserId != null && isAdmin) statsParams.view_user_id = viewUserId;
     if (params.event_type) statsParams.event_type = params.event_type;
@@ -738,6 +740,9 @@ export default function CalendarHomeScreen() {
     if (showCancelled) return displayEvents;
     return displayEvents.filter((e) => String(e.status ?? '').toLowerCase() !== 'cancelled');
   }, [displayEvents, showCancelled]);
+
+  /** Match list tabs (local day) so tiles never disagree with "0 event(s)". */
+  const listTabStats = useMemo(() => computeListTabStats(visibleEvents), [visibleEvents]);
 
   const filtered = useMemo(() => {
     const base =
@@ -1259,10 +1264,10 @@ export default function CalendarHomeScreen() {
           style={[styles.statMiniCard, layoutMode === 'list' && tab === 'all' && styles.statMiniCardSelected]}
           onPress={() => openStatList('all')}
           accessibilityRole="button"
-          accessibilityLabel={`Total ${stats.total_events ?? stats.total ?? '—'} events, show list`}
+          accessibilityLabel={`Total ${listTabStats.total_events} events, show list`}
         >
           <Text style={styles.statVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-            {stats.total_events ?? stats.total ?? '—'}
+            {listTabStats.total_events}
           </Text>
           <Text style={styles.statLbl} numberOfLines={1}>
             Total
@@ -1272,10 +1277,10 @@ export default function CalendarHomeScreen() {
           style={[styles.statMiniCard, layoutMode === 'list' && tab === 'upcoming' && styles.statMiniCardSelected]}
           onPress={() => openStatList('upcoming')}
           accessibilityRole="button"
-          accessibilityLabel={`Upcoming ${stats.upcoming_events ?? stats.upcoming ?? '—'} events, show list`}
+          accessibilityLabel={`Upcoming ${listTabStats.upcoming_events} events, show list`}
         >
           <Text style={styles.statVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-            {stats.upcoming_events ?? stats.upcoming ?? '—'}
+            {listTabStats.upcoming_events}
           </Text>
           <Text style={styles.statLbl} numberOfLines={1}>
             Upcoming
@@ -1285,10 +1290,10 @@ export default function CalendarHomeScreen() {
           style={[styles.statMiniCard, layoutMode === 'list' && tab === 'today' && styles.statMiniCardSelected]}
           onPress={() => openStatList('today')}
           accessibilityRole="button"
-          accessibilityLabel={`Today ${stats.events_today ?? stats.today ?? '—'} events, show list`}
+          accessibilityLabel={`Today ${listTabStats.events_today} events, show list`}
         >
           <Text style={styles.statVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-            {stats.events_today ?? stats.today ?? '—'}
+            {listTabStats.events_today}
           </Text>
           <Text style={styles.statLbl} numberOfLines={1}>
             {todayLabel}
@@ -1298,10 +1303,10 @@ export default function CalendarHomeScreen() {
           style={[styles.statMiniCard, layoutMode === 'list' && tab === 'past' && styles.statMiniCardSelected]}
           onPress={() => openStatList('past')}
           accessibilityRole="button"
-          accessibilityLabel={`Past ${stats.past_events ?? stats.past ?? '—'} events, show list`}
+          accessibilityLabel={`Past ${listTabStats.past_events} events, show list`}
         >
           <Text style={styles.statVal} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-            {stats.past_events ?? stats.past ?? '—'}
+            {listTabStats.past_events}
           </Text>
           <Text style={styles.statLbl} numberOfLines={1}>
             Past
@@ -1309,7 +1314,7 @@ export default function CalendarHomeScreen() {
         </TouchableOpacity>
       </View>
     ),
-    [layoutMode, openStatList, stats, styles, tab, todayLabel]
+    [layoutMode, listTabStats, openStatList, styles, tab, todayLabel]
   );
 
   const showOfflineBanner = deviceOffline || calendarReadOnlyOffline;

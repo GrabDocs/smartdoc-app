@@ -6,6 +6,8 @@ export interface ReachParticipantLike {
   name?: string;
   first_name?: string;
   last_name?: string;
+  firstName?: string;
+  lastName?: string;
   username?: string;
   email?: string;
 }
@@ -22,28 +24,30 @@ const GENERIC_PARAM_FALLBACKS = new Set([
   'user',
 ]);
 
-/** Display name for Reach / HMS when API user has no single `name` field. */
+/**
+ * Display name for Reach / HMS.
+ * Order: first+last if either exists → name → username → email local-part.
+ * Do not invent first/last by splitting name.
+ */
 export function getReachParticipantDisplayName(
   user: ReachParticipantLike | null | undefined
 ): string {
   if (!user) return '';
 
-  const name = typeof user.name === 'string' ? user.name.trim() : '';
-  const first = (user.first_name || '').trim();
-  const last = (user.last_name || '').trim();
+  const first = (user.first_name || user.firstName || '').trim();
+  const last = (user.last_name || user.lastName || '').trim();
   const fromParts = [first, last].filter(Boolean).join(' ').trim();
-  const username = (user.username || '').trim();
-  const email = (user.email || '').trim();
-  const localPart = email ? email.split('@')[0] : '';
+  if (fromParts) return fromParts;
 
-  return (
-    name ||
-    fromParts ||
-    username ||
-    localPart ||
-    email ||
-    ''
-  );
+  const name = typeof user.name === 'string' ? user.name.trim() : '';
+  if (name) return name;
+
+  const username = (user.username || '').trim();
+  if (username) return username;
+
+  const email = (user.email || '').trim();
+  const localPart = email.includes('@') ? email.split('@')[0] : '';
+  return localPart || email || '';
 }
 
 /** Trim, bound length, strip control chars, collapse whitespace — empty means unusable. */

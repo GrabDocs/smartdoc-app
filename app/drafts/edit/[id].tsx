@@ -38,6 +38,7 @@ import { useDraftsSplitOptional } from '../../../contexts/DraftsSplitContext';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { apiClient } from '../../../services/api';
 import { toAlertMessage } from '../../../utils/alertUtils';
+import { findInvalidEmails, invalidEmailsMessage, parseEmailList } from '../../../utils/emailValidation';
 import {
   anchoredPopoverCardStyle,
   anchoredPopoverOverlayStyle,
@@ -1951,9 +1952,14 @@ export default function DraftEditScreen() {
       Alert.alert('Create link first', 'Create a share link before sending by email.');
       return;
     }
-    const emails = shareEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e && e.includes('@'));
+    const emails = parseEmailList(shareEmails);
     if (emails.length === 0) {
       Alert.alert('Error', 'Enter at least one valid email address.');
+      return;
+    }
+    const invalid = findInvalidEmails(emails);
+    if (invalid.length > 0) {
+      Alert.alert('Error', invalidEmailsMessage(invalid));
       return;
     }
     setSendingEmail(true);

@@ -22,6 +22,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import { intakesListScreenKey } from '../../services/userScopedCache';
 import { screenCache } from '../../utils/screenCache';
+import { formatIntakeProgressLabel } from '../../utils/intakeProgress';
 import { parseUtcMs } from '../../utils/timeFormatting';
 import {
   INTAKE_DUE_BADGE_LABELS,
@@ -859,7 +860,7 @@ export default function IntakeListScreen() {
             <View style={[dynamicStyles.progressBarFill, { width: `${item.progress?.percent ?? 0}%` }]} />
           </View>
           <Text style={dynamicStyles.progressLabel}>
-            {item.progress?.received ?? 0}/{item.progress?.total ?? 0} &middot; {item.progress?.percent ?? 0}%
+            {formatIntakeProgressLabel(item.progress ?? { received: 0, total: 0, percent: 0 })}
           </Text>
         </View>
         {lastFile && (

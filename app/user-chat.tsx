@@ -32,6 +32,8 @@ import { Swipeable, RectButton } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import { io, Socket } from 'socket.io-client';
 import ActionMenuModal, { type ActionMenuItem } from '../components/ActionMenuModal';
+import { ACCEPTED_DOCUMENT_MIME_TYPES } from '../components/signatures/DocumentSourcePicker';
+import { validateFileAgainstUploadSettings } from '../utils/userPreferences';
 import ChatConnectivityBanner from '../components/ChatConnectivityBanner';
 import ClientsButton from '../components/clients/ClientsButton';
 import GeneralFileViewerModal from '../components/GeneralFileViewerModal';
@@ -47,6 +49,7 @@ import { extractLimitErrorData, getErrorResponseData } from '../utils/limitError
 import ChatComposerInput from '../components/ChatComposerInput';
 import PhoneNumberInput from '../components/PhoneNumberInput';
 import { getChatNetworkErrorMessage, isNetworkError } from '../utils/networkErrors';
+import { isValidEmail } from '../utils/emailValidation';
 import { isValidPhoneNumber } from '../utils/phoneUtils';
 import { showInviteDeliveryToastMobile } from '../utils/inviteDeliveryFeedback';
 import {
@@ -926,12 +929,24 @@ export default function UserChatScreen() {
       const result = await DocumentPicker.getDocumentAsync({
         copyToCacheDirectory: true,
         multiple: true,
+        type: [...ACCEPTED_DOCUMENT_MIME_TYPES],
       });
       if (result.canceled || !result.assets?.length) return;
       for (const asset of result.assets) {
+        const name = asset.name || 'file';
+        try {
+          validateFileAgainstUploadSettings({
+            name,
+            size: asset.size || 0,
+            type: asset.mimeType || undefined,
+          });
+        } catch (validationError: any) {
+          Alert.alert('Attach', validationError?.message || 'File type is not allowed');
+          continue;
+        }
         await uploadPickedFile({
           uri: asset.uri,
-          name: asset.name || 'file',
+          name,
           mimeType: asset.mimeType,
         });
       }
@@ -1140,6 +1155,10 @@ export default function UserChatScreen() {
     const ph = invitePhone.trim();
     if (!em && !ph) {
       Alert.alert('Invite', 'Enter an email or phone number');
+      return;
+    }
+    if (em && !isValidEmail(em)) {
+      Alert.alert('Invite', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
     if (ph && !isValidPhoneNumber(ph)) {

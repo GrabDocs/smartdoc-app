@@ -45,8 +45,16 @@ import {
   type IdentifierType,
   type TimelineEntry,
 } from '../../services/clientsApi';
+import { parseAsUTC } from '../../utils/timeFormatting';
 
 type TabKey = 'overview' | 'activity' | 'work' | 'files' | 'financials' | 'communication';
+
+/** Backend stores UTC; naive ISO must not be parsed as device-local. */
+function formatTimelineAt(at: string | null | undefined): string {
+  if (!at) return '';
+  const d = parseAsUTC(at);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+}
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -700,7 +708,7 @@ export default function ClientDetailScreen() {
                           marginLeft: 8,
                         }}
                       >
-                        {e.at ? new Date(e.at).toLocaleString() : ''}
+                        {formatTimelineAt(e.at)}
                       </Text>
                     </View>
                   </View>

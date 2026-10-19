@@ -596,8 +596,24 @@ export const useFileStore = create<FileStore>((set, get) => ({
       
       // Launch document picker
       const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/*', 'application/msword',
-               'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+        type: [
+          'application/pdf',
+          'image/*',
+          'text/plain',
+          'text/csv',
+          'text/html',
+          'application/rtf',
+          'text/rtf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          'application/vnd.oasis.opendocument.text',
+          'application/vnd.oasis.opendocument.spreadsheet',
+          'application/vnd.oasis.opendocument.presentation',
+        ],
         multiple: true,
         copyToCacheDirectory: true,
       });

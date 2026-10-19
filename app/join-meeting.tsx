@@ -194,16 +194,6 @@ export default function JoinMeetingScreen() {
           return;
         }
 
-        // Never trust passcode from URL. Only passcode_token (server-issued) or user-typed passcode.
-        // Passcode-only and approval meetings both need the form when there is no token.
-        if ((data.passcode_required && !params.passcode_token) || data.require_join_approval) {
-          setCheckState('form');
-          setPasscode('');
-          const defaultName = getReachParticipantDisplayName(user);
-          if (defaultName) setParticipantName(defaultName);
-          return;
-        }
-
         if (isHost && !isMeetingStarted) {
           const roomId = data.room_id;
           if (roomId) {
@@ -224,12 +214,13 @@ export default function JoinMeetingScreen() {
           }
         }
 
-        setCheckState('ready');
-        const q = new URLSearchParams({ meetingId: meetingId.trim() });
-        if (params.passcode_token) q.set('passcode_token', params.passcode_token);
-        appendSanitizedUserName(q, getReachParticipantDisplayName(user));
-        appendReturnToParam(q, returnTo);
-        router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
+        // Always collect a display name on the join-link form so blank names never become "Guest".
+        // Prefill from the signed-in account (first/last → username → email local-part).
+        setPasscode('');
+        const defaultName = getReachParticipantDisplayName(user);
+        if (defaultName) setParticipantName(defaultName);
+        setCheckState('form');
+        return;
       } catch (err: any) {
         const limitData = limitErrorFromCaught(err);
         if (limitData) {
@@ -249,21 +240,31 @@ export default function JoinMeetingScreen() {
 
   const navigateToMeeting = useCallback(() => {
     if (hasNavigatedRef.current || !isMountedRef.current) return;
+    const name =
+      sanitizeReachDisplayName(participantName) || getReachParticipantDisplayName(user);
+    if (!name) {
+      setErrorMessage('Please enter your name to join.');
+      setCheckState('form');
+      return;
+    }
     hasNavigatedRef.current = true;
     clearPersistedWaiting();
     const q = new URLSearchParams({ meetingId: meetingId.trim() });
     if (params.passcode_token) q.set('passcode_token', params.passcode_token);
     else if (passcode.trim()) q.set('passcode', passcode.trim());
-    appendSanitizedUserName(
-      q,
-      participantName.trim() || getReachParticipantDisplayName(user)
-    );
+    appendSanitizedUserName(q, name);
     appendReturnToParam(q, returnTo);
     router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
   }, [meetingId, passcode, participantName, params.passcode_token, returnTo, router, clearPersistedWaiting, user]);
 
   const submitJoinRequest = useCallback(async () => {
-    const name = participantName.trim() || getReachParticipantDisplayName(user) || 'Participant';
+    const name =
+      sanitizeReachDisplayName(participantName) ||
+      getReachParticipantDisplayName(user);
+    if (!name) {
+      setErrorMessage('Please enter your name to join.');
+      return;
+    }
     const pc = requirements?.passcode_required ? passcode.trim() : '';
     if (requirements?.passcode_required && !pc) {
       setErrorMessage('Passcode is required.');
@@ -459,9 +460,7 @@ export default function JoinMeetingScreen() {
 
   if (checkState === 'form') {
     const needsApproval = !!requirements?.require_join_approval;
-    const hasName = needsApproval
-      ? participantName.trim().length > 0
-      : true; // passcode-only: name optional (falls back to account name / Participant)
+    const hasName = sanitizeReachDisplayName(participantName).length > 0;
     const canSubmit =
       hasName &&
       (!requirements?.passcode_required || passcode.trim().length > 0) &&
@@ -483,9 +482,7 @@ export default function JoinMeetingScreen() {
           {requirements?.room_name && (
             <Text style={styles.roomName}>{requirements.room_name}</Text>
           )}
-          <Text style={styles.label}>
-            {needsApproval ? 'Your name (required for organizer)' : 'Your name'}
-          </Text>
+          <Text style={styles.label}>Your name (required)</Text>
           <TextInput
             style={styles.input}
             value={participantName}

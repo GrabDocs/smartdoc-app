@@ -26,6 +26,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import ActionMenuModal, { type ActionMenuItem } from '../../../components/ActionMenuModal';
+import { ACCEPTED_DOCUMENT_MIME_TYPES } from '../../../components/signatures/DocumentSourcePicker';
+import { validateFileAgainstUploadSettings } from '../../../utils/userPreferences';
 import AdaptiveListPickerModal from '../../../components/AdaptiveListPickerModal';
 import ClientContextStrip from '../../../components/clients/ClientContextStrip';
 import ClientsButton from '../../../components/clients/ClientsButton';
@@ -75,6 +77,7 @@ import { formatEmailWhen, senderDisplayName } from '../_components/emailFormat';
 import { EmailHtmlBody } from '../_components/EmailHtmlBody';
 import {
   canReplyAll,
+  computeReplyRecipients,
   DEFAULT_REPLY_TONE,
   prepopulateResearchQuestion,
   REPLY_TONES,
@@ -1446,7 +1449,7 @@ export default function EmailThreadScreen() {
   })();
   const drafting = !!generatingMessage;
   const workspaceGenerating = researchPhase === 'searching' || researchPhase === 'writing';
-  const showReplyAll = canReplyAll(messages);
+  const showReplyAll = canReplyAll(messages, replyFrom);
   const researchStatusLine = researchPhase === 'searching'
     ? 'Researching workspace…'
     : researchPhase === 'writing'
@@ -1463,9 +1466,22 @@ export default function EmailThreadScreen() {
       onPress: async () => {
         setAttachMenu(false);
         if (!draft) return;
-        const pick = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true });
+        const pick = await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+          type: [...ACCEPTED_DOCUMENT_MIME_TYPES],
+        });
         if (pick.canceled || !pick.assets?.[0]) return;
         const f = pick.assets[0];
+        try {
+          validateFileAgainstUploadSettings({
+            name: f.name || 'file',
+            size: f.size || 0,
+            type: f.mimeType || undefined,
+          });
+        } catch (validationError: any) {
+          Alert.alert('Attach', validationError?.message || 'File type is not allowed');
+          return;
+        }
         await addDraftAttachmentFile(draft.id, { uri: f.uri, name: f.name, type: f.mimeType });
         await load();
         setComposing(true);
@@ -2219,8 +2235,22 @@ export default function EmailThreadScreen() {
                 {showReplyAll ? (
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }}
-                    onPress={() => !drafting && !busy && setReplyAll((v) => !v)}
-                    disabled={drafting || busy}
+                    onPress={() => {
+                      if (drafting || busy || !draft) return;
+                      const next = !replyAll;
+                      setReplyAll(next);
+                      const mode = next ? 'reply_all' : 'reply';
+                      const recips = computeReplyRecipients(messages, replyFrom, mode);
+                      setTo(recips.to.join(', '));
+                      setCc(recips.cc.join(', '));
+                      if (recips.cc.length) setCcOpen(true);
+                      void patchMailboxDraft(draft.id, {
+                        reply_mode: mode,
+                        to: recips.to,
+                        cc: recips.cc,
+                      }).catch(() => {});
+                    }}
+                    disabled={drafting || busy || !draft}
                   >
                     <Ionicons
                       name={replyAll ? 'checkbox' : 'square-outline'}

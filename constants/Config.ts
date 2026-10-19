@@ -302,9 +302,10 @@ export const FILE_UPLOAD = {
     'image/webp',
   ],
   ALLOWED_EXTENSIONS: [
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', 
-    '.ppt', '.pptx', '.txt', '.csv', 
-    '.jpg', '.jpeg', '.png', '.gif', '.webp'
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+    '.ppt', '.pptx', '.txt', '.csv', '.rtf',
+    '.odt', '.ods', '.odp', '.html', '.htm',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
   ],
 } as const;
 

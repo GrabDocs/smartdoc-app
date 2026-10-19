@@ -29,6 +29,7 @@ import { apiService as api } from '../../services/api';
 import { getMyPlan, getSettingsUsageStats } from '../../services/subscriptionApi';
 import { userProfileScreenKey } from '../../services/userScopedCache';
 import deviceSecurityService from '../../services/deviceSecurity';
+import { isValidEmail } from '../../utils/emailValidation';
 import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import type { UserPreferences } from '../../utils/userPreferences';
@@ -660,6 +661,10 @@ export default function SettingsScreen() {
       Alert.alert('Email required', 'Enter a new email address.');
       return;
     }
+    if (!isValidEmail(email)) {
+      Alert.alert('Invalid email', 'Enter a valid email address (e.g. name@example.com)');
+      return;
+    }
     const password =
       passwordOverride !== undefined ? passwordOverride : emailChangePassword.trim();
     try {
@@ -707,6 +712,10 @@ export default function SettingsScreen() {
     const email = newEmail.trim();
     if (!email) {
       Alert.alert('Email required', 'Enter a new email address.');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      Alert.alert('Invalid email', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
     if (emailChangePassword.trim()) {

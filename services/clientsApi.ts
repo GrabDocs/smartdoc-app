@@ -774,7 +774,8 @@ export function itemHref(
       }
       return '/calendar' as Href;
     case 'chat_history':
-      return '/(tabs)/chats' as Href;
+      // Docs Chat / ChatGD — open the specific history, not the blank inbox list.
+      return `/(tabs)/chats?chatHistoryId=${itemId}` as Href;
     case 'user_chat':
       return `/user-chat?chat_id=${itemId}` as Href;
     case 'form':

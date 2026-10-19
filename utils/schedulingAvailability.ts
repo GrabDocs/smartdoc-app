@@ -22,6 +22,11 @@ export type AvailabilityState = {
   periodEnd: string;
 };
 
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+const WEEKDAY_LABELS: Record<string, string> = {
+  mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
+};
+
 export function parseIsoDateParts(value: string): { y: number; m: number; d: number } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value || '')) return null;
   const [y, m, d] = value.split('-').map(Number);
@@ -80,8 +85,16 @@ function scheduleBoundEndIso(
   return periodEnd || null;
 }
 
+function weekdayKeyFromIso(iso: string): (typeof WEEKDAYS)[number] | null {
+  const parts = parseIsoDateParts(iso);
+  if (!parts) return null;
+  const jsDay = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 12)).getUTCDay();
+  return WEEKDAYS[(jsDay + 6) % 7];
+}
+
 export function localAvailabilityConflicts(args: {
   mode: AvailabilityMode;
+  weeklyHours?: Hours;
   dateHours: DateHours;
   periodStart: string;
   periodEnd: string;
@@ -89,7 +102,7 @@ export function localAvailabilityConflicts(args: {
   timezone: string;
   today?: string;
 }): AvailabilityConflict[] {
-  const { mode, dateHours, periodStart, periodEnd, windowDays, timezone } = args;
+  const { mode, weeklyHours, dateHours, periodStart, periodEnd, windowDays, timezone } = args;
   const conflicts: AvailabilityConflict[] = [];
   const today = args.today || hostTodayIso(timezone);
   const days = Math.max(1, Math.min(365, Number(windowDays) || 1));
@@ -137,6 +150,28 @@ export function localAvailabilityConflicts(args: {
     });
   }
 
+  if (mode === 'specific_dates' && weeklyHours && futureOpen.length > 0) {
+    const covered = new Set(
+      futureOpen
+        .filter((d) => (!periodStart || d >= periodStart) && (!periodEnd || d <= periodEnd))
+        .map((d) => weekdayKeyFromIso(d))
+        .filter((d): d is (typeof WEEKDAYS)[number] => !!d),
+    );
+    const missing = WEEKDAYS.filter(
+      (day) => Array.isArray(weeklyHours[day]) && weeklyHours[day].length > 0 && !covered.has(day),
+    );
+    if (missing.length) {
+      const labels = missing.map((day) => WEEKDAY_LABELS[day]).join(', ');
+      conflicts.push({
+        code: 'specific_dates_missing_weekdays',
+        message: `Specific dates mode ignores weekly hours. Your weekly schedule includes ${labels}, but none of the upcoming specific dates fall on those days, so guests will not see them. Add those dates explicitly, or switch to Weekly hours.`,
+        fields: ['date_hours', 'availability_mode', 'weekly_hours'],
+        details: missing.map((day) => WEEKDAY_LABELS[day]),
+        blocking: false,
+      });
+    }
+  }
+
   const outside = open.filter((d) => (periodStart && d < periodStart) || (periodEnd && d > periodEnd));
   if (outside.length && (mode === 'specific_dates' || mode === 'weekly_with_overrides')) {
     conflicts.push({
@@ -164,10 +199,6 @@ export function localAvailabilityConflicts(args: {
   return conflicts;
 }
 
-const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
-const WEEKDAY_LABELS: Record<string, string> = {
-  mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun',
-};
 const ZERO_TIMES_CODES = new Set([
   'no_open_hours',
   'hours_fit_none',

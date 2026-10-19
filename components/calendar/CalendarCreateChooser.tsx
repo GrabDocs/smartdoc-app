@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
@@ -23,12 +23,15 @@ export default function CalendarCreateChooser({
 }: Props) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  // Sheet sits above the tab bar (z-index); only need home-indicator padding so it sits lower.
+  // Presented in a root Modal above PersistentBottomNavigation — only home-indicator pad.
   const bottomPad = Math.max(insets.bottom, 12);
 
   const styles = useMemo(
     () =>
       StyleSheet.create({
+        host: {
+          ...StyleSheet.absoluteFillObject,
+        },
         body: {
           paddingHorizontal: 20,
           paddingBottom: 4,
@@ -74,62 +77,75 @@ export default function CalendarCreateChooser({
     [colors]
   );
 
+  if (!visible) return null;
+
   return (
-    <MinimizableBottomSheet
-      visible={visible}
-      onClose={onClose}
-      expandNonce={expandNonce}
-      title="Create"
-      fitContent
-      minimizable={false}
-      heightRatio={0.55}
-      paddingBottom={bottomPad}
+    <Modal
+      visible
+      transparent
+      animationType="fade"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      onRequestClose={onClose}
     >
-      <View style={styles.body}>
-        <Text style={styles.subtitle}>Choose what you want to add</Text>
-
-        <TouchableOpacity
-          style={styles.option}
-          onPress={() => {
-            onClose();
-            onCreateEvent();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Create new event"
+      <View style={styles.host} pointerEvents="box-none">
+        <MinimizableBottomSheet
+          visible={visible}
+          onClose={onClose}
+          expandNonce={expandNonce}
+          title="Create"
+          fitContent
+          minimizable={false}
+          heightRatio={0.55}
+          paddingBottom={bottomPad}
         >
-          <View style={[styles.optionIcon, { backgroundColor: `${colors.primary}18` }]}>
-            <Ionicons name="calendar-outline" size={24} color={colors.primary} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.optionTitle}>Create new event</Text>
-            <Text style={styles.optionDesc}>
-              Put an event on your calendar for a date and time.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
+          <View style={styles.body}>
+            <Text style={styles.subtitle}>Choose what you want to add</Text>
 
-        <TouchableOpacity
-          style={[styles.option, styles.optionLast]}
-          onPress={() => {
-            onClose();
-            onScheduleEvent();
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Booking page"
-        >
-          <View style={[styles.optionIcon, { backgroundColor: '#EDE9FE' }]}>
-            <Ionicons name="link-outline" size={24} color="#6D28D9" />
+            <TouchableOpacity
+              style={styles.option}
+              onPress={() => {
+                onClose();
+                onCreateEvent();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Create new event"
+            >
+              <View style={[styles.optionIcon, { backgroundColor: `${colors.primary}18` }]}>
+                <Ionicons name="calendar-outline" size={24} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>Create new event</Text>
+                <Text style={styles.optionDesc}>
+                  Put an event on your calendar for a date and time.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.option, styles.optionLast]}
+              onPress={() => {
+                onClose();
+                onScheduleEvent();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Booking page"
+            >
+              <View style={[styles.optionIcon, { backgroundColor: '#EDE9FE' }]}>
+                <Ionicons name="link-outline" size={24} color="#6D28D9" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.optionTitle}>Booking page</Text>
+                <Text style={styles.optionDesc}>
+                  Open a booking page so someone else can pick a time.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+            </TouchableOpacity>
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.optionTitle}>Booking page</Text>
-            <Text style={styles.optionDesc}>
-              Open a booking page so someone else can pick a time.
-            </Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        </TouchableOpacity>
+        </MinimizableBottomSheet>
       </View>
-    </MinimizableBottomSheet>
+    </Modal>
   );
 }

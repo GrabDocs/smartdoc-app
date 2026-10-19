@@ -29,6 +29,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiService } from '../../services/api';
 import { getReachParticipantDisplayName } from '../../utils/reachDisplayName';
+import { isValidEmail } from '../../utils/emailValidation';
 import { parseAsUTC } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
@@ -452,6 +453,10 @@ export default function WorkspaceDetailsScreen() {
   const handleInviteMember = async () => {
     if (!inviteEmail.trim()) {
       Alert.alert('Error', 'Email is required');
+      return;
+    }
+    if (!isValidEmail(inviteEmail)) {
+      Alert.alert('Error', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
 

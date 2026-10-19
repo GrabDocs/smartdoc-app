@@ -5,6 +5,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     Alert,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -155,9 +158,39 @@ export default function CalendarEventDetailScreen() {
   const [actionBusy, setActionBusy] = useState<'cancel' | 'remove' | null>(null);
   const [noteBusy, setNoteBusy] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
+  const [kbInset, setKbInset] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const notesScrollRef = useRef<ScrollView>(null);
+  /** Set before cancel/remove so in-flight focus reloads do not alert "Event not found". */
+  const leavingDetailRef = useRef(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvent, (e) => {
+      setKbInset(Math.max(0, Math.round(e.endCoordinates.height)));
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => setKbInset(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (kbInset <= 0) return;
+    const timer = setTimeout(() => {
+      if (notesOpen) {
+        notesScrollRef.current?.scrollToEnd({ animated: true });
+      } else {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      }
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [kbInset, notesOpen]);
 
   const loadEvent = useCallback(async () => {
-    if (!Number.isFinite(eventId)) return;
+    if (!Number.isFinite(eventId) || leavingDetailRef.current) return;
 
     if (deviceOffline) {
       const cached = await getCalendarEventDetailOffline(eventId);
@@ -172,16 +205,27 @@ export default function CalendarEventDetailScreen() {
 
     try {
       const ev = await calendarGetEvent(eventId);
+      if (leavingDetailRef.current) return;
       setEvent(ev);
       await saveCalendarEventDetailOffline(ev as Record<string, unknown>);
       try {
         const m = await calendarEventMeeting(eventId);
+        if (leavingDetailRef.current) return;
         if (m?.has_meeting && m.meeting) setMeetingInfo(m.meeting);
         else setMeetingInfo(null);
       } catch {
         setMeetingInfo(null);
       }
     } catch (e: any) {
+      if (leavingDetailRef.current) return;
+      // Soft-deleted after cancel/remove — leave quietly; do not flash "Event not found".
+      if (e?.response?.status === 404) {
+        setEvent(null);
+        setMeetingInfo(null);
+        await removeCalendarEventDetailOffline(eventId);
+        router.replace('/calendar' as any);
+        return;
+      }
       const cached = await getCalendarEventDetailOffline(eventId);
       if (cached) {
         setEvent(cached as CalendarEvent);
@@ -193,7 +237,7 @@ export default function CalendarEventDetailScreen() {
         Alert.alert('Error', e?.response?.data?.error || e?.message || 'Failed to load event');
       }
     }
-  }, [eventId, deviceOffline]);
+  }, [eventId, deviceOffline, router]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -209,35 +253,36 @@ export default function CalendarEventDetailScreen() {
 
   useEffect(() => {
     initialDetailLoadRef.current = false;
+    leavingDetailRef.current = false;
   }, [eventId]);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       (async () => {
-        if (!Number.isFinite(eventId)) {
+        if (!Number.isFinite(eventId) || leavingDetailRef.current) {
           setLoading(false);
           return;
         }
         const blocking = !initialDetailLoadRef.current;
         if (blocking) setLoading(true);
         const cachedIds = await getCalendarIdentityEmails();
-        if (!cancelled && cachedIds.length) setIdentityEmails(cachedIds);
+        if (!cancelled && !leavingDetailRef.current && cachedIds.length) setIdentityEmails(cachedIds);
         await loadEvent();
         initialDetailLoadRef.current = true;
-        if (!cancelled) setLoading(false);
-        if (deviceOffline) return;
+        if (!cancelled && !leavingDetailRef.current) setLoading(false);
+        if (deviceOffline || leavingDetailRef.current) return;
         try {
           const conns = await calendarConnections();
           const emails = calendarIdentityEmails(profile, conns);
-          if (!cancelled) setIdentityEmails(emails);
+          if (!cancelled && !leavingDetailRef.current) setIdentityEmails(emails);
           await saveCalendarIdentityEmails(emails);
         } catch {
           /* keep cached identities */
         }
         try {
           await calendarSyncGoogleWithStaleConnectionRecovery({ silent: true });
-          if (!cancelled) await loadEvent();
+          if (!cancelled && !leavingDetailRef.current) await loadEvent();
         } catch {
           /* sync is best-effort; GET already computed permissions */
         }
@@ -365,6 +410,7 @@ export default function CalendarEventDetailScreen() {
   }, [event?.participants, profile?.email]);
 
   const leaveEventAndGoToList = useCallback(async () => {
+    leavingDetailRef.current = true;
     await removeCalendarEventDetailOffline(eventId);
     await invalidateCalendarListCache();
     router.replace('/calendar' as any);
@@ -380,10 +426,12 @@ export default function CalendarEventDetailScreen() {
 
   const performRemoveFromCalendar = useCallback(async () => {
     setActionBusy('remove');
+    leavingDetailRef.current = true;
     try {
       await calendarRemoveFromCalendar(eventId);
       await leaveEventAndGoToList();
     } catch (e: any) {
+      leavingDetailRef.current = false;
       Alert.alert('Error', e?.response?.data?.error || 'Could not remove event from your calendar');
     } finally {
       setActionBusy(null);
@@ -426,10 +474,12 @@ export default function CalendarEventDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             setActionBusy('cancel');
+            leavingDetailRef.current = true;
             try {
               await calendarDeleteEvent(eventId);
               await leaveEventAndGoToList();
             } catch (e: any) {
+              leavingDetailRef.current = false;
               const data = e?.response?.data;
               if (data?.code === 'use_remove_from_calendar') {
                 setActionBusy(null);
@@ -570,8 +620,16 @@ export default function CalendarEventDetailScreen() {
         </TouchableOpacity>
       </View>
 
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 52 : 0}
+      >
       <ScrollView
-        contentContainerStyle={styles.body}
+        ref={scrollRef}
+        contentContainerStyle={[styles.body, { paddingBottom: 32 + (notesOpen ? 0 : kbInset) }]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
       >
         {deviceOffline ? (
@@ -693,6 +751,9 @@ export default function CalendarEventDetailScreen() {
               value={rsvpComment}
               onChangeText={setRsvpComment}
               multiline
+              onFocus={() => {
+                setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 280);
+              }}
             />
             <View style={[styles.rowBtn, { marginTop: 8 }]}>
               <FeedbackTouchable
@@ -829,19 +890,31 @@ export default function CalendarEventDetailScreen() {
           </View>
         ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <MinimizableBottomSheet
         visible={notesOpen}
         onClose={() => setNotesOpen(false)}
         title="Notebook"
         heightRatio={0.92}
+        minimizable={false}
       >
-        <View style={{ paddingHorizontal: 16, flex: 1 }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            ref={notesScrollRef}
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24 + kbInset }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
             {notesLoading ? <ActivityIndicator style={{ marginTop: 16 }} /> : null}
             {deviceOffline ? (
               <Text style={[styles.meta, { marginTop: 8 }]}>Notes are unavailable offline.</Text>
             ) : null}
-            <ScrollView style={{ maxHeight: 220, marginTop: 12 }}>
+            <View style={{ marginTop: 12 }}>
               {notes.map((n) => (
                 <View key={String(n.id)} style={{ marginBottom: 12, padding: 10, backgroundColor: colors.surface, borderRadius: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -901,7 +974,7 @@ export default function CalendarEventDetailScreen() {
                   ) : null}
                 </View>
               ))}
-            </ScrollView>
+            </View>
             <Text style={styles.label}>{editingNote ? 'Edit note' : 'New note'}</Text>
             <TextInput
               style={styles.input}
@@ -909,6 +982,9 @@ export default function CalendarEventDetailScreen() {
               placeholderTextColor={colors.textSecondary}
               value={newNoteTitle}
               onChangeText={setNewNoteTitle}
+              onFocus={() => {
+                setTimeout(() => notesScrollRef.current?.scrollToEnd({ animated: true }), 280);
+              }}
             />
             <TextInput
               style={[styles.input, { minHeight: 80 }]}
@@ -917,6 +993,9 @@ export default function CalendarEventDetailScreen() {
               multiline
               value={newNoteBody}
               onChangeText={setNewNoteBody}
+              onFocus={() => {
+                setTimeout(() => notesScrollRef.current?.scrollToEnd({ animated: true }), 280);
+              }}
             />
             <FeedbackTouchable
               style={styles.btn}
@@ -938,7 +1017,8 @@ export default function CalendarEventDetailScreen() {
                 <Text style={{ color: '#007AFF', textAlign: 'center', marginTop: 8 }}>Cancel edit</Text>
               </TouchableOpacity>
             ) : null}
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </MinimizableBottomSheet>
     </SafeAreaView>
   );

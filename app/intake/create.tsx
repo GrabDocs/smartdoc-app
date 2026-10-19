@@ -25,7 +25,10 @@ import { INTAKE_REMINDER_PRESETS, INTAKE_WEEKDAY_OPTIONS, type IntakeTemplate, t
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import { invalidEmailsMessage } from '../../utils/emailValidation';
 import {
+  filterValidSenders,
+  getInvalidSenderEmails,
   hasSenderEmail,
   prefillSendersWithEmail,
   primaryEmailFromSenders,
@@ -308,7 +311,24 @@ export default function CreateIntakeScreen() {
       Alert.alert('Error', 'Due after days must be at least 1');
       return;
     }
-    const validSenders = authorizedSenders.filter((s) => s.email.trim());
+    if (!isScheduling && !dueAt) {
+      Alert.alert('Error', 'Due date is required');
+      return;
+    }
+    const invalidSenderEmails = getInvalidSenderEmails(authorizedSenders);
+    if (invalidSenderEmails.length > 0) {
+      Alert.alert('Error', invalidEmailsMessage(invalidSenderEmails));
+      return;
+    }
+    const validSenders = filterValidSenders(authorizedSenders);
+    if (!clientName.trim() && selectedClientIds.length === 0) {
+      Alert.alert('Error', 'Client name is required');
+      return;
+    }
+    if (validSenders.length === 0) {
+      Alert.alert('Error', 'Add at least one authorized sender email');
+      return;
+    }
 
     const reminderFields =
       reminderPreset === 'custom'
@@ -658,7 +678,9 @@ export default function CreateIntakeScreen() {
           </View>
           <View style={dynamicStyles.row}>
             <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
-              <Text style={dynamicStyles.label}>Client name</Text>
+              <Text style={dynamicStyles.label}>
+                Client name <Text style={dynamicStyles.required}>*</Text>
+              </Text>
               <TextInput
                 style={dynamicStyles.input}
                 value={clientName}
@@ -668,9 +690,11 @@ export default function CreateIntakeScreen() {
             </View>
             {!isScheduling ? (
               <View style={[dynamicStyles.inputGroup, dynamicStyles.flex1]}>
-                <Text style={dynamicStyles.label}>Due date</Text>
+                <Text style={dynamicStyles.label}>
+                  Due date <Text style={dynamicStyles.required}>*</Text>
+                </Text>
                 <TouchableOpacity style={dynamicStyles.pickerButton} onPress={() => openDatePicker('due')}>
-                  <Text style={dynamicStyles.pickerButtonText}>{dueAt || 'None'}</Text>
+                  <Text style={dynamicStyles.pickerButtonText}>{dueAt || 'Select date'}</Text>
                   <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -679,19 +703,24 @@ export default function CreateIntakeScreen() {
         </View>
 
         <View style={dynamicStyles.section}>
-          <Text style={dynamicStyles.sectionTitle}>Authorized senders</Text>
+          <Text style={dynamicStyles.sectionTitle}>
+            Authorized senders <Text style={dynamicStyles.required}>*</Text>
+          </Text>
           <Text style={dynamicStyles.sectionSubtitle}>
-            Files forwarded to your email (or synced from Gmail/Outlook) from these addresses are automatically
-            routed to this Intake. Also used for reminder emails.
+            At least one email is required. Files from these addresses are routed here and used for reminders.
           </Text>
           {authorizedSenders.map((sender, idx) => (
-            <View key={idx} style={dynamicStyles.senderRow}>
+            <View key={`sender-${idx}`} style={dynamicStyles.senderRow}>
               <TextInput
                 style={[dynamicStyles.smallInput, { flex: 1 }]}
                 value={sender.name}
                 onChangeText={(v) => updateAuthorizedSender(idx, 'name', v)}
                 placeholder="Name"
                 placeholderTextColor={colors.textLight}
+                // Prevent contact autofill from writing name+email into every row at once.
+                autoComplete="off"
+                textContentType="none"
+                importantForAutofill="no"
               />
               <TextInput
                 style={[dynamicStyles.smallInput, { flex: 1.5 }]}
@@ -701,6 +730,12 @@ export default function CreateIntakeScreen() {
                 placeholderTextColor={colors.textLight}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
+                // Multi-row contact autofill paints every email/name field at once; disable it.
+                autoComplete="off"
+                textContentType="none"
+                importantForAutofill="no"
+                nativeID={`intake-sender-email-${idx}`}
               />
               <TouchableOpacity onPress={() => removeAuthorizedSender(idx)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                 <Ionicons name="trash-outline" size={18} color={colors.textLight} />
@@ -715,7 +750,9 @@ export default function CreateIntakeScreen() {
 
         <View style={dynamicStyles.section}>
           <View style={[dynamicStyles.sectionHeaderRow, { marginBottom: 0 }]}>
-            <Text style={[dynamicStyles.sectionTitle, { marginBottom: 0 }]}>Checklist</Text>
+            <Text style={[dynamicStyles.sectionTitle, { marginBottom: 0 }]}>
+              Checklist <Text style={dynamicStyles.required}>*</Text>
+            </Text>
             <TouchableOpacity onPress={() => setShowSaveTemplateModal(true)}>
               <Text style={dynamicStyles.linkText}>Template</Text>
             </TouchableOpacity>

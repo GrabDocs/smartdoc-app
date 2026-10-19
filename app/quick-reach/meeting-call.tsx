@@ -28,6 +28,7 @@ import { getReachParticipantDisplayName, sanitizeReachDisplayName } from '../../
 import { formatMeetingTimeToLocal } from '../../utils/timeFormatting';
 import { REACH_CURRENT_MEETING_KEY, canonicalizeReachMeetingId } from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
+import { isValidEmail } from '../../utils/emailValidation';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -129,9 +130,12 @@ function extractReachHostDisplayName(m: Record<string, unknown>): string {
     const last = String(c.last_name ?? c.lastName ?? '').trim();
     const full = [first, last].filter(Boolean).join(' ').trim();
     if (full) return full;
+    const accountName = String(c.name ?? '').trim();
+    if (accountName) return accountName;
     const username = String(c.username ?? '').trim();
     if (username) return username;
     const email = String(c.email ?? '').trim();
+    if (email.includes('@')) return email.split('@')[0];
     if (email) return email;
   }
 
@@ -142,9 +146,12 @@ function extractReachHostDisplayName(m: Record<string, unknown>): string {
       const h = entry as Record<string, unknown>;
       const role = String(h.role ?? '').toLowerCase();
       if (role && role !== 'owner' && role !== 'host') continue;
+      const fromParts = [String(h.first_name ?? ''), String(h.last_name ?? '')].filter(Boolean).join(' ').trim();
       const name =
-        String(h.username ?? h.name ?? h.email ?? '').trim() ||
-        [String(h.first_name ?? ''), String(h.last_name ?? '')].filter(Boolean).join(' ').trim();
+        fromParts ||
+        String(h.name ?? '').trim() ||
+        String(h.username ?? '').trim() ||
+        String(h.email ?? '').trim();
       if (name) return name;
     }
   }
@@ -1071,16 +1078,21 @@ export default function MeetingCallScreen() {
   };
 
   const addInviteEmail = () => {
-    if (newInviteEmail.trim() && !inviteEmails.includes(newInviteEmail.trim().toLowerCase())) {
-      // Basic email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (emailRegex.test(newInviteEmail.trim())) {
-        setInviteEmails(prev => [...prev, newInviteEmail.trim().toLowerCase()]);
-        setNewInviteEmail('');
-      } else {
-        Alert.alert('Error', 'Please enter a valid email address');
-      }
+    const emailToAdd = newInviteEmail.trim().toLowerCase();
+    if (!emailToAdd) {
+      Alert.alert('Error', 'Please enter an email address');
+      return;
     }
+    if (!isValidEmail(emailToAdd)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+    if (inviteEmails.includes(emailToAdd)) {
+      Alert.alert('Error', 'Email already added');
+      return;
+    }
+    setInviteEmails((prev) => [...prev, emailToAdd]);
+    setNewInviteEmail('');
   };
 
   const removeInviteEmail = (email: string) => {

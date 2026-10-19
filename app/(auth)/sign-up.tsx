@@ -14,6 +14,7 @@ import { appleAuthService } from '../../services/appleAuth';
 import { apiService } from '../../services/api';
 import { googleAuthService } from '../../services/googleAuth';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
+import { isValidEmail } from '../../utils/emailValidation';
 import { exchangeGoogleLoginToken } from '../../utils/googleOAuthDeepLink';
 import { useAuth } from '../context/auth';
 
@@ -54,6 +55,11 @@ export default function SignUpScreen() {
 
       if (!username || !email || !password || !confirmPassword) {
         setError('Please fill in all fields');
+        return;
+      }
+
+      if (!isValidEmail(email)) {
+        setError('Enter a valid email address (e.g. name@example.com)');
         return;
       }
 

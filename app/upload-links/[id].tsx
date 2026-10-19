@@ -27,6 +27,7 @@ import { apiService } from '../../services/api';
 import { uploadLinkDetailScreenKey, uploadLinksListScreenKey } from '../../services/userScopedCache';
 import { sanitizeDisplayFilename } from '../../utils/displayFilename';
 import { screenCache } from '../../utils/screenCache';
+import { findInvalidEmails, invalidEmailsMessage, parseEmailList } from '../../utils/emailValidation';
 import { getUploadToBaseUrl } from '../../utils/uploadLinkHelpers';
 import { useAuth } from '../context/auth';
 
@@ -244,10 +245,14 @@ export default function UploadLinkDetailsScreen() {
       return;
     }
 
-    const emailList = emails.split(',').map(email => email.trim()).filter(email => email);
-    
+    const emailList = parseEmailList(emails);
     if (emailList.length === 0) {
       Alert.alert('Error', 'Please enter valid email addresses');
+      return;
+    }
+    const invalid = findInvalidEmails(emailList);
+    if (invalid.length > 0) {
+      Alert.alert('Error', invalidEmailsMessage(invalid));
       return;
     }
 

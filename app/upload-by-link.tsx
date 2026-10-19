@@ -34,6 +34,7 @@ import {
   getUserPreferences,
   validateFileAgainstUploadSettings,
 } from '../utils/userPreferences';
+import { ACCEPTED_DOCUMENT_MIME_TYPES } from '../components/signatures/DocumentSourcePicker';
 
 import AppBackButton from '../components/AppBackButton';
 import AppHeaderTitle from '../components/AppHeaderTitle';
@@ -54,6 +55,7 @@ interface UploadLinkInfo {
   is_full: boolean;
   expires_at: string | null;
   company_id?: number;
+  allowed_file_types?: string[] | null;
   /** Present only when this File Request link belongs to an Intake (client document checklist). */
   intake: { id: number; title: string; checklist: IntakeChecklistItem[] } | null;
 }
@@ -206,18 +208,16 @@ export default function UploadByLinkScreen() {
 
     try {
       fileStore.setDocumentPickerOpen(true);
+      const linkAllowed = (uploadInfo?.allowed_file_types || [])
+        .map((t) => String(t).toLowerCase().replace(/^\./, ''))
+        .filter(Boolean);
       const result = await DocumentPicker.getDocumentAsync({
         multiple: true,
-        type: '*/*',
+        type: linkAllowed.length > 0 ? '*/*' : [...ACCEPTED_DOCUMENT_MIME_TYPES],
         copyToCacheDirectory: true,
       });
 
       if (!result.canceled && result.assets) {
-        const blockedExtensions = new Set([
-          'zip', 'rar', '7z', 'tar', 'gz', 'bz2',
-          'mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'webm', 'mpeg', 'mpg', 'm4v', '3gp',
-          'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma', 'aiff', 'ape', 'opus',
-        ]);
         const newFiles: UploadFile[] = result.assets.map((asset) => ({
           uri: asset.uri,
           name: asset.name,
@@ -228,9 +228,19 @@ export default function UploadByLinkScreen() {
         const validationErrors: string[] = [];
         for (const file of newFiles) {
           const ext = (file.name.split('.').pop() || '').toLowerCase();
-          if (ext && blockedExtensions.has(ext)) {
+          if (linkAllowed.length > 0) {
+            if (!ext || !linkAllowed.includes(ext)) {
+              validationErrors.push(
+                `${sanitizeDisplayFilename(file.name)}: .${ext || 'unknown'} is not allowed for this link.`,
+              );
+            }
+            continue;
+          }
+          try {
+            validateFileAgainstUploadSettings(file);
+          } catch (err: any) {
             validationErrors.push(
-              `${sanitizeDisplayFilename(file.name)}: .${ext} is not allowed (ZIP, audio, and video are blocked).`,
+              `${sanitizeDisplayFilename(file.name)}: ${err?.message || 'File type is not allowed'}`,
             );
           }
         }
@@ -279,6 +289,14 @@ export default function UploadByLinkScreen() {
 
     if (!senderName.trim()) {
       Alert.alert('Error', 'Please enter your name');
+      return;
+    }
+    if (!senderEmail.trim()) {
+      Alert.alert('Error', 'Please enter your email');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(senderEmail.trim())) {
+      Alert.alert('Error', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
 
@@ -350,9 +368,7 @@ export default function UploadByLinkScreen() {
         } as any);
       }
       formData.append('sender_name', senderName.trim());
-      if (senderEmail.trim()) {
-        formData.append('sender_email', senderEmail.trim());
-      }
+      formData.append('sender_email', senderEmail.trim());
       if (message.trim()) {
         formData.append('sender_message', message.trim());
       }
@@ -903,7 +919,7 @@ export default function UploadByLinkScreen() {
               />
             </View>
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Your Email</Text>
+              <Text style={dynamicStyles.label}>Your Email *</Text>
               <TextInput
                 style={dynamicStyles.input}
                 value={senderEmail}
@@ -915,18 +931,24 @@ export default function UploadByLinkScreen() {
                 editable={!uploading}
               />
             </View>
-            <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Action Code</Text>
-              <TextInput
-                style={dynamicStyles.input}
-                value={actionCode}
-                onChangeText={setActionCode}
-                placeholder="Enter action code"
-                placeholderTextColor={colors.textLight}
-                autoCapitalize="none"
-                editable={!uploading}
-              />
-            </View>
+            {/* Intake uploads are routed by the link itself — Action Codes are for other GrabDocs workflows. */}
+            {!uploadInfo.intake && (
+              <View style={dynamicStyles.inputGroup}>
+                <Text style={dynamicStyles.label}>Action Code (Optional)</Text>
+                <TextInput
+                  style={dynamicStyles.input}
+                  value={actionCode}
+                  onChangeText={(text) =>
+                    setActionCode(text.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+                  }
+                  placeholder="Separate Action Code — not the upload/link code"
+                  placeholderTextColor={colors.textLight}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  editable={!uploading}
+                />
+              </View>
+            )}
             <View style={dynamicStyles.inputGroup}>
               <Text style={dynamicStyles.label}>Message</Text>
               <TextInput

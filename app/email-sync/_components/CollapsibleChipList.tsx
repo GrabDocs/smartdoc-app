@@ -69,8 +69,19 @@ export function CollapsibleChipList({
   );
 
   const add = () => {
-    const t = draft.trim().toLowerCase();
-    if (t && !value.includes(t)) onChange([...value, t]);
+    const parts = draft
+      .split(/[,;]+/)
+      .map((p) => p.trim().toLowerCase())
+      .filter(Boolean);
+    if (!parts.length) {
+      setDraft('');
+      return;
+    }
+    const next = [...value];
+    for (const t of parts) {
+      if (!next.includes(t)) next.push(t);
+    }
+    if (next.length !== value.length) onChange(next);
     setDraft('');
   };
 

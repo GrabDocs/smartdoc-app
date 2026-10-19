@@ -1,6 +1,7 @@
 import { FRONTEND_URL } from '../../constants/Config';
 import { apiService } from '../../services/api';
 import { bookingListEventTypes, bookingUpdateEventType } from '../../services/bookingApi';
+import { isValidEmail } from '../../utils/emailValidation';
 import { buildUploadLinkUrl, getFullPublicUploadUrl } from '../../utils/uploadLinkHelpers';
 import type { ShareAccessAdapter, ShareAccessSnapshot, ShareRecipient } from './types';
 
@@ -133,7 +134,7 @@ export function createIntakeShareAdapter(intakeId: number): ShareAccessAdapter {
     },
     async searchPeople(query: string) {
       const email = query.trim();
-      if (!email.includes('@')) return [];
+      if (!isValidEmail(email)) return [];
       return [{ label: email, email, detail: email }];
     },
     async addPeople(people: ShareRecipient[]) {
@@ -145,7 +146,7 @@ export function createIntakeShareAdapter(intakeId: number): ShareAccessAdapter {
       const emails = new Set(current.map((sender) => sender.email.toLowerCase()));
       for (const person of people) {
         const email = (person.email || '').trim();
-        if (!email || emails.has(email.toLowerCase())) continue;
+        if (!isValidEmail(email) || emails.has(email.toLowerCase())) continue;
         emails.add(email.toLowerCase());
         current.push({ name: person.label || email, email });
       }

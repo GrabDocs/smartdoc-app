@@ -44,6 +44,7 @@ import {
     bookingListSignups,
     bookingPeriodImpact,
     bookingSlotHealth,
+    bookingUpdateEventType,
     bookingUpdateProfile,
 } from '../../services/bookingApi';
 import { localSlotFitConflicts, losesGuestTimes } from '../../utils/schedulingAvailability';
@@ -144,15 +145,23 @@ function scheduleBoundEndIso(
   return periodEnd || null;
 }
 
+function weekdayKeyFromIso(iso: string): (typeof DAYS)[number] | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const jsDay = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
+  return DAYS[(jsDay + 6) % 7];
+}
+
 function localAvailabilityConflicts(args: {
   mode: AvailabilityMode;
+  weeklyHours?: Hours;
   dateHours: DateHours;
   periodStart: string;
   periodEnd: string;
   windowDays: number;
   timezone: string;
 }): AvailabilityConflict[] {
-  const { mode, dateHours, periodStart, periodEnd, windowDays, timezone } = args;
+  const { mode, weeklyHours, dateHours, periodStart, periodEnd, windowDays, timezone } = args;
   const conflicts: AvailabilityConflict[] = [];
   const today = hostTodayIso(timezone);
   const days = Math.max(1, Math.min(365, Number(windowDays) || 1));
@@ -194,6 +203,27 @@ function localAvailabilityConflicts(args: {
       message: 'All configured specific dates are in the past, so guests will see no times.',
       blocking: false,
     });
+  }
+
+  if (mode === 'specific_dates' && weeklyHours && futureOpen.length > 0) {
+    const covered = new Set(
+      futureOpen
+        .filter((d) => (!periodStart || d >= periodStart) && (!periodEnd || d <= periodEnd))
+        .map((d) => weekdayKeyFromIso(d))
+        .filter((d): d is (typeof DAYS)[number] => !!d),
+    );
+    const missing = DAYS.filter(
+      (day) => Array.isArray(weeklyHours[day]) && weeklyHours[day].length > 0 && !covered.has(day),
+    );
+    if (missing.length) {
+      const labels = missing.map((day) => DAY_LABELS[day]).join(', ');
+      conflicts.push({
+        code: 'specific_dates_missing_weekdays',
+        message: `Specific dates mode ignores weekly hours. Your weekly schedule includes ${labels}, but none of the upcoming specific dates fall on those days, so guests will not see them. Add those dates explicitly, or switch to Weekly hours.`,
+        details: missing.map((day) => DAY_LABELS[day]),
+        blocking: false,
+      });
+    }
   }
 
   const outside = open.filter((d) => (periodStart && d < periodStart) || (periodEnd && d > periodEnd));
@@ -569,6 +599,7 @@ export default function CalendarSchedulingScreen() {
     () => [
       ...localAvailabilityConflicts({
         mode: availabilityMode,
+        weeklyHours: hours,
         dateHours,
         periodStart: availabilityStartDate,
         periodEnd: availabilityEndDate,
@@ -758,10 +789,10 @@ export default function CalendarSchedulingScreen() {
       setSavedAvailabilityEndDate(availabilityEndDate);
       if (res?.window_adjusted) {
         setMessage(
-          `Hours saved. Booking window set to ${saved?.booking_window_days} days so it reaches your availability dates.`,
+          `Schedule saved. Booking window set to ${saved?.booking_window_days} days so it reaches your availability dates.`,
         );
       } else {
-        setMessage('Hours saved.');
+        setMessage('Schedule saved.');
       }
       try {
         const health = await bookingSlotHealth();
@@ -1063,6 +1094,9 @@ export default function CalendarSchedulingScreen() {
         <>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Availability schedule</Text>
+          <Text style={[styles.conflictHint, { marginBottom: 6 }]}>
+            One schedule for every event type (including ones already created). Tap Save schedule to publish — Preview alone does not update booking links.
+          </Text>
           <View style={styles.modeRow}>
             {(
               [
@@ -1167,6 +1201,11 @@ export default function CalendarSchedulingScreen() {
               <Text style={styles.label}>
                 {availabilityMode === 'specific_dates' ? 'Specific dates' : 'Date overrides'}
               </Text>
+              {availabilityMode === 'specific_dates' ? (
+                <Text style={styles.conflictHint}>
+                  Guests only see the dates listed here. Weekly hours are ignored — to offer Fridays, add each Friday date (or switch to Weekly).
+                </Text>
+              ) : null}
               <TouchableOpacity style={styles.pickerField} onPress={() => openBoundDatePicker('newDateKey', newDateKey)}>
                 <Text style={styles.pickerValue}>{newDateKey || 'Pick a date'}</Text>
               </TouchableOpacity>
@@ -1311,7 +1350,7 @@ export default function CalendarSchedulingScreen() {
               {windowNeedsSync && saveSuggestedWindowDays != null ? (
                 <TouchableOpacity onPress={() => setWindowDays(String(saveSuggestedWindowDays))}>
                   <Text style={styles.conflictHint}>
-                    Set window to {saveSuggestedWindowDays} days so guests can reach your dates (then Save hours)
+                    Set window to {saveSuggestedWindowDays} days so guests can reach your dates (then Save schedule)
                   </Text>
                 </TouchableOpacity>
               ) : null}
@@ -1365,14 +1404,20 @@ export default function CalendarSchedulingScreen() {
                   : ''}
             </Text>
           </View>
+        </View>
+
+        <View style={styles.card}>
           <View style={styles.hoursActions}>
             <TouchableOpacity style={styles.button} onPress={() => void saveHours()} disabled={savingHours}>
-              <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save hours'}</Text>
+              <Text style={styles.buttonText}>{savingHours ? 'Saving…' : 'Save schedule'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.secondaryButton} onPress={() => setPreviewOpen(true)}>
               <Text style={styles.secondaryButtonText}>Preview guest calendar</Text>
             </TouchableOpacity>
           </View>
+          <Text style={styles.unavailable}>
+            Saves availability for all event types. Existing booking links pick this up on the next load.
+          </Text>
         </View>
         </>
         ) : null}
@@ -1585,17 +1630,29 @@ export default function CalendarSchedulingScreen() {
               <TouchableOpacity
                 style={styles.action}
                 onPress={() => {
-                  void bookingDeactivateEventType(selected.id)
+                  const nextActive = !selected.active;
+                  const request = nextActive
+                    ? bookingUpdateEventType(selected.id, { ...selected, active: true })
+                    : bookingDeactivateEventType(selected.id);
+                  void request
                     .then(async () => {
                       await load();
-                      setEventsView('list');
+                      if (!nextActive) setEventsView('list');
                     })
                     .catch((err: any) =>
-                      Alert.alert('Scheduling', err?.response?.data?.error || 'Could not deactivate this event type.'),
+                      Alert.alert(
+                        'Scheduling',
+                        err?.response?.data?.error ||
+                          (nextActive
+                            ? 'Could not activate this event type.'
+                            : 'Could not deactivate this event type.'),
+                      ),
                     );
                 }}
               >
-                <Text style={styles.actionDanger}>Deactivate</Text>
+                <Text style={selected.active ? styles.actionDanger : styles.actionSuccess}>
+                  {selected.active ? 'Deactivate' : 'Activate'}
+                </Text>
               </TouchableOpacity>
             </View>
             <Text style={styles.sectionTitle}>Signups</Text>
@@ -2096,6 +2153,7 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     actionText: { fontSize: 12, fontWeight: '600', color: colors.text },
     actionDanger: { fontSize: 12, fontWeight: '600', color: '#dc2626' },
+    actionSuccess: { fontSize: 12, fontWeight: '600', color: '#15803d' },
     signupBox: { gap: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 6 },
     signup: { gap: 1 },
     signupName: { fontSize: 13, fontWeight: '600', color: colors.text },

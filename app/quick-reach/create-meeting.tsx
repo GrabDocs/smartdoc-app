@@ -22,6 +22,7 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import { setItemClients } from '../../services/clientsApi';
 import { extractLimitErrorData, getErrorResponseData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
+import { isValidEmail } from '../../utils/emailValidation';
 
 function asPositiveInt(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
@@ -286,13 +287,24 @@ export default function CreateMeetingScreen() {
   };
 
   const addParticipant = () => {
-    if (newParticipant.trim() && !meetingData.participants.includes(newParticipant.trim())) {
-      setMeetingData(prev => ({
-        ...prev,
-        participants: [...prev.participants, newParticipant.trim()]
-      }));
-      setNewParticipant('');
+    const email = newParticipant.trim();
+    if (!email) {
+      Alert.alert('Participant', 'Enter an email address');
+      return;
     }
+    if (!isValidEmail(email)) {
+      Alert.alert('Participant', 'Enter a valid email address (e.g. name@example.com)');
+      return;
+    }
+    if (meetingData.participants.includes(email)) {
+      Alert.alert('Participant', 'Email already added');
+      return;
+    }
+    setMeetingData((prev) => ({
+      ...prev,
+      participants: [...prev.participants, email],
+    }));
+    setNewParticipant('');
   };
 
   const removeParticipant = (email: string) => {

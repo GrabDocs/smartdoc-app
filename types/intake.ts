@@ -18,8 +18,14 @@ export interface IntakeAuthorizedSender {
 }
 
 export interface IntakeProgress {
+  /** Required items with a real file match (matched/confirmed). */
   received: number;
+  /** Required items marked N/A (done without a document). */
+  not_applicable?: number;
+  /** received + not_applicable */
+  done?: number;
   total: number;
+  /** Share of required items that are done (received + N/A). */
   percent: number;
 }
 

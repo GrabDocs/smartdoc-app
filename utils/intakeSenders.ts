@@ -1,5 +1,7 @@
 /** Fold primary email + authorized_senders into one editable list. */
 
+import { findInvalidEmails, isValidEmail } from './emailValidation';
+
 export type IntakeSenderForm = { name: string; email: string };
 
 export function buildIntakeSenderList(
@@ -30,12 +32,26 @@ export function buildIntakeSenderList(
 }
 
 export function primaryEmailFromSenders(senders: { email: string }[]): string | null {
-  const first = senders.find((s) => s.email.trim());
+  const first = senders.find((s) => isValidEmail(s.email));
   return first ? first.email.trim() : null;
 }
 
 export function hasSenderEmail(senders: { email: string }[]): boolean {
-  return senders.some((s) => s.email.trim());
+  return senders.some((s) => isValidEmail(s.email));
+}
+
+/** Non-empty sender emails that fail format validation. */
+export function getInvalidSenderEmails(senders: { email: string }[]): string[] {
+  return findInvalidEmails(
+    senders.map((s) => s.email.trim()).filter((email) => email.length > 0),
+  );
+}
+
+/** Keep only senders with a valid email address. */
+export function filterValidSenders(senders: IntakeSenderForm[]): IntakeSenderForm[] {
+  return senders
+    .map((s) => ({ name: (s.name || '').trim(), email: s.email.trim() }))
+    .filter((s) => isValidEmail(s.email));
 }
 
 /** Prefill first empty email slot (or replace empty list) with client primary. */
@@ -44,7 +60,7 @@ export function prefillSendersWithEmail(
   email: string,
 ): IntakeSenderForm[] {
   const pe = email.trim();
-  if (!pe) return senders;
+  if (!pe || !isValidEmail(pe)) return senders;
   if (hasSenderEmail(senders)) return senders;
   if (!senders.length) return [{ name: '', email: pe }];
   const next = [...senders];

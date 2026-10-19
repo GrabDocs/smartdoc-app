@@ -13,6 +13,7 @@ import {
 import AdaptiveListPickerModal from '../AdaptiveListPickerModal';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { isValidEmail } from '../../utils/emailValidation';
 import {
   createClient,
   listClients,
@@ -138,6 +139,10 @@ export default function ClientPickerModal({
     }
     if (!createEmail.trim()) {
       Alert.alert('Error', 'Email is required');
+      return;
+    }
+    if (!isValidEmail(createEmail)) {
+      Alert.alert('Error', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
     setCreating(true);

@@ -17,6 +17,7 @@ import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import PhoneNumberInput from '../../components/PhoneNumberInput';
 import { apiService } from '../../services/api';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
+import { isValidEmail } from '../../utils/emailValidation';
 import { isValidPhoneNumber, parsePhoneNumber } from '../../utils/phoneUtils';
 import { useAuth } from '../context/auth';
 import {
@@ -208,6 +209,10 @@ export default function PhoneLoginScreen() {
     const handleRegisterSubmit = async () => {
         if (!username || !email || !firstName || !lastName || !password) {
             setError('Please fill in all fields');
+            return;
+        }
+        if (!isValidEmail(email)) {
+            setError('Enter a valid email address (e.g. name@example.com)');
             return;
         }
         if (password !== confirmPassword) {

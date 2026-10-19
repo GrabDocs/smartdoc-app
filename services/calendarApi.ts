@@ -158,6 +158,7 @@ export async function calendarGetStats(
     start_date?: string;
     end_date?: string;
     event_type?: 'personal' | 'company';
+    include_cancelled?: boolean;
   },
   axiosConfig?: { signal?: AbortSignal }
 ): Promise<CalendarStats> {

@@ -298,9 +298,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (response.user) {
           console.log('✅ Using direct user data from response');
           
-          // Create a proper name from the user data
+          // first+last → name → username → email (do not invent first/last from name)
           const fullName = `${response.user.first_name || ''} ${response.user.last_name || ''}`.trim();
-          const displayName = fullName || response.user.username || response.user.email || email;
+          const accountName = typeof (response.user as any).name === 'string' ? (response.user as any).name.trim() : '';
+          const displayName = fullName || accountName || response.user.username || response.user.email || email;
           
           const localUser: User = {
             id: response.user.id.toString(),

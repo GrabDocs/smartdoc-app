@@ -570,7 +570,7 @@ export function EmailSetupPane({
           ) : null}
           <CollapsibleChipList
             title="Sender allowlist"
-            hint="Emails or @domain.com. Presets make mail eligible — they do not auto-mark needs reply."
+            hint="Emails or @domain.com. Matching mail appears in Review (not Needs reply unless it also looks like a question). Saving re-applies to recent mail."
             value={senders}
             onChange={(v) => {
               setSenders(v);
@@ -586,7 +586,7 @@ export function EmailSetupPane({
           />
           <CollapsibleChipList
             title="Subject contains"
-            hint="Subject keywords that mark mail as eligible."
+            hint="Keywords matched in the subject (Re:/Fwd: ignored). Matching mail appears in Review. Saving re-applies to recent mail."
             value={patterns}
             onChange={(v) => {
               setPatterns(v);

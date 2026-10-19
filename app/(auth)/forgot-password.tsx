@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { apiService } from '../../services/api';
+import { isValidEmail } from '../../utils/emailValidation';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -22,6 +23,10 @@ export default function ForgotPasswordScreen() {
   const handleForgotPassword = async () => {
     if (!email) {
       setError('Please enter your email address');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setError('Enter a valid email address (e.g. name@example.com)');
       return;
     }
 

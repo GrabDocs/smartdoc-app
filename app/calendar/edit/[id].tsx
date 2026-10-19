@@ -55,6 +55,7 @@ import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import ClientsButton from '../../../components/clients/ClientsButton';
 import EventRemindersEditor from '../../../components/calendar/EventRemindersEditor';
 import { DEFAULT_REMINDERS, remindersFromEvent, type CalendarReminder } from '../../../utils/calendarReminders';
+import { isValidEmail } from '../../../utils/emailValidation';
 
 type Participant = { email: string; name: string; type: string };
 
@@ -402,6 +403,10 @@ export default function CalendarEditScreen() {
   const addParticipant = () => {
     const email = newEmail.trim();
     if (!email) return;
+    if (!isValidEmail(email)) {
+      Alert.alert('Participant', 'Enter a valid email address (e.g. name@example.com)');
+      return;
+    }
     setParticipants((p) => [...p, { email, name: newName.trim() || email, type: 'required' }]);
     setNewEmail('');
     setNewName('');

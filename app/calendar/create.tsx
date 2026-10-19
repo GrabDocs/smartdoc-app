@@ -29,6 +29,7 @@ import {
   calendarCreateEvent,
   calendarSearchCompanyMembers,
   calendarSyncGoogleWithStaleConnectionRecovery,
+  calendarUpdateEvent,
   scheduleReachMeeting,
 } from '../../services/calendarApi';
 import { invalidateCalendarListCache, isCalendarFetchOfflineError } from '../../utils/calendarCache';
@@ -49,6 +50,7 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import EventRemindersEditor from '../../components/calendar/EventRemindersEditor';
 import { setItemClients } from '../../services/clientsApi';
 import { DEFAULT_REMINDERS, type CalendarReminder } from '../../utils/calendarReminders';
+import { isValidEmail } from '../../utils/emailValidation';
 
 function asPositiveInt(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
@@ -156,7 +158,8 @@ export default function CalendarCreateScreen() {
 
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurringFreq, setRecurringFreq] = useState('WEEKLY');
-  const [recurringCount, setRecurringCount] = useState(10);
+  /** String while typing so the field can be cleared; clamped on blur / submit. */
+  const [recurringCountText, setRecurringCountText] = useState('10');
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [newEmail, setNewEmail] = useState('');
@@ -271,10 +274,16 @@ export default function CalendarCreateScreen() {
     return () => clearTimeout(t);
   }, [memberQuery, memberModal]);
 
+  const resolvedRecurringCount = () => {
+    const n = parseInt(recurringCountText.replace(/[^\d]/g, ''), 10);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  };
+
   const buildRRule = () => {
     if (!isRecurring) return undefined;
     let r = `FREQ=${recurringFreq}`;
-    if (recurringCount > 0) r += `;COUNT=${recurringCount}`;
+    const count = resolvedRecurringCount();
+    if (count > 0) r += `;COUNT=${count}`;
     return r;
   };
 
@@ -291,6 +300,10 @@ export default function CalendarCreateScreen() {
     const email = newEmail.trim();
     if (!email) {
       Alert.alert('Participant', 'Enter an email');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      Alert.alert('Participant', 'Enter a valid email address (e.g. name@example.com)');
       return;
     }
     setParticipants((p) => [
@@ -453,9 +466,6 @@ export default function CalendarCreateScreen() {
             if (!loc.includes('Reach')) loc = loc ? `${loc}, Reach` : 'Reach';
           }
           createdCalendarEventId = asPositiveInt(videoResponse.calendar_event_id);
-          if (createdCalendarEventId != null) {
-            videoCallId = 'skip-calendar-creation';
-          }
         } catch (e: any) {
           const msg = e?.response?.data?.error || e?.message || 'Reach meeting failed';
           Alert.alert('Reach', msg);
@@ -464,7 +474,8 @@ export default function CalendarCreateScreen() {
         }
       }
 
-      if (allDay || !useReach || !videoCallId) {
+      // Reach often creates its own calendar row (without rrule). Only skip create when that id exists.
+      if (allDay || !useReach || createdCalendarEventId == null) {
         const eventData: Record<string, unknown> = {
           title: t,
           description: description.trim(),
@@ -545,6 +556,16 @@ export default function CalendarCreateScreen() {
         }
       }
 
+      // Reach-created calendar rows omit recurrence — attach rrule when the user enabled it.
+      const rrule = buildRRule();
+      if (createdCalendarEventId != null && rrule) {
+        try {
+          await calendarUpdateEvent(createdCalendarEventId, { rrule });
+        } catch (e: any) {
+          console.warn('Could not attach recurrence to Reach calendar event', e?.message || e);
+        }
+      }
+
       await linkCalendarClients(selectedClientIds, {
         calendarEventId: createdCalendarEventId,
         videoCallId: createdVideoCallId,
@@ -575,7 +596,7 @@ export default function CalendarCreateScreen() {
     participants,
     isRecurring,
     recurringFreq,
-    recurringCount,
+    recurringCountText,
     categoryId,
     recordId,
     reminders,
@@ -831,8 +852,9 @@ export default function CalendarCreateScreen() {
                   <TextInput
                     style={styles.input}
                     keyboardType="number-pad"
-                    value={String(recurringCount)}
-                    onChangeText={(x) => setRecurringCount(Math.max(1, parseInt(x || '1', 10) || 1))}
+                    value={recurringCountText}
+                    onChangeText={(x) => setRecurringCountText(x.replace(/[^\d]/g, ''))}
+                    onBlur={() => setRecurringCountText(String(resolvedRecurringCount()))}
                   />
                 </>
               ) : null}

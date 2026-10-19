@@ -17,6 +17,7 @@ import { useAuth } from '../../context/auth';
 import { getEnvelope, putRecipients, updateEnvelopeDraft } from '../../../services/envelopeApi';
 import type { RecipientInput } from '../../../types/signature';
 import { saveDraftStep } from '../../../services/signatureSessionCache';
+import { findInvalidEmails, invalidEmailsMessage, isValidEmail } from '../../../utils/emailValidation';
 
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
@@ -53,7 +54,14 @@ export default function RecipientsScreen() {
   }, [envelopeId]);
 
   const handleNext = async () => {
-    const signers = recipients.filter((r) => r.role === 'signer' && r.email.trim());
+    const invalid = findInvalidEmails(
+      recipients.map((r) => (r.email || '').trim()).filter((email) => email.length > 0),
+    );
+    if (invalid.length > 0) {
+      Alert.alert('Invalid email', invalidEmailsMessage(invalid));
+      return;
+    }
+    const signers = recipients.filter((r) => r.role === 'signer' && isValidEmail(r.email));
     if (!signers.length) {
       Alert.alert('Add signers', 'At least one signer email is required.');
       return;
@@ -73,7 +81,7 @@ export default function RecipientsScreen() {
       await updateEnvelopeDraft(envelopeId!, { reminder_enabled: reminderEnabled });
       await putRecipients(
         envelopeId!,
-        recipients.filter((r) => r.email.trim()).map((r) => ({
+        recipients.filter((r) => isValidEmail(r.email)).map((r) => ({
           ...r,
           phone_number: r.phone_verification_required ? r.phone_number?.trim() : undefined })),
       );
