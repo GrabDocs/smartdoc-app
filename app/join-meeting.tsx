@@ -1,7 +1,7 @@
 /**
  * Join Meeting - Deep link handler for grabdocs://join-meeting?meeting_id=...
- * Same logic as web: pre-check (check-requirements), then form for approval meetings (name, PIN),
- * submit via join-by-id, wait for approval (poll + optional push), then join.
+ * Signed-in app users join immediately with their account display name.
+ * Form only when passcode (no token) or host approval is required.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -214,13 +214,24 @@ export default function JoinMeetingScreen() {
           }
         }
 
-        // Always collect a display name on the join-link form so blank names never become "Guest".
-        // Prefill from the signed-in account (first/last → username → email local-part).
-        setPasscode('');
-        const defaultName = getReachParticipantDisplayName(user);
-        if (defaultName) setParticipantName(defaultName);
-        setCheckState('form');
-        return;
+        // Never trust passcode from URL. Only passcode_token (server-issued) or user-typed passcode.
+        // Passcode-only and approval meetings need the form when there is no token.
+        if ((data.passcode_required && !params.passcode_token) || data.require_join_approval) {
+          setPasscode('');
+          const defaultName = getReachParticipantDisplayName(user);
+          if (defaultName) setParticipantName(defaultName);
+          setCheckState('form');
+          return;
+        }
+
+        // Open meeting immediately — use signed-in account name (no name-collection screen).
+        hasNavigatedRef.current = true;
+        clearPersistedWaiting();
+        const q = new URLSearchParams({ meetingId: meetingId.trim() });
+        if (params.passcode_token) q.set('passcode_token', params.passcode_token);
+        appendSanitizedUserName(q, getReachParticipantDisplayName(user));
+        appendReturnToParam(q, returnTo);
+        router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
       } catch (err: any) {
         const limitData = limitErrorFromCaught(err);
         if (limitData) {
@@ -236,23 +247,30 @@ export default function JoinMeetingScreen() {
     };
 
     runPreCheck();
-  }, [meetingId, params.passcode_token, returnTo, router, checkState, restoreDone, user, authLoading]);
+  }, [
+    meetingId,
+    params.passcode_token,
+    returnTo,
+    router,
+    checkState,
+    restoreDone,
+    user,
+    authLoading,
+    clearPersistedWaiting,
+    showLimitError,
+  ]);
 
   const navigateToMeeting = useCallback(() => {
     if (hasNavigatedRef.current || !isMountedRef.current) return;
-    const name =
-      sanitizeReachDisplayName(participantName) || getReachParticipantDisplayName(user);
-    if (!name) {
-      setErrorMessage('Please enter your name to join.');
-      setCheckState('form');
-      return;
-    }
     hasNavigatedRef.current = true;
     clearPersistedWaiting();
     const q = new URLSearchParams({ meetingId: meetingId.trim() });
     if (params.passcode_token) q.set('passcode_token', params.passcode_token);
     else if (passcode.trim()) q.set('passcode', passcode.trim());
-    appendSanitizedUserName(q, name);
+    appendSanitizedUserName(
+      q,
+      sanitizeReachDisplayName(participantName) || getReachParticipantDisplayName(user)
+    );
     appendReturnToParam(q, returnTo);
     router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
   }, [meetingId, passcode, participantName, params.passcode_token, returnTo, router, clearPersistedWaiting, user]);
@@ -260,11 +278,8 @@ export default function JoinMeetingScreen() {
   const submitJoinRequest = useCallback(async () => {
     const name =
       sanitizeReachDisplayName(participantName) ||
-      getReachParticipantDisplayName(user);
-    if (!name) {
-      setErrorMessage('Please enter your name to join.');
-      return;
-    }
+      getReachParticipantDisplayName(user) ||
+      'Participant';
     const pc = requirements?.passcode_required ? passcode.trim() : '';
     if (requirements?.passcode_required && !pc) {
       setErrorMessage('Passcode is required.');
