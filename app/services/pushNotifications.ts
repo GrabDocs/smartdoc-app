@@ -706,8 +706,9 @@ export function getNotificationScreen(data: Record<string, any>): string {
       const tid = data?.thread_id ?? data?.threadId;
       const ws = data?.workspace_id ?? data?.workspaceId;
       if (tid != null) {
+        // Open the received thread (same as Needs Reply). compose=1 is only for
+        // an explicit Reply action — otherwise Email Inbox starts a new draft.
         const q = new URLSearchParams({ threadId: String(tid) });
-        if (type === 'inbound_email' || data?.needs_reply) q.set('compose', '1');
         if (ws != null) q.set('workspaceId', String(ws));
         return `/email-sync?${q.toString()}`;
       }

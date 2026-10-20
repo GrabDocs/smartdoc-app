@@ -296,6 +296,10 @@ export default function EmailInboxScreen() {
     if (!workspaceId) return;
     const flag = Array.isArray(params.compose) ? params.compose[0] : params.compose;
     if (flag !== '1' && flag !== 'true') return;
+    const existingThread = Array.isArray(params.threadId) ? params.threadId[0] : params.threadId;
+    // Notification / Needs Reply deep-links carry threadId. compose=1 there means
+    // expand the reply box on that thread, not start a brand-new email.
+    if (existingThread) return;
     if (composeBootRef.current) return;
     composeBootRef.current = true;
     const toRaw = Array.isArray(params.to) ? params.to[0] : params.to;
@@ -335,7 +339,7 @@ export default function EmailInboxScreen() {
         Alert.alert('Email', emailApiError(e, 'Could not start a new email'));
       }
     })();
-  }, [workspaceId, params.compose, params.to, params.client_id, params.subject, filter, router]);
+  }, [workspaceId, params.compose, params.threadId, params.to, params.client_id, params.subject, filter, router]);
 
   useEffect(() => {
     if (!workspaceId) return;

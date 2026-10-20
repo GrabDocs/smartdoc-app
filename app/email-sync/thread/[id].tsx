@@ -399,7 +399,7 @@ export default function EmailThreadScreen() {
   const composeScrollHRef = useRef(0);
   const autoComposeRef = useRef(false);
   const openComposeMaximizedRef = useRef(false);
-  openComposeMaximizedRef.current = Platform.OS !== 'web' && (wantCompose || attention === 'drafts');
+  openComposeMaximizedRef.current = Platform.OS !== 'web' && attention === 'drafts';
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const generateInFlightRef = useRef(false);
   const generateGenRef = useRef(0);
@@ -938,9 +938,9 @@ export default function EmailThreadScreen() {
     if (!wantCompose || loading || dismissed) return;
     if (!autoComposeRef.current) {
       autoComposeRef.current = true;
-      const starting = !composingRef.current;
       setComposing(true);
-      if (starting && Platform.OS !== 'web') setComposeFullscreen(true);
+      // Full-screen compose is only for a new blank email. A notification tap
+      // should show the received thread with the composer at the bottom.
     }
     if (draft) setComposing(true);
   }, [wantCompose, loading, draft, dismissed]);
@@ -952,13 +952,17 @@ export default function EmailThreadScreen() {
     }
   }, [toParam, to]);
 
-  const goNextPending = async () => {
+  const goNextPending = async (fromDrafts?: boolean) => {
+    if (advanceTimerRef.current) {
+      clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
     if (!ws) {
       router.back();
       return;
     }
     try {
-      if (isNewCompose || attention === 'drafts') {
+      if (fromDrafts || isNewCompose || attention === 'drafts') {
         const list = await listMailboxThreads(ws, 'drafts');
         const next = list.find((t) => t.id !== threadId);
         if (next?.id) {
@@ -1035,7 +1039,13 @@ export default function EmailThreadScreen() {
         advanceTimerRef.current = null;
       }
       if (advance) {
-        void goNextPending();
+        const fromDrafts = isNewCompose || attention === 'drafts';
+        const waitMs = Math.max(0, secs) * 1000;
+        advanceTimerRef.current = setTimeout(() => {
+          advanceTimerRef.current = null;
+          emailSyncClearUndo();
+          void goNextPending(fromDrafts);
+        }, waitMs);
       }
     } catch (e: any) {
       const status = e?.response?.status;
