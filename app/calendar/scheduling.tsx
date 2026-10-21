@@ -1094,9 +1094,6 @@ export default function CalendarSchedulingScreen() {
         <>
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Availability schedule</Text>
-          <Text style={[styles.conflictHint, { marginBottom: 6 }]}>
-            One schedule for every event type (including ones already created). Tap Save schedule to publish — Preview alone does not update booking links.
-          </Text>
           <View style={styles.modeRow}>
             {(
               [
