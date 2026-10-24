@@ -20,7 +20,13 @@ import ActionMenuModal, { type ActionMenuItem } from '../ActionMenuModal';
 
 type Pane = 'with-me' | 'links';
 
-type LinkFile = { id: number | null; name: string; deleted?: boolean };
+type LinkFile = {
+  id: number | null;
+  name: string;
+  deleted?: boolean;
+  view_count?: number;
+  download_count?: number;
+};
 
 type SharedLink = {
   kind: 'file' | 'set';
@@ -34,6 +40,10 @@ type SharedLink = {
   expires_at: string | null;
   created_at: string | null;
   share_url: string | null;
+  view_count?: number;
+  download_count?: number;
+  last_viewed_at?: string | null;
+  last_downloaded_at?: string | null;
   files: LinkFile[];
 };
 
@@ -66,7 +76,7 @@ type SharedItem = {
   created_at?: string;
 };
 
-type PopupFile = { key: string; name: string; deleted?: boolean };
+type PopupFile = { key: string; name: string; deleted?: boolean; detail?: string };
 
 function formatWhen(value?: string | null): string {
   if (!value) return '—';
@@ -77,6 +87,16 @@ function formatWhen(value?: string | null): string {
 
 function accessLabel(value: string): string {
   return value === 'anyone' ? 'Anyone with the link' : 'Sign-in required';
+}
+
+function activityCount(value?: number): number {
+  return Number.isFinite(value) ? Number(value) : 0;
+}
+
+function activityLabel(views: number, downloads: number): string {
+  const viewText = views === 1 ? '1 view' : `${views} views`;
+  const downloadText = downloads === 1 ? '1 download' : `${downloads} downloads`;
+  return `${viewText} · ${downloadText}`;
 }
 
 function senderName(sender?: SharedSender): string {
@@ -234,6 +254,7 @@ export default function FilesSharedSection() {
         key: `${file.id ?? 'gone'}-${index}`,
         name: file.deleted ? `${file.name} (deleted)` : file.name,
         deleted: file.deleted,
+        detail: activityLabel(activityCount(file.view_count), activityCount(file.download_count)),
       })),
     });
   }, []);
@@ -522,6 +543,9 @@ export default function FilesSharedSection() {
             {' · '}Created {formatWhen(item.created_at)}
             {' · '}{item.expires_at ? `Expires ${formatWhen(item.expires_at)}` : 'No expiration'}
           </Text>
+          <Text style={[styles.meta, { color: colors.textSecondary }]}>
+            {activityLabel(activityCount(item.view_count), activityCount(item.download_count))}
+          </Text>
           <Text style={[styles.status, { color: statusColor }]}>{item.status}</Text>
         </View>
         <TouchableOpacity
@@ -651,15 +675,22 @@ export default function FilesSharedSection() {
                   <Text style={[styles.meta, { color: colors.textSecondary }]}>No files</Text>
                 }
                 renderItem={({ item }) => (
-                  <Text
-                    style={[
-                      styles.popupFile,
-                      { color: item.deleted ? colors.textSecondary : colors.text },
-                      item.deleted && styles.deletedFile,
-                    ]}
-                  >
-                    {item.name}
-                  </Text>
+                  <View style={styles.popupFileRow}>
+                    <Text
+                      style={[
+                        styles.popupFile,
+                        { color: item.deleted ? colors.textSecondary : colors.text },
+                        item.deleted && styles.deletedFile,
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
+                    {item.detail ? (
+                      <Text style={[styles.meta, { color: colors.textSecondary, marginTop: 0 }]}>
+                        {item.detail}
+                      </Text>
+                    ) : null}
+                  </View>
                 )}
               />
             )}
@@ -722,7 +753,8 @@ const styles = StyleSheet.create({
   popup: { borderRadius: 14, padding: 16, maxHeight: '70%' },
   popupTitle: { fontSize: 17, fontWeight: '700', marginBottom: 12 },
   popupList: { flexGrow: 0 },
-  popupFile: { fontSize: 15, paddingVertical: 8 },
+  popupFileRow: { paddingVertical: 8 },
+  popupFile: { fontSize: 15 },
   deletedFile: { textDecorationLine: 'line-through' },
   close: { marginTop: 12, fontSize: 16, fontWeight: '600', textAlign: 'right' },
 });

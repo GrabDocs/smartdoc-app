@@ -5834,11 +5834,12 @@ class ApiService {
     name: string;
     description?: string;
     expires_in_days?: number;
+    expires_at?: string;
     max_uploads?: number;
   }): Promise<ApiResponse> {
     try {
-      let expires_at: string | undefined;
-      if (data.expires_in_days != null && data.expires_in_days > 0) {
+      let expires_at: string | undefined = data.expires_at;
+      if (!expires_at && data.expires_in_days != null && data.expires_in_days > 0) {
         const d = new Date();
         d.setDate(d.getDate() + data.expires_in_days);
         expires_at = d.toISOString();

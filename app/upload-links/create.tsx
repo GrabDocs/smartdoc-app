@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Keyboard,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -25,6 +27,36 @@ import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 
+function toLocalDateString(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function parseLocalDate(value: string): Date {
+  const [y, m, d] = value.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+function formatDisplayDate(value: string): string {
+  return parseLocalDate(value).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function dateToEndOfDayIso(value: string): string {
+  const d = parseLocalDate(value);
+  d.setHours(23, 59, 0, 0);
+  return d.toISOString();
+}
+
+function todayLocalDateString(): string {
+  return toLocalDateString(new Date());
+}
+
 export default function CreateUploadLinkScreen() {
   const router = useRouter();
   const { client_id: clientIdParam } = useLocalSearchParams<{ client_id?: string }>();
@@ -32,10 +64,9 @@ export default function CreateUploadLinkScreen() {
   const colors = useThemeColors();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [expiresInDays, setExpiresInDays] = useState('7');
-  const [maxUploads, setMaxUploads] = useState('10');
-  const [hasExpiration, setHasExpiration] = useState(true);
-  const [hasUploadLimit, setHasUploadLimit] = useState(true);
+  const [expiresOn, setExpiresOn] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [maxUploads, setMaxUploads] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
 
@@ -60,18 +91,18 @@ export default function CreateUploadLinkScreen() {
         description: description.trim() || undefined,
       };
 
-      if (hasExpiration) {
-        const days = parseInt(expiresInDays);
-        if (isNaN(days) || days <= 0) {
-          Alert.alert('Error', 'Please enter a valid number of days for expiration');
+      if (expiresOn) {
+        if (expiresOn < todayLocalDateString()) {
+          Alert.alert('Error', 'Expiration date cannot be in the past');
           setLoading(false);
           return;
         }
-        data.expires_in_days = days;
+        data.expires_at = dateToEndOfDayIso(expiresOn);
       }
 
-      if (hasUploadLimit) {
-        const limit = parseInt(maxUploads);
+      const maxText = maxUploads.trim();
+      if (maxText) {
+        const limit = parseInt(maxText, 10);
         if (isNaN(limit) || limit <= 0) {
           Alert.alert('Error', 'Please enter a valid upload limit');
           setLoading(false);
@@ -120,22 +151,25 @@ export default function CreateUploadLinkScreen() {
     }
   };
 
-  const expirationOptions = [
-    { label: '1 day', value: '1' },
-    { label: '3 days', value: '3' },
-    { label: '7 days', value: '7' },
-    { label: '14 days', value: '14' },
-    { label: '30 days', value: '30' },
-    { label: '90 days', value: '90' },
-  ];
+  const applyPickedDate = (date: Date) => {
+    setExpiresOn(toLocalDateString(date));
+  };
 
-  const uploadLimitOptions = [
-    { label: '5 uploads', value: '5' },
-    { label: '10 uploads', value: '10' },
-    { label: '25 uploads', value: '25' },
-    { label: '50 uploads', value: '50' },
-    { label: '100 uploads', value: '100' },
-  ];
+  const openDatePicker = () => {
+    Keyboard.dismiss();
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: expiresOn ? parseLocalDate(expiresOn) : new Date(),
+        mode: 'date',
+        minimumDate: parseLocalDate(todayLocalDateString()),
+        onChange: (event, date) => {
+          if (event?.type === 'set' && date) applyPickedDate(date);
+        },
+      });
+    } else {
+      setShowDatePicker(true);
+    }
+  };
 
   const dynamicStyles = useMemo(() => StyleSheet.create({
     container: {
@@ -199,81 +233,42 @@ export default function CreateUploadLinkScreen() {
       height: 80,
       textAlignVertical: 'top',
     },
-    switchRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 16,
-    },
-    switchInfo: {
-      flex: 1,
-      marginRight: 12,
-    },
-    switchLabel: {
-      fontSize: 16,
-      fontWeight: '500',
-      color: colors.text,
-      marginBottom: 4,
-    },
-    switchDescription: {
-      fontSize: 14,
-      color: colors.textSecondary,
-    },
-    optionsContainer: {
-      marginTop: 12,
-    },
-    optionsLabel: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: colors.text,
-      marginBottom: 12,
-    },
-    optionsGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-      marginBottom: 16,
-    },
-    optionButton: {
-      paddingHorizontal: 16,
-      paddingVertical: 10,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    selectedOption: {
-      borderColor: '#007AFF',
-      backgroundColor: '#E3F2FD',
-    },
-    optionText: {
-      fontSize: 14,
-      color: colors.text,
-    },
-    selectedOptionText: {
-      color: '#007AFF',
-      fontWeight: '600',
-    },
-    customInputContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    customLabel: {
-      fontSize: 14,
-      color: colors.text,
-    },
-    customInput: {
-      flex: 1,
+    row: { flexDirection: 'row', gap: 10 },
+    flex1: { flex: 1 },
+    pickerButton: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 8,
       paddingHorizontal: 12,
-      paddingVertical: 10,
-      fontSize: 16,
-      color: colors.text,
+      paddingVertical: 12,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
     },
+    pickerButtonText: { fontSize: 16, color: colors.text, flex: 1, marginRight: 8 },
+    pickerPlaceholder: { color: colors.textLight },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.5)',
+      justifyContent: 'flex-end',
+    },
+    modalCard: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+    linkText: { fontSize: 13, color: '#007AFF', fontWeight: '500' },
     infoBox: {
       flexDirection: 'row',
       backgroundColor: colors.surface,
@@ -369,121 +364,46 @@ export default function CreateUploadLinkScreen() {
         </View>
 
         <View style={dynamicStyles.section}>
-          <Text style={dynamicStyles.sectionTitle}>Expiration Settings</Text>
-          
-          <View style={dynamicStyles.switchRow}>
-            <View style={dynamicStyles.switchInfo}>
-              <Text style={dynamicStyles.switchLabel}>Set Expiration Date</Text>
-              <Text style={dynamicStyles.switchDescription}>
-                Link will become inactive after this period
-              </Text>
-            </View>
-            <Switch
-              value={hasExpiration}
-              onValueChange={setHasExpiration}
-              trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-              thumbColor={colors.switchThumbAndroid(hasExpiration)}
-              ios_backgroundColor={colors.switchTrackOff}
-            />
-          </View>
+          <Text style={dynamicStyles.sectionTitle}>Limits</Text>
 
-          {hasExpiration && (
-            <View style={dynamicStyles.optionsContainer}>
-              <Text style={dynamicStyles.optionsLabel}>Expires in:</Text>
-              <View style={dynamicStyles.optionsGrid}>
-                {expirationOptions.map((option) => (
+          <View style={[dynamicStyles.row, dynamicStyles.inputGroup, { marginBottom: 0 }]}>
+            <View style={dynamicStyles.flex1}>
+              <Text style={dynamicStyles.label}>Expires</Text>
+              <TouchableOpacity style={dynamicStyles.pickerButton} onPress={openDatePicker}>
+                <Text
+                  style={[
+                    dynamicStyles.pickerButtonText,
+                    !expiresOn && dynamicStyles.pickerPlaceholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {expiresOn ? formatDisplayDate(expiresOn) : 'No expiration'}
+                </Text>
+                {expiresOn ? (
                   <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      dynamicStyles.optionButton,
-                      expiresInDays === option.value && dynamicStyles.selectedOption,
-                    ]}
-                    onPress={() => setExpiresInDays(option.value)}
+                    onPress={() => setExpiresOn('')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityLabel="Clear expiration date"
                   >
-                    <Text
-                      style={[
-                        dynamicStyles.optionText,
-                        expiresInDays === option.value && dynamicStyles.selectedOptionText,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
+                    <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
                   </TouchableOpacity>
-                ))}
-              </View>
-              
-              <View style={dynamicStyles.customInputContainer}>
-                <Text style={dynamicStyles.customLabel}>Or custom days:</Text>
-                <TextInput
-                  style={dynamicStyles.customInput}
-                  value={expiresInDays}
-                  onChangeText={setExpiresInDays}
-                  keyboardType="numeric"
-                  placeholder="7"
-                  placeholderTextColor={colors.textLight}
-                />
-              </View>
+                ) : (
+                  <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
+                )}
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
-
-        <View style={dynamicStyles.section}>
-          <Text style={dynamicStyles.sectionTitle}>Upload Limits</Text>
-          
-          <View style={dynamicStyles.switchRow}>
-            <View style={dynamicStyles.switchInfo}>
-              <Text style={dynamicStyles.switchLabel}>Set Upload Limit</Text>
-              <Text style={dynamicStyles.switchDescription}>
-                Maximum number of files that can be uploaded
-              </Text>
+            <View style={dynamicStyles.flex1}>
+              <Text style={dynamicStyles.label}>Max uploads</Text>
+              <TextInput
+                style={dynamicStyles.input}
+                value={maxUploads}
+                onChangeText={setMaxUploads}
+                keyboardType="number-pad"
+                placeholder="Unlimited"
+                placeholderTextColor={colors.textLight}
+              />
             </View>
-            <Switch
-              value={hasUploadLimit}
-              onValueChange={setHasUploadLimit}
-              trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-              thumbColor={colors.switchThumbAndroid(hasUploadLimit)}
-              ios_backgroundColor={colors.switchTrackOff}
-            />
           </View>
-
-          {hasUploadLimit && (
-            <View style={dynamicStyles.optionsContainer}>
-              <Text style={dynamicStyles.optionsLabel}>Maximum uploads:</Text>
-              <View style={dynamicStyles.optionsGrid}>
-                {uploadLimitOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option.value}
-                    style={[
-                      dynamicStyles.optionButton,
-                      maxUploads === option.value && dynamicStyles.selectedOption,
-                    ]}
-                    onPress={() => setMaxUploads(option.value)}
-                  >
-                    <Text
-                      style={[
-                        dynamicStyles.optionText,
-                        maxUploads === option.value && dynamicStyles.selectedOptionText,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              
-              <View style={dynamicStyles.customInputContainer}>
-                <Text style={dynamicStyles.customLabel}>Or custom limit:</Text>
-                <TextInput
-                  style={dynamicStyles.customInput}
-                  value={maxUploads}
-                  onChangeText={setMaxUploads}
-                  keyboardType="numeric"
-                  placeholder="10"
-                  placeholderTextColor={colors.textLight}
-                />
-              </View>
-            </View>
-          )}
         </View>
 
         <View style={dynamicStyles.infoBox}>
@@ -509,6 +429,43 @@ export default function CreateUploadLinkScreen() {
           </Text>
         </FeedbackTouchable>
       </View>
+
+      <Modal
+        visible={showDatePicker}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setShowDatePicker(false)}
+      >
+        <View style={dynamicStyles.modalOverlay}>
+          <View style={dynamicStyles.modalCard}>
+            <View style={dynamicStyles.modalHeader}>
+              <TouchableOpacity
+                onPress={() => {
+                  setExpiresOn('');
+                  setShowDatePicker(false);
+                }}
+              >
+                <Text style={dynamicStyles.linkText}>Clear</Text>
+              </TouchableOpacity>
+              <Text style={dynamicStyles.modalTitle}>Expires</Text>
+              <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                <Text style={dynamicStyles.linkText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={expiresOn ? parseLocalDate(expiresOn) : new Date()}
+              mode="date"
+              display="spinner"
+              minimumDate={parseLocalDate(todayLocalDateString())}
+              onChange={(_, d) => {
+                if (d) applyPickedDate(d);
+              }}
+              textColor={colors.text}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

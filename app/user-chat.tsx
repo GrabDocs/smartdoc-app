@@ -51,7 +51,7 @@ import PhoneNumberInput from '../components/PhoneNumberInput';
 import { getChatNetworkErrorMessage, isNetworkError } from '../utils/networkErrors';
 import { isValidEmail } from '../utils/emailValidation';
 import { isValidPhoneNumber } from '../utils/phoneUtils';
-import { showInviteDeliveryToastMobile } from '../utils/inviteDeliveryFeedback';
+import { senderInviteBannerText, showInviteDeliveryToastMobile } from '../utils/inviteDeliveryFeedback';
 import {
   anchoredPopoverCardStyle,
   anchoredPopoverOverlayStyle,
@@ -89,6 +89,7 @@ interface Chat {
   invite_pending?: boolean;
   secure_message_invite_id?: number | null;
   invitee_label?: string | null;
+  invite_notify_in_app?: boolean;
   display_name?: string;
   is_archived?: boolean;
 }
@@ -189,6 +190,7 @@ export default function UserChatScreen() {
   const [invitePhone, setInvitePhone] = useState('');
   const [inviteSmsConsent, setInviteSmsConsent] = useState(false);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [inviteSenderBanner, setInviteSenderBanner] = useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = useState('');
   const [showMentionResults, setShowMentionResults] = useState(false);
   const [mentionResults, setMentionResults] = useState<any[]>([]);
@@ -738,6 +740,7 @@ export default function UserChatScreen() {
       invite_pending: !!chat.invite_pending,
       secure_message_invite_id: chat.secure_message_invite_id ?? null,
       invitee_label: chat.invitee_label ?? null,
+      invite_notify_in_app: !!chat.invite_notify_in_app,
       display_name: chat.display_name,
       is_archived: !!chat.is_archived,
     };
@@ -1178,12 +1181,13 @@ export default function UserChatScreen() {
       });
       if (res.success) {
         showInviteDeliveryToastMobile(res as any, Toast);
+        setInviteSenderBanner(senderInviteBannerText(res as any));
         setShowInviteModal(false);
         setInviteEmail('');
         setInvitePhone('');
         setInviteSmsConsent(false);
         if ((res as any).chat) {
-          setSelectedChat((res as any).chat);
+          setSelectedChat(rawChatToChat((res as any).chat));
           setIsNewChat(false);
         }
         loadChats();
@@ -2534,6 +2538,48 @@ export default function UserChatScreen() {
     </>
   );
 
+  const inviteBannerCopy =
+    (selectedChat?.invite_notify_in_app ? senderInviteBannerText(selectedChat) : null) ||
+    inviteSenderBanner;
+  const renderInviteSenderBanner = () => {
+    if (!inviteBannerCopy) return null;
+    const dismissable = !selectedChat?.invite_notify_in_app;
+    return (
+      <View
+        style={{
+          backgroundColor: isDark ? '#082F49' : '#E0F2FE',
+          borderBottomWidth: 1,
+          borderBottomColor: isDark ? '#075985' : '#7DD3FC',
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+          gap: 8,
+        }}
+      >
+        <Text
+          style={{
+            flex: 1,
+            fontSize: 13,
+            color: isDark ? '#E0F2FE' : '#0C4A6E',
+            lineHeight: 18,
+          }}
+        >
+          {inviteBannerCopy}
+        </Text>
+        {dismissable ? (
+          <TouchableOpacity
+            onPress={() => setInviteSenderBanner(null)}
+            hitSlop={8}
+            accessibilityLabel="Dismiss"
+          >
+            <Ionicons name="close" size={18} color={isDark ? '#7DD3FC' : '#0369A1'} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
   if (isNewChat || selectedChat) {
     return (
       <SafeAreaView style={dynamicStyles.container} edges={['top', 'bottom']}>
@@ -2592,7 +2638,11 @@ export default function UserChatScreen() {
                 </View>
               ) : null}
               {selectedChat?.invite_pending && (
-                <Text style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>Invite pending · messaging disabled</Text>
+                <Text style={{ fontSize: 11, color: '#B45309', marginTop: 2 }}>
+                  {selectedChat.invite_notify_in_app
+                    ? 'Invite pending · no email sent · notified in app'
+                    : 'Invite pending · messaging disabled'}
+                </Text>
               )}
               {isNewChat && selectedRecipient && (
                 <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
@@ -2626,6 +2676,7 @@ export default function UserChatScreen() {
           )}
           {isNewChat && <View style={{ width: APP_BACK_BUTTON_SLOT }} />}
         </View>
+        {renderInviteSenderBanner()}
 
         {Platform.OS === 'ios' ? (
           <KeyboardAvoidingView
@@ -2949,6 +3000,7 @@ export default function UserChatScreen() {
           ) : null}
         </View>
       </View>
+      {renderInviteSenderBanner()}
 
       <View style={dynamicStyles.searchContainer}>
         <View style={dynamicStyles.searchInputContainer}>
