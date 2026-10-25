@@ -185,8 +185,7 @@ export default function ClientPickerModal({
   };
 
   const searching = !!q.trim();
-  const recentIds = new Set(recent.map((c) => c.id));
-  const otherClients = searching ? clients : clients.filter((c) => !recentIds.has(c.id));
+  const otherClients = clients;
   const rowCount = showCreate ? 1 : recent.length + otherClients.length;
   const canReturnToList = (count ?? 0) > 0 || recent.length > 0 || clients.length > 0;
 

@@ -450,9 +450,13 @@ class ApiService {
           config.headers['X-Forwarded-Scheme'] = 'https';
         }
         
-        // CRITICAL: For FormData in React Native, remove Content-Type header if manually set
-        // React Native FormData needs to set Content-Type with boundary automatically
-        if (config.data instanceof FormData && config.headers['Content-Type']) {
+        // RN FormData is a polyfill — instanceof FormData is often false, so axios
+        // would keep application/json and the request fails with "Network Error".
+        const body = config.data as { append?: unknown; _parts?: unknown } | FormData | undefined;
+        const isMultipart =
+          (typeof FormData !== 'undefined' && body instanceof FormData) ||
+          (!!body && typeof body.append === 'function' && Array.isArray(body._parts));
+        if (isMultipart && config.headers) {
           delete config.headers['Content-Type'];
         }
 
@@ -1410,10 +1414,14 @@ class ApiService {
    * via xhr.upload.onprogress, unlike fetch which has no upload progress on mobile.
    * Falls back to fetch if XHR fails unexpectedly.
    */
-  private async uploadFileWithXHR(file: FormData, onProgress?: (progress: number) => void): Promise<ApiResponse> {
+  private async uploadFileWithXHR(
+    file: FormData,
+    onProgress?: (progress: number) => void,
+    path: string = MOBILE_ENDPOINTS.UPLOAD,
+  ): Promise<ApiResponse> {
     console.log('🔄 Attempting file upload (XHR with progress)...');
     const baseURL = this.client.defaults.baseURL || API_BASE_URL;
-    const uploadUrl = baseURL + MOBILE_ENDPOINTS.UPLOAD;
+    const uploadUrl = baseURL + path;
 
     const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
     const deviceToken = await secureStorage.getItem(STORAGE_KEYS.DEVICE_TOKEN);
@@ -6194,13 +6202,24 @@ class ApiService {
         name: file.name,
         type: file.type || 'application/octet-stream',
       } as any);
-      const response = await this.client.post(
-        MOBILE_ENDPOINTS.WEB_INTAKE_ITEM_UPLOAD(intakeId, itemId),
-        formData,
-      );
+      const path = MOBILE_ENDPOINTS.WEB_INTAKE_ITEM_UPLOAD(intakeId, itemId);
+      const { Platform } = require('react-native');
+      const isReactNative = Platform.OS === 'ios' || Platform.OS === 'android';
+      // Axios + RN FormData often fails with a generic "Network Error" even when online.
+      if (isReactNative) {
+        return await this.uploadFileWithXHR(formData, undefined, path);
+      }
+      const response = await this.client.post(path, formData, {
+        timeout: 120000,
+        transformRequest: (data: any) => data,
+      });
       return response.data;
     } catch (error: any) {
       console.error('Upload intake item error:', error);
+      const raw = String(error.response?.data?.message || error.message || '');
+      if (/network error/i.test(raw) || error.code === 'ERR_NETWORK') {
+        throw new Error('Upload failed. Check your connection and try again.');
+      }
       throw new Error(error.response?.data?.message || error.message || 'Failed to upload file');
     }
   }

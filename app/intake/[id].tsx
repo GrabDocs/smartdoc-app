@@ -1717,7 +1717,14 @@ export default function IntakeDetailScreen() {
                   Due date <Text style={{ color: '#EF4444' }}>*</Text>
                 </Text>
                 <TouchableOpacity style={dynamicStyles.pickerButton} onPress={openEditDatePicker}>
-                  <Text style={dynamicStyles.pickerButtonText}>{editDueAt || 'None'}</Text>
+                  <Text
+                    style={[
+                      dynamicStyles.pickerButtonText,
+                      !editDueAt && { color: colors.textLight },
+                    ]}
+                  >
+                    {editDueAt || 'Select date'}
+                  </Text>
                   <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -1987,9 +1994,7 @@ export default function IntakeDetailScreen() {
               />
               <View style={dynamicStyles.editSheetCard}>
                 <View style={dynamicStyles.modalHeader}>
-                  <TouchableOpacity onPress={() => { setEditDueAt(''); setShowDatePicker(false); }}>
-                    <Text style={dynamicStyles.linkText}>Clear</Text>
-                  </TouchableOpacity>
+                  <View style={{ width: 44 }} />
                   <Text style={dynamicStyles.modalTitle}>Due date</Text>
                   <TouchableOpacity onPress={() => setShowDatePicker(false)}>
                     <Text style={dynamicStyles.linkText}>Done</Text>

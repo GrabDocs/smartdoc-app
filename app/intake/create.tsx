@@ -694,7 +694,14 @@ export default function CreateIntakeScreen() {
                   Due date <Text style={dynamicStyles.required}>*</Text>
                 </Text>
                 <TouchableOpacity style={dynamicStyles.pickerButton} onPress={() => openDatePicker('due')}>
-                  <Text style={dynamicStyles.pickerButtonText}>{dueAt || 'Select date'}</Text>
+                  <Text
+                    style={[
+                      dynamicStyles.pickerButtonText,
+                      !dueAt && { color: colors.textLight },
+                    ]}
+                  >
+                    {dueAt || 'Select date'}
+                  </Text>
                   <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
@@ -1199,16 +1206,19 @@ export default function CreateIntakeScreen() {
         <View style={dynamicStyles.modalOverlay}>
           <View style={dynamicStyles.modalCard}>
             <View style={dynamicStyles.modalHeader}>
-              <TouchableOpacity
-                onPress={() => {
-                  if (datePickerTarget === 'due') setDueAt('');
-                  else if (datePickerTarget === 'start') setStartAtDate('');
-                  else setEndsOnDate('');
-                  setShowDatePicker(false);
-                }}
-              >
-                <Text style={dynamicStyles.linkText}>Clear</Text>
-              </TouchableOpacity>
+              {datePickerTarget === 'due' ? (
+                <View style={{ width: 44 }} />
+              ) : (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (datePickerTarget === 'start') setStartAtDate('');
+                    else setEndsOnDate('');
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={dynamicStyles.linkText}>Clear</Text>
+                </TouchableOpacity>
+              )}
               <Text style={dynamicStyles.modalTitle}>
                 {datePickerTarget === 'due'
                   ? 'Due date'

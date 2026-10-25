@@ -455,6 +455,7 @@ export default function CalendarCreateScreen() {
             passcode_required: false,
             invitees: participants.map((p) => p.email),
             from_reach_page: true,
+            rrule: buildRRule(),
           };
           const videoResponse = await scheduleReachMeeting(videoMeetingData);
           const room = videoResponse.room || (videoResponse.room_id ? { id: videoResponse.room_id, meeting_id: videoResponse.meeting_id } : null);

@@ -125,9 +125,20 @@ export default function ClientsIndexScreen() {
   };
 
   const filteredClients = useMemo(() => {
-    if (filter === 'all') return clients;
-    return [];
-  }, [clients, filter]);
+    if (filter !== 'all') return [];
+    const seen = new Set(clients.map((c) => c.id));
+    const extras = attention
+      .filter((item) => !seen.has(item.client.id))
+      .map((item) => ({
+        ...item.client,
+        attention: {
+          status: item.attention.status,
+          next_step: item.attention.next_step,
+          open_counts: item.attention.open_counts,
+        },
+      }));
+    return extras.length ? [...clients, ...extras] : clients;
+  }, [clients, attention, filter]);
 
   type ListRow =
     | { kind: 'client'; client: Client }

@@ -288,6 +288,7 @@ export async function calendarSyncGoogleWithStaleConnectionRecovery(opts?: {
       const id = Number(c.id);
       if (!Number.isFinite(id)) continue;
       const status = String(c.status ?? '').toLowerCase();
+      if (status === 'expired' || status === 'reconnect_needed') continue;
       if (status !== 'active' || !c.sync_enabled) {
         try {
           await calendarResetConnection(id);
@@ -295,7 +296,7 @@ export async function calendarSyncGoogleWithStaleConnectionRecovery(opts?: {
           const msg =
             (resetErr as { response?: { data?: { error?: string } } })?.response?.data?.error ||
             'Could not resume calendar connection';
-          if (!opts?.silent) throw new Error(msg);
+          if (!opts?.silent) console.warn('[calendar sync]', msg);
         }
       }
     }

@@ -59,6 +59,7 @@ import { errorLogger } from '../../services/errorLogger';
 import { useChatStore } from '../../stores/chatStore';
 import type { ChatHistory } from '../../types';
 import { parseGrabDocsFileViewUrl } from '../../utils/chatFileLinks';
+import { documentNameFromCitations } from '../../utils/chatLinkLabels';
 import { isSermonFile } from '../../utils/isSermonFile';
 import { localizeUtcDatesInAssistantText } from '../../utils/chatUtcDisplay';
 import { truncateAskClientName, truncateChatHeaderTitle } from '../../utils/chatTitleDisplay';
@@ -7949,7 +7950,7 @@ export default function ChatsScreen() {
                             void openDocumentViewer(
                               fileLink.fileId,
                               0,
-                              'Document',
+                              documentNameFromCitations(url, item.citations),
                               undefined,
                               fileLink.pdfUri ?? null,
                               'pdf',
