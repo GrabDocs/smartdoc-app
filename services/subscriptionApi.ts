@@ -18,6 +18,7 @@ export type ExtraAiCreditsInfo = {
   overage_amount_cents?: number;
   rate?: number;
   can_add_credits?: boolean;
+  remaining_included?: number | null;
 };
 
 export type UsageMetric = {
@@ -67,6 +68,10 @@ export type SettingsUsageStatsResponse = {
   is_billing_admin?: boolean;
   can_manage_billing?: boolean;
   extra_ai_credits?: ExtraAiCreditsInfo | null;
+  billing_cycle?: PlanChangeCycle;
+  can_undo_cancel?: boolean;
+  can_undo_downgrade?: boolean;
+  billing_period_start?: string | null;
   debug_info?: { user_id?: number };
   subscription?: {
     plan?: { display_name?: string };
@@ -144,15 +149,23 @@ export async function createTopupIntent(packId: string): Promise<{ intent_id?: s
   }
 }
 
-/** Create the website payment row at tap time. Body is plan and cycle only. */
+export type PlanChangeIntentOptions = {
+  source?: 'billing' | 'undo_cancel' | 'undo_downgrade';
+  reason?: 'credits_exhausted';
+};
+
+/** Create the website payment row at tap time. Server derives action. */
 export async function createPlanChangeIntent(
   planKey: PlanChangeKey,
   billingCycle: PlanChangeCycle,
-): Promise<{ intent_id?: string; redirect_url?: string }> {
+  options?: PlanChangeIntentOptions,
+): Promise<{ intent_id?: string; redirect_url?: string; action?: string }> {
   try {
     const { data } = await client().post('/api/subscription/plan-change-intents', {
       plan_key: planKey,
       billing_cycle: billingCycle,
+      source: options?.source || 'billing',
+      ...(options?.reason ? { reason: options.reason } : {}),
     });
     return data;
   } catch (error: any) {
@@ -205,6 +218,33 @@ export async function syncSubscription(): Promise<{ success?: boolean; synced?: 
   } catch (error: any) {
     throw new Error(apiErrorMessage(error, 'Failed to sync subscription'));
   }
+}
+
+/** Sync until billing_cycle_start advances. Page return is not a credit reset. */
+export async function waitForBillingCycleSync(
+  previousPeriodStart?: string | null,
+  attempts = 6,
+  delayMs = 1000,
+): Promise<SettingsUsageStatsResponse | null> {
+  let last: SettingsUsageStatsResponse | null = null;
+  for (let i = 0; i < attempts; i++) {
+    await syncSubscription().catch(() => null);
+    try {
+      last = await getSettingsUsageStats('month');
+    } catch {
+      last = null;
+    }
+    const next = last?.billing_period_start || null;
+    // Only a known previous period advancing counts as rotation.
+    // Missing periodBefore must not treat any existing billing_period_start as done.
+    if (previousPeriodStart && next && next !== previousPeriodStart) {
+      return last;
+    }
+    if (i < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return last;
 }
 
 export function topupPackPriceUsd(packId: string): number | null {

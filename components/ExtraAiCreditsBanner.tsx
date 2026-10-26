@@ -107,6 +107,8 @@ export default function ExtraAiCreditsBanner({
   }, [fetchedUserId, userId]);
 
   const info = extraAi !== undefined ? extraAi : fetched;
+  const remainingIncluded = info?.remaining_included;
+  if (remainingIncluded != null && Number(remainingIncluded) > 0) return null;
   const used = info?.used ?? info?.tokens_overage ?? 0;
   const inExtra = Boolean(info?.in_extra_credits) || used > 0;
   if (!inExtra) return null;

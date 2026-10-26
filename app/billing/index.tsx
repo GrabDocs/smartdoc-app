@@ -20,18 +20,23 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   barColorForPercent,
   cancelSubscription,
+  createPlanChangeIntent,
   createTopupIntent,
   formatCreditsLabel,
   getBillingInvoices,
   getSettingsUsageStats,
   getTopupPacks,
   openStripePortal,
+  PLAN_CHANGE_KEYS,
   STRIPE_PORTAL_RETURN_URL,
   syncSubscription,
+  waitForBillingCycleSync,
   topupPackPriceUsd,
   usagePercent,
   type BillingInvoice,
   type ExtraAiCreditsInfo,
+  type PlanChangeCycle,
+  type PlanChangeKey,
   type SettingsUsageStatsResponse,
   type TopupPack,
 } from '../../services/subscriptionApi';
@@ -59,6 +64,10 @@ type TransformedUsage = {
   billingStatusMessage?: string | null;
   memberBreakdown: NonNullable<SettingsUsageStatsResponse['member_breakdown']>;
   extraAi: ExtraAiCreditsInfo | null;
+  billingCycle: PlanChangeCycle;
+  canUndoCancel: boolean;
+  canUndoDowngrade: boolean;
+  billingPeriodStart?: string | null;
   subscription?: SettingsUsageStatsResponse['subscription'];
   metrics: {
     key: string;
@@ -98,6 +107,10 @@ function transformStats(data: SettingsUsageStatsResponse): TransformedUsage {
     billingStatusMessage: data.billing_status_message,
     memberBreakdown: Array.isArray(data.member_breakdown) ? data.member_breakdown : [],
     extraAi: data.extra_ai_credits || null,
+    billingCycle: data.billing_cycle === 'yearly' ? 'yearly' : 'monthly',
+    canUndoCancel: !!data.can_undo_cancel,
+    canUndoDowngrade: !!data.can_undo_downgrade,
+    billingPeriodStart: data.billing_period_start || null,
     subscription: data.subscription
       ? {
           ...data.subscription,
@@ -234,6 +247,7 @@ export default function BillingScreen() {
 
   const [portalLoading, setPortalLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [undoLoading, setUndoLoading] = useState(false);
 
   const pendingSyncRef = useRef(false);
   const isAdmin = !!(user as any)?.is_admin || !!(user as any)?.is_system_admin;
@@ -407,6 +421,31 @@ export default function BillingScreen() {
         },
       ],
     );
+  };
+
+  const currentPlanKey = (PLAN_CHANGE_KEYS as readonly string[]).includes(usage?.planName || '')
+    ? (usage?.planName as PlanChangeKey)
+    : undefined;
+
+  const handleUndo = async (kind: 'undo_cancel' | 'undo_downgrade') => {
+    const planKey = currentPlanKey || 'pro';
+    const cycle = usage?.billingCycle || 'monthly';
+    setUndoLoading(true);
+    markPendingExternalCheckout();
+    try {
+      const res = await createPlanChangeIntent(planKey, cycle, { source: kind });
+      if (!res.redirect_url) {
+        Alert.alert('Billing', 'Could not undo');
+        return;
+      }
+      await WebBrowser.openBrowserAsync(res.redirect_url);
+      await waitForBillingCycleSync(usage?.billingPeriodStart, 1, 0);
+      await syncAndReload();
+    } catch (e: any) {
+      Alert.alert('Billing', e?.message || 'Could not undo');
+    } finally {
+      setUndoLoading(false);
+    }
   };
 
   const handleBuyTopup = async (packId: string) => {
@@ -757,6 +796,9 @@ export default function BillingScreen() {
                     ? `Choose a plan to change or renew. ${usage.nextPlanDisplayName} is the next tier.`
                     : 'Choose a plan to subscribe, change, or renew. Payment uses this account.'
               }
+              currentPlanKey={currentPlanKey}
+              currentBillingCycle={usage?.billingCycle}
+              billingPeriodStart={usage?.billingPeriodStart}
               onOpening={markPendingExternalCheckout}
               onReturned={syncAndReload}
             />
@@ -782,9 +824,23 @@ export default function BillingScreen() {
             ) : null}
             {usage?.subscription?.canceled_at && usage?.subscription?.expires_at ? (
               <Text style={{ color: '#D97706', fontSize: 12, marginTop: 8 }}>
-                Cancelled — access until {new Date(usage.subscription.expires_at).toLocaleDateString()}. Choose a
-                plan above to renew.
+                Cancelled — access until {new Date(usage.subscription.expires_at).toLocaleDateString()}.
+                Choosing a plan above charges and restarts the cycle.
               </Text>
+            ) : null}
+            {usage?.canUndoCancel ? (
+              <TouchableOpacity onPress={() => handleUndo('undo_cancel')} disabled={undoLoading} style={{ marginTop: 8 }}>
+                <Text style={styles.linkText}>
+                  {undoLoading ? 'Opening…' : 'Keep this billing period'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {usage?.canUndoDowngrade ? (
+              <TouchableOpacity onPress={() => handleUndo('undo_downgrade')} disabled={undoLoading} style={{ marginTop: 8 }}>
+                <Text style={styles.linkText}>
+                  {undoLoading ? 'Opening…' : 'Undo scheduled downgrade'}
+                </Text>
+              </TouchableOpacity>
             ) : null}
           </View>
         ) : null}

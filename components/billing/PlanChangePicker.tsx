@@ -1,10 +1,10 @@
 import * as WebBrowser from 'expo-web-browser';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   createPlanChangeIntent,
-  syncSubscription,
+  waitForBillingCycleSync,
   PLAN_CHANGE_CYCLES,
   PLAN_CHANGE_KEYS,
   type PlanChangeCycle,
@@ -26,14 +26,33 @@ type PlanChangePickerProps = {
   intro?: string;
   onOpening?: () => void;
   onReturned?: () => void | Promise<void>;
+  currentPlanKey?: PlanChangeKey;
+  currentBillingCycle?: PlanChangeCycle;
+  billingPeriodStart?: string | null;
+  reason?: 'credits_exhausted';
 };
 
-export default function PlanChangePicker({ intro, onOpening, onReturned }: PlanChangePickerProps) {
+export default function PlanChangePicker({
+  intro,
+  onOpening,
+  onReturned,
+  currentPlanKey,
+  currentBillingCycle,
+  billingPeriodStart,
+  reason,
+}: PlanChangePickerProps) {
   const colors = useThemeColors();
-  const [planKey, setPlanKey] = useState<PlanChangeKey>('pro');
-  const [billingCycle, setBillingCycle] = useState<PlanChangeCycle>('monthly');
+  const [planKey, setPlanKey] = useState<PlanChangeKey>(currentPlanKey || 'pro');
+  const [billingCycle, setBillingCycle] = useState<PlanChangeCycle>(currentBillingCycle || 'monthly');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (currentPlanKey) setPlanKey(currentPlanKey);
+  }, [currentPlanKey]);
+  useEffect(() => {
+    if (currentBillingCycle) setBillingCycle(currentBillingCycle);
+  }, [currentBillingCycle]);
 
   const styles = useMemo(
     () =>
@@ -80,14 +99,22 @@ export default function PlanChangePicker({ intro, onOpening, onReturned }: PlanC
     setError('');
     onOpening?.();
     try {
-      const res = await createPlanChangeIntent(planKey, billingCycle);
+      const res = await createPlanChangeIntent(planKey, billingCycle, {
+        source: 'billing',
+        reason,
+      });
       if (!res.redirect_url) {
         setError('Could not start checkout');
         return;
       }
+      const periodBefore = billingPeriodStart || null;
       await WebBrowser.openBrowserAsync(res.redirect_url);
+      if (res.action === 'resume') {
+        await waitForBillingCycleSync(periodBefore, 1, 0);
+      } else {
+        await waitForBillingCycleSync(periodBefore);
+      }
       if (onReturned) await onReturned();
-      else await syncSubscription().catch(() => null);
     } catch (e: any) {
       setError(e?.message || 'Could not start checkout');
     } finally {
