@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
@@ -30,7 +31,7 @@ export default function CalendarCreateChooser({
     () =>
       StyleSheet.create({
         host: {
-          ...StyleSheet.absoluteFillObject,
+          flex: 1,
         },
         body: {
           paddingHorizontal: 20,
@@ -88,7 +89,7 @@ export default function CalendarCreateChooser({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.host} pointerEvents="box-none">
+      <GestureHandlerRootView style={styles.host}>
         <MinimizableBottomSheet
           visible={visible}
           onClose={onClose}
@@ -145,7 +146,7 @@ export default function CalendarCreateChooser({
             </TouchableOpacity>
           </View>
         </MinimizableBottomSheet>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

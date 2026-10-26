@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
   type ViewStyle,
 } from 'react-native';
-import { Gesture, GestureDetector, TouchableOpacity } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -255,33 +255,36 @@ export default function MinimizableBottomSheet({
         {typeof headerRight === 'function' ? headerRight(headerCtx) : headerRight}
         {minimizable ? (
           minimized ? (
-            <TouchableOpacity
+            <Pressable
               onPress={expandSheet}
               hitSlop={HEADER_ACTION_HIT_SLOP}
               style={styles.headerActionBtn}
+              accessibilityRole="button"
               accessibilityLabel="Expand"
             >
               <Ionicons name="chevron-up" size={26} color={colors.textSecondary} />
-            </TouchableOpacity>
+            </Pressable>
           ) : (
-            <TouchableOpacity
+            <Pressable
               onPress={minimizeSheet}
               hitSlop={HEADER_ACTION_HIT_SLOP}
               style={styles.headerActionBtn}
+              accessibilityRole="button"
               accessibilityLabel="Minimize"
             >
               <Ionicons name="chevron-down" size={26} color={colors.textSecondary} />
-            </TouchableOpacity>
+            </Pressable>
           )
         ) : null}
-        <TouchableOpacity
+        <Pressable
           onPress={handleClose}
           hitSlop={HEADER_ACTION_HIT_SLOP}
           style={styles.headerActionBtn}
+          accessibilityRole="button"
           accessibilityLabel="Close"
         >
           <Ionicons name="close" size={26} color={colors.textSecondary} />
-        </TouchableOpacity>
+        </Pressable>
       </View>
     </View>
   );
@@ -307,15 +310,12 @@ export default function MinimizableBottomSheet({
     // above the minimized strip so users can interact with the background screen.
     <View style={styles.root} pointerEvents="box-none">
       {!minimized ? (
-        minimizable ? (
-          <Pressable
-            style={styles.backdrop}
-            onPress={minimizeSheet}
-            accessibilityLabel="Minimize"
-          />
-        ) : (
-          <View style={styles.backdrop} />
-        )
+        <Pressable
+          style={styles.backdrop}
+          onPress={minimizable ? minimizeSheet : handleClose}
+          accessibilityRole="button"
+          accessibilityLabel={minimizable ? 'Minimize' : 'Close'}
+        />
       ) : null}
       <Animated.View
         pointerEvents={minimized ? 'box-none' : 'auto'}

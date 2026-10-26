@@ -52,6 +52,7 @@ export default function LinkifiedMultilineInput({
   placeholderTextColor,
   multiline,
   onBlur,
+  onFocus,
   ...rest
 }: LinkifiedMultilineInputProps) {
   const colors = useThemeColors();
@@ -135,7 +136,10 @@ export default function LinkifiedMultilineInput({
         placeholder={placeholder}
         placeholderTextColor={placeholderTextColor}
         multiline={multiline}
-        onFocus={() => setFocused(true)}
+        onFocus={(event) => {
+          setFocused(true);
+          onFocus?.(event);
+        }}
         onBlur={handleBlur}
         {...rest}
       />

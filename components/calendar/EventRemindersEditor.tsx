@@ -22,6 +22,7 @@ type Props = {
   reminders: CalendarReminder[];
   onChange: (next: CalendarReminder[]) => void;
   colors: Colors;
+  onInputFocus?: () => void;
 };
 
 const METHODS: ReminderMethod[] = ['notification', 'email', 'both'];
@@ -34,7 +35,7 @@ function cycle<T>(list: T[], current: T): T {
   return list[(i + 1) % list.length];
 }
 
-export default function EventRemindersEditor({ reminders, onChange, colors }: Props) {
+export default function EventRemindersEditor({ reminders, onChange, colors, onInputFocus }: Props) {
   const [draftAmounts, setDraftAmounts] = useState<Record<number, string>>({});
 
   const update = (index: number, patch: Partial<CalendarReminder>) => {
@@ -73,6 +74,7 @@ export default function EventRemindersEditor({ reminders, onChange, colors }: Pr
             <TextInput
               value={amountText}
               keyboardType="number-pad"
+              onFocus={onInputFocus}
               onChangeText={(v) => setDraftAmounts((prev) => ({ ...prev, [index]: v }))}
               onEndEditing={() => {
                 const amount = Number(draftAmounts[index] ?? parts.amount);

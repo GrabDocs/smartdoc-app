@@ -234,8 +234,38 @@ export function EmailImportsPane({
         <FlatList
           data={items}
           keyExtractor={(i) => String(i.id)}
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: 24 }}
+          contentContainerStyle={{
+            paddingTop: 8,
+            paddingBottom: 24,
+            flexGrow: 1,
+          }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
+          ListEmptyComponent={
+            <View style={{ paddingTop: 64, paddingHorizontal: 28, alignItems: 'center' }}>
+              <Ionicons name="file-tray-outline" size={48} color={colors.textSecondary} />
+              <Text
+                style={{
+                  marginTop: 16,
+                  fontSize: 18,
+                  fontWeight: '600',
+                  color: colors.text,
+                  textAlign: 'center',
+                }}
+              >
+                No data exists here
+              </Text>
+              <Text
+                style={{
+                  marginTop: 8,
+                  fontSize: 14,
+                  color: colors.textSecondary,
+                  textAlign: 'center',
+                }}
+              >
+                This page is empty
+              </Text>
+            </View>
+          }
           onEndReached={() => {
             if (cursor) load(true).catch(() => {});
           }}

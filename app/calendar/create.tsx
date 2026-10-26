@@ -6,7 +6,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -18,11 +17,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import LinkifiedMultilineInput from '../../components/LinkifiedMultilineInput';
 import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalendarProfile';
+import { useKeyboardAwareScroll } from '../../hooks/useKeyboardAwareScroll';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   calendarCategoriesWithRecords,
@@ -119,6 +119,7 @@ function initialEventDateFromParam(raw?: string): string {
 export default function CalendarCreateScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ viewUserId?: string; date?: string; client_id?: string }>();
   const { profile, refresh } = useCalendarProfile();
   const networkState = useNetworkState();
@@ -202,6 +203,10 @@ export default function CalendarCreateScreen() {
     setDurationPickerOpen(false);
   }, []);
 
+  const { kbInset, scrollRef, scrollHostRef, revealFocusedField, onScroll } = useKeyboardAwareScroll({
+    onKeyboardShow: closePickers,
+  });
+
   // Opening a popup always drops the keyboard first so the popup isn't covered by it.
   const openDatePicker = useCallback(() => {
     Keyboard.dismiss();
@@ -226,14 +231,6 @@ export default function CalendarCreateScreen() {
     setDurationPickerOpen(true);
     setDurationPickerExpandNonce((n) => n + 1);
   }, []);
-
-  // Focusing any text field (title, location, URL, description, reminders, participants…) closes the
-  // date / time / duration popups. Listening for the keyboard covers every input without per-field wiring.
-  useEffect(() => {
-    const evt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const sub = Keyboard.addListener(evt, closePickers);
-    return () => sub.remove();
-  }, [closePickers]);
 
   useEffect(() => {
     refresh();
@@ -322,7 +319,15 @@ export default function CalendarCreateScreen() {
         safe: { flex: 1, backgroundColor: colors.background },
         header: { flexDirection: 'row', alignItems: 'center', padding: 12 , backgroundColor: colors.headerBackground },
         h1: { fontSize: 20, fontWeight: '700', color: colors.text, flex: 1 },
-        body: { padding: 16, paddingBottom: 120 },
+        body: { padding: 16, paddingBottom: 24 },
+        scrollHost: { flex: 1 },
+        footer: {
+          paddingHorizontal: 16,
+          paddingTop: 8,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
+          backgroundColor: colors.background,
+        },
         label: { fontWeight: '600', color: colors.text, marginTop: 12 },
         input: {
           borderWidth: 1,
@@ -371,7 +376,7 @@ export default function CalendarCreateScreen() {
           backgroundColor: colors.tint,
           padding: 14,
           borderRadius: 10,
-          marginTop: 20,
+          marginTop: 8,
           alignItems: 'center',
         },
         btnText: { color: '#fff', fontWeight: '600' },
@@ -615,17 +620,16 @@ export default function CalendarCreateScreen() {
         <View style={{ width: APP_BACK_BUTTON_SLOT }} />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 52 : 0}
-      >
+      <View ref={scrollHostRef} style={[styles.scrollHost, { paddingBottom: kbInset }]}>
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="always"
           keyboardDismissMode="on-drag"
           onScrollBeginDrag={dismissFormOverlays}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
         >
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -637,7 +641,7 @@ export default function CalendarCreateScreen() {
             compact
           />
         </View>
-        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Event title" placeholderTextColor={colors.textSecondary} />
+        <TextInput style={styles.input} value={title} onChangeText={setTitle} placeholder="Event title" placeholderTextColor={colors.textSecondary} onFocus={revealFocusedField} />
 
         {isAdmin && !isPersonalAccount ? (
           <>
@@ -726,7 +730,7 @@ export default function CalendarCreateScreen() {
         ) : null}
 
         <Text style={styles.label}>Location</Text>
-        <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholderTextColor={colors.textSecondary} />
+        <TextInput style={styles.input} value={location} onChangeText={setLocation} placeholderTextColor={colors.textSecondary} onFocus={revealFocusedField} />
 
         {!allDay ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
@@ -744,7 +748,7 @@ export default function CalendarCreateScreen() {
         {!allDay && !useReach ? (
           <>
             <Text style={styles.label}>Meeting URL (optional)</Text>
-            <TextInput style={styles.input} value={meetingUrlManual} onChangeText={setMeetingUrlManual} placeholderTextColor={colors.textSecondary} />
+            <TextInput style={styles.input} value={meetingUrlManual} onChangeText={setMeetingUrlManual} placeholderTextColor={colors.textSecondary} onFocus={revealFocusedField} />
           </>
         ) : null}
 
@@ -776,6 +780,7 @@ export default function CalendarCreateScreen() {
                 placeholder="Add details about the event…"
                 placeholderTextColor={colors.textSecondary}
                 linkColor={colors.primary || '#007AFF'}
+                onFocus={revealFocusedField}
               />
 
               <Text style={styles.label}>Notes (on invite)</Text>
@@ -787,10 +792,11 @@ export default function CalendarCreateScreen() {
                 placeholderTextColor={colors.textSecondary}
                 multiline
                 linkColor={colors.primary || '#007AFF'}
+                onFocus={revealFocusedField}
               />
 
               <Text style={styles.label}>Reminders</Text>
-              <EventRemindersEditor reminders={reminders} onChange={setReminders} colors={colors} />
+              <EventRemindersEditor reminders={reminders} onChange={setReminders} colors={colors} onInputFocus={revealFocusedField} />
 
               <Text style={styles.label}>Participants</Text>
               {participants.map((p) => (
@@ -815,6 +821,7 @@ export default function CalendarCreateScreen() {
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
                 keyboardType="email-address"
+                onFocus={revealFocusedField}
               />
               <TextInput
                 style={styles.input}
@@ -822,6 +829,7 @@ export default function CalendarCreateScreen() {
                 value={newName}
                 onChangeText={setNewName}
                 placeholderTextColor={colors.textSecondary}
+                onFocus={revealFocusedField}
               />
               <TouchableOpacity style={[styles.btn, { marginTop: 8 }]} onPress={addParticipant}>
                 <Text style={styles.btnText}>+ Add participant</Text>
@@ -856,24 +864,26 @@ export default function CalendarCreateScreen() {
                     value={recurringCountText}
                     onChangeText={(x) => setRecurringCountText(x.replace(/[^\d]/g, ''))}
                     onBlur={() => setRecurringCountText(String(resolvedRecurringCount()))}
+                    onFocus={revealFocusedField}
                   />
                 </>
               ) : null}
             </View>
           ) : null}
         </View>
-
-        <FeedbackTouchable
-          style={[styles.btn, submitting && { opacity: 0.6 }]}
-          disabled={submitting}
-          loading={submitting}
-          onPress={submit}
-          spinnerColor="#fff"
-        >
-          <Text style={styles.btnText}>Create event</Text>
-        </FeedbackTouchable>
       </ScrollView>
-      </KeyboardAvoidingView>
+        <View style={[styles.footer, { paddingBottom: kbInset > 0 ? 8 : Math.max(insets.bottom, 8) }]}>
+          <FeedbackTouchable
+            style={[styles.btn, submitting && { opacity: 0.6 }]}
+            disabled={submitting}
+            loading={submitting}
+            onPress={submit}
+            spinnerColor="#fff"
+          >
+            <Text style={styles.btnText}>Create event</Text>
+          </FeedbackTouchable>
+        </View>
+      </View>
 
       {showPicker === 'date' && Platform.OS === 'ios' ? (
         <MinimizableBottomSheet
