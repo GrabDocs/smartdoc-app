@@ -793,7 +793,7 @@ export default function DraftEditScreen() {
   const [contentText, setContentText] = useState('');
   const [contentHtml, setContentHtml] = useState('');
   const [initialEditorHtml, setInitialEditorHtml] = useState<string | null>(null);
-  const [presenceEditors, setPresenceEditors] = useState<Map<number, string>>(new Map());
+  const [presenceEditors, setPresenceEditors] = useState<Map<string, string>>(new Map());
   const [showShareModal, setShowShareModal] = useState(false);
   const [showSendLinkModal, setShowSendLinkModal] = useState(false);
   const [showEditorsModal, setShowEditorsModal] = useState(false);
@@ -1210,26 +1210,40 @@ export default function DraftEditScreen() {
           flushPendingOpsForDraft();
         });
 
-        socket.on('doc_presence_list', (data: { members?: Array<{ user_id: number; display_name: string }> }) => {
-          const next = new Map<number, string>();
-          (data.members || []).forEach(m => {
+        // Members are signed-in users (user_id) or share-link guests (guest_id, user_id null).
+        const presenceKey = (m: { user_id?: number | null; guest_id?: string | null }): string | null => {
+          if (m.user_id != null && Number.isFinite(Number(m.user_id))) {
             const uid = Number(m.user_id);
-            if (!Number.isFinite(uid) || uid === currentUserId) return;
-            next.set(uid, m.display_name || 'Someone');
-          });
-          setPresenceEditors(next);
-        });
+            return uid === currentUserId ? null : `u:${uid}`;
+          }
+          return m.guest_id ? `g:${m.guest_id}` : null;
+        };
 
-        socket.on('doc_presence', (data: { user_id: number; display_name: string; joined: boolean }) => {
-          const uid = Number(data.user_id);
-          if (!Number.isFinite(uid) || uid === currentUserId) return;
-          setPresenceEditors(prev => {
-            const next = new Map(prev);
-            if (data.joined) next.set(uid, data.display_name || 'Someone');
-            else next.delete(uid);
-            return next;
-          });
-        });
+        socket.on(
+          'doc_presence_list',
+          (data: { members?: Array<{ user_id: number | null; guest_id?: string | null; display_name: string }> }) => {
+            const next = new Map<string, string>();
+            (data.members || []).forEach(m => {
+              const k = presenceKey(m);
+              if (k) next.set(k, m.display_name || 'Someone');
+            });
+            setPresenceEditors(next);
+          }
+        );
+
+        socket.on(
+          'doc_presence',
+          (data: { user_id: number | null; guest_id?: string | null; display_name: string; joined: boolean }) => {
+            const k = presenceKey(data);
+            if (!k) return;
+            setPresenceEditors(prev => {
+              const next = new Map(prev);
+              if (data.joined) next.set(k, data.display_name || 'Someone');
+              else next.delete(k);
+              return next;
+            });
+          }
+        );
 
         socket.on(
           'draft_saved',

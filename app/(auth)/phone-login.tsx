@@ -106,22 +106,12 @@ export default function PhoneLoginScreen() {
             setError('');
 
             const countryCode = parsePhoneNumber(phoneNumber).countryCode;
-            const checkResponse = await apiService.checkPhone(phoneNumber, countryCode);
-            const registered = !!checkResponse.registered;
-
-            if (!registered && !isRegistering) {
-                setIsRegistering(true);
-            }
-            if (registered && isRegistering) {
-                setIsRegistering(false);
-            }
-
-            const purpose = registered ? 'login' : 'registration';
+            const purpose = isRegistering ? 'registration' : 'login';
             const otpResponse = await apiService.requestOtp(
                 phoneNumber,
                 countryCode,
                 purpose,
-                !registered,
+                isRegistering,
             );
 
             if (otpResponse.success) {
@@ -134,7 +124,6 @@ export default function PhoneLoginScreen() {
                         [{ text: 'OK' }],
                     );
                 }
-                setIsRegistering(!registered);
                 setStep('verify');
                 setResendCooldown(RESEND_COOLDOWN_SEC);
             } else {
@@ -246,6 +235,16 @@ export default function PhoneLoginScreen() {
 
             if (!reg.success) {
                 setError((reg as any).message || 'Could not create account');
+                return;
+            }
+
+            if (!(reg as any).user) {
+                Alert.alert(
+                    'Check your account',
+                    (reg as any).message || 'If this information can be used, try signing in.',
+                );
+                setIsRegistering(false);
+                setStep('password');
                 return;
             }
 
