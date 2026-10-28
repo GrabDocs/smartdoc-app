@@ -238,6 +238,27 @@ const DRAFT_EDITOR_SCRIPT = `
         sel.addRange(range);
       }
 
+      /** Split the current paragraph at the caret. execCommand('insertParagraph') inserts at the end on mobile. */
+      function splitBlockAtCaret(block, range){
+        if(!range.collapsed || !block || !block.parentNode) return false;
+        var next=document.createElement(block.nodeName==='DIV'?'div':'p');
+        var tail=range.cloneRange();
+        try{
+          tail.selectNodeContents(block);
+          tail.setStart(range.startContainer, range.startOffset);
+        }catch(err){
+          return false;
+        }
+        next.appendChild(tail.extractContents());
+        if(!(next.textContent||'').replace(/\\u00a0/g,' ').trim() && !next.querySelector('br,img')){
+          next.innerHTML='<br>';
+        }
+        block.parentNode.insertBefore(next, block.nextSibling);
+        if(isBlockEmpty(block)) block.innerHTML='<br>';
+        placeCursorAtStart(next);
+        return true;
+      }
+
       function getBodyBlock(){
         var h1=el.querySelector('h1');
         var node=h1?h1.nextSibling:null;
@@ -555,8 +576,7 @@ ${DRAFT_EDITOR_FEATURES_JS}
           if(block.nodeName==='LI') return;
           if(block.nodeName==='P'||block.nodeName==='DIV'){
             e.preventDefault();
-            document.execCommand('insertParagraph',false,null);
-            sync();
+            if(splitBlockAtCaret(block, range)) sync();
             return;
           }
         }
