@@ -611,10 +611,10 @@ function getRichEditorBaseHtml(isDarkMode: boolean): string {
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="format-detection" content="telephone=no,date=no,address=no,email=no"/><style>
     *{box-sizing:border-box}
     html{margin:0;padding:0;background:${page.bg};color-scheme:${isDarkMode ? 'dark' : 'light'}}
-    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:400;font-synthesis:none;line-height:20px;background:${page.bg};color:${page.text};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:none;text-size-adjust:none}
-    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word;font-size:14px;font-weight:400;line-height:20px;color:${page.text}}
-    #content p,#content div,#content li{font-size:14px;font-weight:400;line-height:20px}
-    #content h1{font-size:14px;font-weight:600;margin:8px 0 4px;padding:0;line-height:20px;color:${page.text}}
+    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:400;font-synthesis:none;line-height:22px;background:${page.bg};color:${page.text};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:none;text-size-adjust:none}
+    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word;font-size:15px;font-weight:400;line-height:22px;color:${page.text}}
+    #content p,#content div,#content li{font-size:15px;font-weight:400;line-height:22px}
+    #content h1{font-size:18px;font-weight:600;margin:0 0 8px;padding:0;line-height:24px;color:${page.text}}
     #content h1:empty:before{content:attr(data-placeholder);color:${page.muted};font-weight:600}
     #content p,#content>div{margin:4px 0}
     #content strong,#content b{font-weight:700}
