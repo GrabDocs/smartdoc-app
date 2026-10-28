@@ -307,7 +307,6 @@ export default function EmailThreadScreen() {
     workspaceId,
     filter,
     compose,
-    newMessage: newMessageParam,
     client_id: clientIdParam,
     to: toParam,
   } = useLocalSearchParams<{
@@ -315,13 +314,11 @@ export default function EmailThreadScreen() {
     workspaceId?: string;
     filter?: string;
     compose?: string;
-    newMessage?: string;
     client_id?: string;
     to?: string;
   }>();
   const threadId = Number(id);
   const wantCompose = compose === '1' || compose === 'true';
-  const wantNewMessage = newMessageParam === '1' || newMessageParam === 'true';
   const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'awaiting' || filter === 'drafts' || filter === 'sent' || filter === 'closed'
     ? filter
     : 'pending') as ThreadAttention;
@@ -377,8 +374,6 @@ export default function EmailThreadScreen() {
   /** AI summary and custom instructions. Collapsed once a reply exists so the letter fills the screen. */
   const [aiDetailsOpen, setAiDetailsOpen] = useState(true);
   const [threadCollapsedForCompose, setThreadCollapsedForCompose] = useState(false);
-  /** Measured message-list height so a short thread does not leave a gap above the AI card. */
-  const [threadContentH, setThreadContentH] = useState(0);
   const [grabdocsResearchOn, setGrabdocsResearchOn] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone>(DEFAULT_REPLY_TONE);
   const [replyAll, setReplyAll] = useState(false);
@@ -427,9 +422,7 @@ export default function EmailThreadScreen() {
   threadRef.current = thread;
   const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
   const isNewCompose =
-    draft?.reply_mode === 'new' ||
-    !!thread?.provider_thread_id?.startsWith('compose-') ||
-    (wantNewMessage && messages.length === 0);
+    draft?.reply_mode === 'new' || !!thread?.provider_thread_id?.startsWith('compose-');
 
   useEffect(() => {
     return () => {
@@ -444,7 +437,6 @@ export default function EmailThreadScreen() {
     setThreadStackExpanded(false);
     setOpenMessageIds([]);
     setAiDetailsOpen(true);
-    setThreadContentH(0);
     setComposing(false);
     setCcOpen(false);
     setBccOpen(false);
@@ -1996,25 +1988,16 @@ export default function EmailThreadScreen() {
             </Text>
           </TouchableOpacity>
         ) : (
-        <View
-          style={
-            threadContentH > 0
-              ? { flexGrow: 0, flexShrink: 1, flexBasis: threadContentH, minHeight: 0 }
-              : { flex: 1, minHeight: 0 }
-          }
-        >
+        <View style={{ flex: 1, minHeight: 0 }}>
         <ScrollView
           style={{
             flex: 1,
             backgroundColor: colors.background,
           }}
           contentContainerStyle={{
+            flexGrow: 1,
             paddingTop: 8,
             paddingBottom: 16,
-          }}
-          onContentSizeChange={(_, h) => {
-            const next = Math.ceil(h);
-            setThreadContentH((prev) => (Math.abs(prev - next) > 1 ? next : prev));
           }}
           keyboardShouldPersistTaps="handled"
           pinchGestureEnabled={false}
@@ -2651,10 +2634,6 @@ export default function EmailThreadScreen() {
             </View>
           ) : null}
           </View>
-        ) : null}
-
-        {!fullscreenMessage && !composeFill ? (
-          <View style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }} />
         ) : null}
 
         {undo && undoLeft > 0 ? (
