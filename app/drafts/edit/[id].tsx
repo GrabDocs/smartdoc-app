@@ -97,13 +97,7 @@ function textToSimpleHtml(text: string): string {
     .replace(/"/g, '&quot;');
   const lines = escaped.split(/\n/);
   if (lines.length === 0) return EMPTY_DRAFT_HTML;
-  const [first, ...rest] = lines;
-  const titleHtml = first ? `<h1>${first}</h1>` : '<h1></h1>';
-  const bodyParas = rest.filter(Boolean);
-  const bodyHtml = bodyParas.length > 0
-    ? bodyParas.map(p => `<p>${p}</p>`).join('')
-    : '<p><br></p>';
-  return titleHtml + bodyHtml;
+  return lines.map((p) => (p ? `<p>${p}</p>` : '<p><br></p>')).join('') || EMPTY_DRAFT_HTML;
 }
 
 function stripExtension(name?: string): string {
@@ -116,7 +110,7 @@ function isDefaultUntitledName(name?: string): boolean {
   return !base || base === 'Untitled Note';
 }
 
-const EMPTY_DRAFT_HTML = '<h1></h1><p><br></p>';
+const EMPTY_DRAFT_HTML = '<p><br></p>';
 
 function isDraftHtmlEmpty(html: string): boolean {
   if (!html) return true;
@@ -138,18 +132,16 @@ function isDraftBodyEmpty(html: string): boolean {
   return !stripHtmlToText(bodyHtml).trim();
 }
 
-/** Ensure notes use an H1 title block plus body; migrate legacy single-paragraph drafts. */
+/**
+ * Notes default to normal paragraphs. The old title H1 made paste/typing inherit heading
+ * style; demote it on load so only the H toolbar control creates headings.
+ */
 function ensureDraftHtmlStructure(html: string): string {
   const trimmed = (html || '').trim();
   if (!trimmed || isDraftHtmlEmpty(trimmed)) return EMPTY_DRAFT_HTML;
-  if (/<h1[\s>]/i.test(trimmed)) return trimmed;
-
-  const firstBlock = trimmed.match(/^<(p|div)[^>]*>([\s\S]*?)<\/\1>([\s\S]*)$/i);
-  if (firstBlock) {
-    const rest = (firstBlock[3] || '').trim();
-    return `<h1 data-placeholder="Title">${firstBlock[2]}</h1>${rest || '<p><br></p>'}`;
-  }
-  return `<h1 data-placeholder="Title"></h1>${trimmed}`;
+  const demoted = trimmed.replace(/<h1\b[^>]*>/gi, '<p>').replace(/<\/h1>/gi, '</p>');
+  if (!demoted.trim() || isDraftHtmlEmpty(demoted)) return EMPTY_DRAFT_HTML;
+  return demoted;
 }
 
 const LOCAL_SAVE_TOAST_MS = 1000;
@@ -159,6 +151,7 @@ const DRAFT_EDITOR_SCRIPT = `
     (function(){
       var el=document.getElementById('content');
       var BLOCK_TAGS=['P','DIV','H1','H2','H3','H4','LI'];
+      try{ document.execCommand('defaultParagraphSeparator', false, 'p'); }catch(e0){}
 
       function send(){
         if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
@@ -202,6 +195,19 @@ const DRAFT_EDITOR_SCRIPT = `
         test.selectNodeContents(block);
         test.setEnd(r.startContainer, r.startOffset);
         return !(test.toString()||'').length;
+      }
+
+      function isAtBlockEnd(range, block){
+        var r=range.cloneRange();
+        r.collapse(false);
+        var test=document.createRange();
+        try{
+          test.selectNodeContents(block);
+          test.setStart(r.endContainer, r.endOffset);
+        }catch(err){
+          return false;
+        }
+        return !(test.toString()||'').replace(/\\u00a0/g,' ').trim();
       }
 
       function placeCursorAtEnd(block){
@@ -349,13 +355,7 @@ const DRAFT_EDITOR_SCRIPT = `
       function moveToBodyFromTitle(){
         if(titleEnterLock) return;
         titleEnterLock=true;
-        var h1=el.querySelector('h1');
-        if(h1){
-          var junk=h1.querySelectorAll('br,div,p,ul,ol');
-          for(var j=0;j<junk.length;j++) junk[j].remove();
-        }
-        var body=getBodyBlock();
-        focusBodyBlock(body);
+        focusBodyBlock(getBodyBlock());
         sync();
         setTimeout(function(){ titleEnterLock=false; }, 80);
       }
@@ -404,24 +404,38 @@ const DRAFT_EDITOR_SCRIPT = `
         if(!h1) return false;
         if(!h1.querySelector('br,div,p,ul,ol')) return false;
         var lastMoved=moveTitleOverflowToBody(h1);
-        if(lastMoved){
-          var junk=h1.querySelectorAll('br,div,p,ul,ol');
-          for(var j=0;j<junk.length;j++) junk[j].remove();
-          placeCursorAtEnd(lastMoved);
-          sync();
-          return true;
-        }
-        moveToBodyFromTitle();
+        if(!lastMoved) return false;
+        placeCursorAtEnd(lastMoved);
+        sync();
         return true;
       }
 
       function handleTitleEnter(e){
         var sel=window.getSelection();
         if(!sel||sel.rangeCount===0) return false;
-        if(!isInTitle(sel.getRangeAt(0))) return false;
+        var range=sel.getRangeAt(0);
+        if(!isInTitle(range)) return false;
         if(e&&e.preventDefault) e.preventDefault();
         if(e&&e.stopImmediatePropagation) e.stopImmediatePropagation();
-        moveToBodyFromTitle();
+        if(titleEnterLock) return true;
+        titleEnterLock=true;
+        var h1=el.querySelector('h1');
+        if(!h1){
+          titleEnterLock=false;
+          return true;
+        }
+        if(!range.collapsed){
+          range.deleteContents();
+          range.collapse(true);
+        }
+        markEnterSplit();
+        if(isAtBlockEnd(range, h1)){
+          focusBodyBlock(getBodyBlock());
+          sync();
+        }else if(splitBlockAtCaret(h1, range, 'p')){
+          sync();
+        }
+        setTimeout(function(){ titleEnterLock=false; }, 80);
         return true;
       }
 
@@ -559,7 +573,7 @@ const DRAFT_EDITOR_SCRIPT = `
 
 ${DRAFT_EDITOR_FEATURES_JS}
 
-      el.innerHTML='<h1><\\/h1><p><br><\\/p>';
+      el.innerHTML='<p><br><\\/p>';
 
       setTimeout(function(){
         el.addEventListener('input',function(){
@@ -568,10 +582,13 @@ ${DRAFT_EDITOR_FEATURES_JS}
           gdFindRefresh();
         });
         el.addEventListener('blur',sync);
-        el.addEventListener('paste',function(){ setTimeout(function(){
-          if(repairTitleAfterEnter()) return;
-          sync();
-        },0); });
+        el.addEventListener('paste',function(e){
+          if(window.gdHandlePaste){ window.gdHandlePaste(e); return; }
+          setTimeout(function(){
+            if(repairTitleAfterEnter()) return;
+            sync();
+          },0);
+        }, true);
       },0);
 
       el.addEventListener('beforeinput',function(e){
@@ -730,7 +747,7 @@ function getRichEditorBaseHtml(isDarkMode: boolean): string {
     table{border-collapse:collapse;width:100%;margin:8px 0}
     td,th{border:1px solid ${page.border};padding:8px}
     ${draftEditorFeaturesCss(page.bg, isDarkMode)}
-  </style></head><body><div id="content" contenteditable="true"><h1 data-placeholder="Title"></h1><p><br></p></div>
+  </style></head><body><div id="content" contenteditable="true"><p><br></p></div>
   <script>${DRAFT_EDITOR_SCRIPT}</script></body></html>`;
 }
 
@@ -1106,7 +1123,7 @@ export default function DraftEditScreen() {
             wasCreatedEmptyRef.current = isDraftHtmlEmpty(safeHtml) && (name === 'Untitled Note' || !name);
             // Inject updated content into WebView if already rendered
             if (cached) {
-              const script = `(function(){ var el=document.getElementById('content'); if(el){ el.innerHTML=${JSON.stringify(safeHtml)}; var h1=el.querySelector('h1'); if(h1&&window.ReactNativeWebView){ var t=(h1.textContent||'').replace(/\\u00a0/g,' ').trim(); if(t) window.ReactNativeWebView.postMessage('__TITLE__:'+t); } if(window.gdFindRefresh) window.gdFindRefresh(); } })(); true;`;
+              const script = `(function(){ var el=document.getElementById('content'); if(el){ el.innerHTML=${JSON.stringify(safeHtml)}; if(window.gdFindRefresh) window.gdFindRefresh(); } })(); true;`;
               webViewRef.current?.injectJavaScript(script);
             }
           }
@@ -1485,7 +1502,8 @@ export default function DraftEditScreen() {
 
   const syncFilenameFromTitle = useCallback((title: string) => {
     if (filenameManuallyEditedRef.current) return;
-    const name = title.trim() || 'Untitled Note';
+    const name = title.trim();
+    if (!name) return;
     const current = stripExtension(currentFilenameRef.current || '').trim();
     if (name === current) return;
     if (name === 'Untitled Note' && isDefaultUntitledName(currentFilenameRef.current)) return;
@@ -1575,24 +1593,25 @@ export default function DraftEditScreen() {
       var el=document.getElementById('content');
       if(!el) return;
       el.innerHTML=${JSON.stringify(html)};
-      var h1=el.querySelector('h1');
-      if(h1&&!h1.getAttribute('data-placeholder')) h1.setAttribute('data-placeholder','Title');
-      var hasBody=false;
-      var n=h1?h1.nextSibling:null;
-      while(n){
-        if(n.nodeType===1&&(n.nodeName==='P'||n.nodeName==='DIV')){ hasBody=true; break; }
-        n=n.nextSibling;
-      }
-      if(h1&&!hasBody){
+      var hs=el.querySelectorAll('h1');
+      for(var i=0;i<hs.length;i++){
         var p=document.createElement('p');
-        p.innerHTML='<br>';
-        if(h1.nextSibling) el.insertBefore(p,h1.nextSibling);
-        else el.appendChild(p);
+        while(hs[i].firstChild) p.appendChild(hs[i].firstChild);
+        hs[i].parentNode.replaceChild(p, hs[i]);
       }
-      if(h1&&window.ReactNativeWebView){
-        var t=(h1.textContent||'').replace(/\\u00a0/g,' ').trim();
-        if(t) window.ReactNativeWebView.postMessage('__TITLE__:'+t);
+      if(!el.querySelector('p,div,h2,h3,li')){
+        var empty=document.createElement('p');
+        empty.innerHTML='<br>';
+        el.appendChild(empty);
       }
+      try{
+        var first=el.querySelector('p,div,h2,h3,li')||el;
+        var range=document.createRange();
+        range.selectNodeContents(first);
+        range.collapse(true);
+        var sel=window.getSelection();
+        if(sel){ sel.removeAllRanges(); sel.addRange(range); }
+      }catch(e0){}
       try{
         window.scrollTo(0,0);
         document.documentElement.scrollTop=0;

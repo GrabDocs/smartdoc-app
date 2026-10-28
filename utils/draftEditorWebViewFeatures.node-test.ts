@@ -20,6 +20,7 @@ describe('draftEditorWebViewFeatures', () => {
       'gdToggleLink',
       'gdInsertTable',
       'gdSaveRange',
+      'gdHandlePaste',
     ]) {
       assert.match(DRAFT_EDITOR_FEATURES_JS, new RegExp(`window\\.${fn}\\s*=`));
     }
@@ -33,8 +34,9 @@ describe('draftEditorWebViewFeatures', () => {
 
   it('can convert the title heading to body text', () => {
     assert.match(DRAFT_EDITOR_FEATURES_JS, /function gdReplaceBlock/);
-    assert.match(DRAFT_EDITOR_FEATURES_JS, /wasTitle=block\.nodeName==='H1'/);
-    assert.match(DRAFT_EDITOR_FEATURES_JS, /function gdEnsureTitle/);
+    assert.match(DRAFT_EDITOR_FEATURES_JS, /function gdDemoteHeadings/);
+    assert.match(DRAFT_EDITOR_FEATURES_JS, /window\.gdHandlePaste\s*=/);
+    assert.doesNotMatch(DRAFT_EDITOR_FEATURES_JS, /function gdEnsureTitle/);
     assert.doesNotMatch(DRAFT_EDITOR_FEATURES_JS, /if\(isInTitle\(range\)\|\|isInTitle\(end\)\) return;/);
     assert.doesNotMatch(DRAFT_EDITOR_FEATURES_JS, /if\(block\.nodeName==='H1'\|\|block\.nodeName==='LI'/);
   });
