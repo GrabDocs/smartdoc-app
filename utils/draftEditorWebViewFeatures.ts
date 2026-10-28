@@ -125,8 +125,19 @@ export const DRAFT_EDITOR_FEATURES_JS = `
         var end=range.cloneRange();
         end.collapse(false);
         if(isInTitle(range)||isInTitle(end)) return;
-        el.focus();
-        document.execCommand('formatBlock',false,'<'+tag+'>');
+        var tagName=String(tag||'P').toUpperCase();
+        if(tagName==='H1') return;
+        var blocks=range.collapsed?(function(){ var b=getBlock(range); return b?[b]:[]; })():gdLeafBlocks(range);
+        for(var i=0;i<blocks.length;i++){
+          var block=blocks[i];
+          if(!block||block===el) continue;
+          if(block.nodeName==='H1'||block.nodeName==='LI'||block.nodeName==='TD'||block.nodeName==='TH') continue;
+          if(block.nodeName===tagName) continue;
+          var next=document.createElement(tagName.toLowerCase());
+          while(block.firstChild) next.appendChild(block.firstChild);
+          if(block.getAttribute('style')) next.setAttribute('style', block.getAttribute('style'));
+          if(block.parentNode) block.parentNode.replaceChild(next, block);
+        }
         sync();
       };
 
