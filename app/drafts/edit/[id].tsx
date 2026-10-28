@@ -239,9 +239,10 @@ const DRAFT_EDITOR_SCRIPT = `
       }
 
       /** Split the current paragraph at the caret. execCommand('insertParagraph') inserts at the end on mobile. */
-      function splitBlockAtCaret(block, range){
+      function splitBlockAtCaret(block, range, newTag){
         if(!range.collapsed || !block || !block.parentNode) return false;
-        var next=document.createElement(block.nodeName==='DIV'?'div':'p');
+        var nextTag=newTag||(block.nodeName==='DIV'?'div':'p');
+        var next=document.createElement(nextTag);
         var tail=range.cloneRange();
         try{
           tail.selectNodeContents(block);
@@ -257,6 +258,44 @@ const DRAFT_EDITOR_SCRIPT = `
         if(isBlockEmpty(block)) block.innerHTML='<br>';
         placeCursorAtStart(next);
         return true;
+      }
+
+      /** Turn one list item into a paragraph where it sits, without moving the caret to the end. */
+      function liftListItem(li){
+        var list=li.parentNode;
+        if(!list||!list.parentNode) return false;
+        var p=document.createElement('p');
+        while(li.firstChild) p.appendChild(li.firstChild);
+        if(!(p.textContent||'').replace(/\\u00a0/g,' ').trim() && !p.querySelector('br,img')) p.innerHTML='<br>';
+        var after=null;
+        if(li.nextSibling){
+          after=document.createElement(list.nodeName.toLowerCase());
+          while(li.nextSibling) after.appendChild(li.nextSibling);
+        }
+        list.parentNode.insertBefore(p, list.nextSibling);
+        if(after&&after.firstChild) list.parentNode.insertBefore(after, p.nextSibling);
+        li.remove();
+        if(!list.querySelector('li')) list.remove();
+        placeCursorAtStart(p);
+        return true;
+      }
+
+      function wrapBlockAsList(block, ordered){
+        if(!block||!block.parentNode||block.nodeName==='LI'||block.nodeName==='H1') return false;
+        var list=document.createElement(ordered?'ol':'ul');
+        var li=document.createElement('li');
+        while(block.firstChild) li.appendChild(block.firstChild);
+        if(!(li.textContent||'').replace(/\\u00a0/g,' ').trim() && !li.querySelector('br,img')) li.innerHTML='<br>';
+        list.appendChild(li);
+        block.parentNode.replaceChild(list, block);
+        placeCursorAtStart(li);
+        return true;
+      }
+
+      var enterSplitLock=false;
+      function markEnterSplit(){
+        enterSplitLock=true;
+        setTimeout(function(){ enterSplitLock=false; }, 50);
       }
 
       function getBodyBlock(){
@@ -494,7 +533,19 @@ ${DRAFT_EDITOR_FEATURES_JS}
 
       el.addEventListener('beforeinput',function(e){
         if(e.inputType!=='insertParagraph'&&e.inputType!=='insertLineBreak') return;
-        handleTitleEnter(e);
+        if(enterSplitLock){ e.preventDefault(); return; }
+        if(handleTitleEnter(e)) return;
+        var sel=window.getSelection();
+        if(!sel||sel.rangeCount===0) return;
+        var range=sel.getRangeAt(0);
+        if(!range.collapsed) return;
+        var block=getBlock(range);
+        if(!block||block.nodeName==='LI'||block.nodeName==='H1') return;
+        if(block.nodeName!=='P'&&block.nodeName!=='DIV'&&block.nodeName!=='H2'&&block.nodeName!=='H3'&&block.nodeName!=='H4') return;
+        e.preventDefault();
+        markEnterSplit();
+        var asParagraph=block.nodeName!=='P'&&block.nodeName!=='DIV';
+        if(splitBlockAtCaret(block, range, asParagraph?'p':null)) sync();
       },true);
 
       el.addEventListener('keydown',onEnterKey,true);
@@ -514,27 +565,19 @@ ${DRAFT_EDITOR_FEATURES_JS}
         if(e.key==='Backspace'){
           if(block.nodeName==='LI'&&isAtBlockStart(range, block)){
             e.preventDefault();
-            if(isBlockEmpty(block)){
-              document.execCommand('outdent',false,null);
-            }else{
-              document.execCommand('insertParagraph',false,null);
-            }
-            sync();
+            if(liftListItem(block)) sync();
             return;
           }
           if((block.nodeName==='P'||block.nodeName==='DIV')&&isAtBlockStart(range, block)){
             var h1=el.querySelector('h1');
             if(h1&&block!==h1){
               if(isFirstBodyBlock(block)){
+                e.preventDefault();
                 if(isBlockEmpty(block)){
-                  e.preventDefault();
                   block.innerHTML='<br>';
                   placeCursorAtEnd(h1);
                   sync();
-                  return;
                 }
-                e.preventDefault();
-                placeCursorAtEnd(h1);
                 return;
               }
               if(isBlockEmpty(block)){
@@ -561,22 +604,19 @@ ${DRAFT_EDITOR_FEATURES_JS}
           if(isBulletTrigger||isOrderedTrigger){
             e.preventDefault();
             deleteCharsBeforeCursor(range, linePrefix.length);
-            if(isBulletTrigger){
-              document.execCommand('insertUnorderedList',false,null);
-            }else{
-              document.execCommand('insertOrderedList',false,null);
-            }
-            normalizeListItemAfterConvert();
-            sync();
+            if(wrapBlockAsList(block, isOrderedTrigger)) sync();
             return;
           }
         }
 
         if(e.key==='Enter'||e.keyCode===13||e.which===13){
+          if(enterSplitLock){ e.preventDefault(); return; }
           if(block.nodeName==='LI') return;
-          if(block.nodeName==='P'||block.nodeName==='DIV'){
+          if(block.nodeName==='P'||block.nodeName==='DIV'||block.nodeName==='H2'||block.nodeName==='H3'||block.nodeName==='H4'){
             e.preventDefault();
-            if(splitBlockAtCaret(block, range)) sync();
+            markEnterSplit();
+            var asParagraph=block.nodeName!=='P'&&block.nodeName!=='DIV';
+            if(splitBlockAtCaret(block, range, asParagraph?'p':null)) sync();
             return;
           }
         }
