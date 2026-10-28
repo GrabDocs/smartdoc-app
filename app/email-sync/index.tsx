@@ -599,7 +599,8 @@ export default function EmailInboxScreen() {
         id: String(t.id),
         workspaceId: String(workspaceId || ''),
         filter,
-        ...(isNew ? { compose: '1', newMessage: '1' } : {}),
+        compose: isNew ? '1' : '',
+        newMessage: isNew ? '1' : '',
       },
     } as any);
   };

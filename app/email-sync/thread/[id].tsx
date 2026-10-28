@@ -426,12 +426,10 @@ export default function EmailThreadScreen() {
   draftRef.current = draft;
   threadRef.current = thread;
   const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
-  const hasConversation = messages.length > 0;
   const isNewCompose =
-    wantNewMessage ||
     draft?.reply_mode === 'new' ||
     !!thread?.provider_thread_id?.startsWith('compose-') ||
-    (!loading && !hasConversation);
+    (wantNewMessage && messages.length === 0);
 
   useEffect(() => {
     return () => {
@@ -952,12 +950,7 @@ export default function EmailThreadScreen() {
   }, [loading, dismissed, threadId, isNewCompose]);
 
   useEffect(() => {
-    if (dismissed) return;
-    if (wantNewMessage || isNewCompose) {
-      setComposing(true);
-      return;
-    }
-    if (!wantCompose || loading) return;
+    if (!wantCompose || loading || dismissed) return;
     if (!autoComposeRef.current) {
       autoComposeRef.current = true;
       setComposing(true);
@@ -965,7 +958,7 @@ export default function EmailThreadScreen() {
       // should show the received thread with the composer at the bottom.
     }
     if (draft) setComposing(true);
-  }, [wantCompose, wantNewMessage, isNewCompose, loading, draft, dismissed]);
+  }, [wantCompose, loading, draft, dismissed]);
 
   useEffect(() => {
     const raw = Array.isArray(toParam) ? toParam[0] : toParam;
@@ -1471,7 +1464,7 @@ export default function EmailThreadScreen() {
       : aiRequestCount > 1
         ? `AI · ${aiRequestCount} items · ${toneLabel}`
         : `AI · ${toneLabel}`;
-  const aiCardCollapsed = isNewCompose || (!aiDetailsOpen && !aiCardOpen);
+  const aiCardCollapsed = !isNewCompose && !aiDetailsOpen && !aiCardOpen;
   const composeFill = isNewCompose || composeFullscreen || threadCollapsedForCompose;
   const showDraftPeek =
     Platform.OS !== 'web' && !!draft && !composing && !isNewCompose && !dismissed && !fullscreenMessage;
@@ -1541,7 +1534,7 @@ export default function EmailThreadScreen() {
 
   useEffect(() => {
     // A new draft has no thread to collapse. The peek would only show "Conversation".
-    if (threadReading || isNewCompose || !hasConversation) {
+    if (threadReading || isNewCompose) {
       setThreadCollapsedForCompose(false);
       return;
     }
@@ -1550,7 +1543,7 @@ export default function EmailThreadScreen() {
       return;
     }
     setThreadCollapsedForCompose(false);
-  }, [composeFullscreen, composing, keyboardOpen, threadReading, isNewCompose, hasConversation]);
+  }, [composeFullscreen, composing, keyboardOpen, threadReading, isNewCompose]);
 
   useEffect(() => {
     if (keyboardOpen) return;
@@ -1986,7 +1979,7 @@ export default function EmailThreadScreen() {
               />
             </View>
           </View>
-        ) : isNewCompose || !hasConversation ? null : threadCollapsedForCompose ? (
+        ) : isNewCompose ? null : threadCollapsedForCompose ? (
           <TouchableOpacity
             style={styles.sectionPeek}
             onPress={() => {
