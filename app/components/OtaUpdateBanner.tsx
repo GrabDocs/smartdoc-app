@@ -24,7 +24,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    // Persistent network indicator is absolutely positioned at the top-right
+    // (~40px wide). Keep Restart to the left of it.
+    paddingRight: 56,
     paddingBottom: 10,
     gap: 12,
   },

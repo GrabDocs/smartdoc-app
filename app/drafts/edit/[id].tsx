@@ -584,29 +584,49 @@ ${DRAFT_EDITOR_FEATURES_JS}
     })();
   `;
 
-/** Paper colors match web notes: always white page, dark text, Arial 16px. */
-const NOTE_PAGE_BG = '#ffffff';
-const NOTE_PAGE_TEXT = '#111111';
+/** Note page follows the app theme. Arial is not installed on Android and WebView faux-bolds it. */
+function notePageColors(isDarkMode: boolean) {
+  return isDarkMode
+    ? {
+        bg: '#151718',
+        text: '#ECEDEE',
+        muted: '#9BA1A6',
+        border: 'rgba(236,237,238,0.28)',
+        link: '#60a5fa',
+        quote: '#b0b6bc',
+      }
+    : {
+        bg: '#ffffff',
+        text: '#11181C',
+        muted: '#687076',
+        border: 'rgba(17,24,28,0.22)',
+        link: '#2563eb',
+        quote: '#4b5563',
+      };
+}
 
 /** Base editor HTML with empty content; real content is injected in onLoadEnd to avoid escaping/timing issues. */
 function getRichEditorBaseHtml(isDarkMode: boolean): string {
+  const page = notePageColors(isDarkMode);
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="format-detection" content="telephone=no,date=no,address=no,email=no"/><style>
     *{box-sizing:border-box}
-    html{margin:0;padding:0}
-    body{margin:0;padding:0 16px 16px 16px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;background:${NOTE_PAGE_BG};color:${NOTE_PAGE_TEXT};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word}
-    #content h1{font-size:2em;font-weight:700;margin:0.67em 0 0.4em;padding:0;line-height:1.25;color:${NOTE_PAGE_TEXT}}
-    #content h1:empty:before{content:attr(data-placeholder);color:gray;font-weight:700}
-    #content p,#content>div{margin:8px 0;font-size:16px;font-weight:400;line-height:1.5;color:${NOTE_PAGE_TEXT}}
-    #content a{color:#2563eb;overflow-wrap:break-word;word-break:break-word}
+    html{margin:0;padding:0;background:${page.bg};color-scheme:${isDarkMode ? 'dark' : 'light'}}
+    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:400;font-synthesis:none;line-height:1.5;background:${page.bg};color:${page.text};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word;font-weight:400;color:${page.text}}
+    #content p,#content div,#content li{font-weight:400}
+    #content h1{font-size:1.5em;font-weight:600;margin:0.5em 0 0.35em;padding:0;line-height:1.25;color:${page.text}}
+    #content h1:empty:before{content:attr(data-placeholder);color:${page.muted};font-weight:600}
+    #content p,#content>div{margin:8px 0;font-size:16px;line-height:1.5}
+    #content strong,#content b{font-weight:700}
+    #content a{color:${page.link};overflow-wrap:break-word;word-break:break-word}
     #content ul,#content ol{margin:8px 0;padding-left:20px}
     #content ul ul,#content ol ol,#content ul ol,#content ol ul{margin:2px 0;padding-left:16px}
     #content li{margin:2px 0;padding-left:0;line-height:1.5}
-    #content blockquote{margin:8px 0;padding:4px 0 4px 16px;border-left:3px solid #11111140;color:#11111199}
+    #content blockquote{margin:8px 0;padding:4px 0 4px 16px;border-left:3px solid ${page.border};color:${page.quote}}
     #content [style*="margin-left"]{display:block}
     table{border-collapse:collapse;width:100%;margin:8px 0}
-    td,th{border:1px solid #11111140;padding:8px}
-    ${draftEditorFeaturesCss(NOTE_PAGE_BG, isDarkMode)}
+    td,th{border:1px solid ${page.border};padding:8px}
+    ${draftEditorFeaturesCss(page.bg, isDarkMode)}
   </style></head><body><div id="content" contenteditable="true"><h1 data-placeholder="Title"></h1><p><br></p></div>
   <script>${DRAFT_EDITOR_SCRIPT}</script></body></html>`;
 }
@@ -2414,7 +2434,7 @@ export default function DraftEditScreen() {
               onMessage={handleWebViewMessage}
               onScroll={toggleEnabled ? handleWebViewScrollRestoreHeader : undefined}
               scrollEventThrottle={toggleEnabled ? 16 : undefined}
-              style={[dynamicStyles.editor, { backgroundColor: NOTE_PAGE_BG, minHeight: 200 }]}
+              style={[dynamicStyles.editor, { backgroundColor: notePageColors(isDarkMode).bg, minHeight: 200 }]}
               scrollEnabled={true}
               keyboardDisplayRequiresUserAction={false}
               nestedScrollEnabled
@@ -2428,7 +2448,7 @@ export default function DraftEditScreen() {
                 : {})}
             />
           ) : (
-            <View style={[dynamicStyles.editor, { backgroundColor: NOTE_PAGE_BG, minHeight: 200, justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[dynamicStyles.editor, { backgroundColor: notePageColors(isDarkMode).bg, minHeight: 200, justifyContent: 'center', alignItems: 'center' }]}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
           )}
