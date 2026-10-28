@@ -12,7 +12,7 @@ let pending = 0;
 
 const replies = new Map<
   ThreadAttention,
-  { threads: EmailThread[]; hasMailbox: boolean; at: number }
+  { threads: EmailThread[]; hasMailbox: boolean; canSend?: boolean; at: number }
 >();
 
 let setup: {
@@ -74,9 +74,22 @@ export function emailSyncCacheReplies(filter: ThreadAttention) {
 }
 export function emailSyncCacheSetReplies(
   filter: ThreadAttention,
-  data: { threads: EmailThread[]; hasMailbox: boolean }
+  data: { threads: EmailThread[]; hasMailbox: boolean; canSend?: boolean }
 ) {
   replies.set(filter, { ...data, at: Date.now() });
+}
+
+/** Mailbox send capability last seen on any replies cache entry or Setup connections. */
+export function emailSyncCacheCanSend(): boolean | null {
+  for (const hit of replies.values()) {
+    if (hit.canSend === true) return true;
+  }
+  if (setup?.conns?.some((c) => c.send_enabled)) return true;
+  for (const hit of replies.values()) {
+    if (hit.canSend === false) return false;
+  }
+  if (setup) return false;
+  return null;
 }
 
 export function emailSyncCacheSetup() {
@@ -142,7 +155,7 @@ function getUndoSnapshot() {
   if (!undoSend) return '';
   const rem = Math.max(
     0,
-    Math.min(Math.ceil((undoSend.untilMs - Date.now()) / 1000), undoSend.maxSecs || 20)
+    Math.min(Math.ceil((undoSend.untilMs - Date.now()) / 1000), undoSend.maxSecs || 10)
   );
   return `${undoSend.pendingId}:${undoSend.maxSecs}:${undoSend.threadId}:${rem}`;
 }

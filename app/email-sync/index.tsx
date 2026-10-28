@@ -49,6 +49,7 @@ import { confirmCloseMailboxThread } from './_components/confirmCloseThread';
 import { formatEmailWhen, formatWaitingAge, threadStatusDotColor } from './_components/emailFormat';
 import { openEmailInboxOAuth } from './_components/emailOAuth';
 import {
+    emailSyncCacheCanSend,
     emailSyncCachePending,
     emailSyncCacheReplies,
     emailSyncCacheSetPending,
@@ -125,7 +126,7 @@ export default function EmailInboxScreen() {
   const [loading, setLoading] = useState(() => !emailSyncCacheReplies('pending'));
   const [refreshing, setRefreshing] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [canSend, setCanSend] = useState(false);
+  const [canSend, setCanSend] = useState(() => emailSyncCacheCanSend() === true);
   const [composing, setComposing] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [selectMode, setSelectMode] = useState(false);
@@ -182,12 +183,17 @@ export default function EmailInboxScreen() {
       listMailboxThreads(workspaceId, filter),
     ]);
     setHasMailbox(!!caps.has_oauth_mailbox);
-    setCanSend((caps.connections || []).some((c) => c.send_enabled));
+    const sendEnabled = (caps.connections || []).some((c) => c.send_enabled);
+    setCanSend(sendEnabled);
     setPending(counts.count);
     setAwaitingCount(counts.awaiting_count);
     setThreads(list);
     emailSyncCacheSetPending(counts.count);
-    emailSyncCacheSetReplies(filter, { threads: list, hasMailbox: !!caps.has_oauth_mailbox });
+    emailSyncCacheSetReplies(filter, {
+      threads: list,
+      hasMailbox: !!caps.has_oauth_mailbox,
+      canSend: sendEnabled,
+    });
   }, [workspaceId, filter]);
 
   useEffect(() => {
@@ -197,8 +203,15 @@ export default function EmailInboxScreen() {
     if (hit && !force) {
       setThreads(hit.threads);
       setHasMailbox(hit.hasMailbox);
+      if (hit.canSend != null) setCanSend(hit.canSend);
+      else {
+        const cachedSend = emailSyncCacheCanSend();
+        if (cachedSend != null) setCanSend(cachedSend);
+      }
       setLoading(false);
-      if (!hit.stale) return;
+      // Thread list can be fresh while send capability was never cached, which
+      // left Compose disabled until another filter forced a reload.
+      if (!hit.stale && hit.canSend != null) return;
     }
     let alive = true;
     (async () => {
@@ -324,6 +337,7 @@ export default function EmailInboxScreen() {
             workspaceId: String(workspaceId),
             filter: 'drafts',
             compose: '1',
+            newMessage: '1',
             ...(clientId ? { client_id: String(clientId) } : {}),
             ...(typeof toRaw === 'string' && toRaw.trim() ? { to: toRaw.trim() } : {}),
           },
@@ -445,6 +459,7 @@ export default function EmailInboxScreen() {
           workspaceId: String(workspaceId),
           filter: 'drafts',
           compose: '1',
+          newMessage: '1',
         },
       } as any);
     } catch (e) {
@@ -576,9 +591,16 @@ export default function EmailInboxScreen() {
       setThreads((prev) => prev.filter((x) => x.id !== t.id));
       return;
     }
+    const isNew =
+      t.draft_preview?.reply_mode === 'new' || !!t.provider_thread_id?.startsWith('compose-');
     router.push({
       pathname: '/email-sync/thread/[id]',
-      params: { id: String(t.id), workspaceId: String(workspaceId || ''), filter },
+      params: {
+        id: String(t.id),
+        workspaceId: String(workspaceId || ''),
+        filter,
+        ...(isNew ? { compose: '1', newMessage: '1' } : {}),
+      },
     } as any);
   };
 

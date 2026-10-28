@@ -302,16 +302,26 @@ function composeSendWarning(subject: string, body: string, attachmentCount: numb
 }
 
 export default function EmailThreadScreen() {
-  const { id, workspaceId, filter, compose, client_id: clientIdParam, to: toParam } = useLocalSearchParams<{
+  const {
+    id,
+    workspaceId,
+    filter,
+    compose,
+    newMessage: newMessageParam,
+    client_id: clientIdParam,
+    to: toParam,
+  } = useLocalSearchParams<{
     id: string;
     workspaceId?: string;
     filter?: string;
     compose?: string;
+    newMessage?: string;
     client_id?: string;
     to?: string;
   }>();
   const threadId = Number(id);
   const wantCompose = compose === '1' || compose === 'true';
+  const wantNewMessage = newMessageParam === '1' || newMessageParam === 'true';
   const attention = (filter === 'dismissed' || filter === 'candidates' || filter === 'pending' || filter === 'awaiting' || filter === 'drafts' || filter === 'sent' || filter === 'closed'
     ? filter
     : 'pending') as ThreadAttention;
@@ -416,8 +426,12 @@ export default function EmailThreadScreen() {
   draftRef.current = draft;
   threadRef.current = thread;
   const { undo, remainingSec: undoLeft } = useEmailSyncUndo();
+  const hasConversation = messages.length > 0;
   const isNewCompose =
-    draft?.reply_mode === 'new' || !!thread?.provider_thread_id?.startsWith('compose-');
+    wantNewMessage ||
+    draft?.reply_mode === 'new' ||
+    !!thread?.provider_thread_id?.startsWith('compose-') ||
+    (!loading && !hasConversation);
 
   useEffect(() => {
     return () => {
@@ -938,7 +952,12 @@ export default function EmailThreadScreen() {
   }, [loading, dismissed, threadId, isNewCompose]);
 
   useEffect(() => {
-    if (!wantCompose || loading || dismissed) return;
+    if (dismissed) return;
+    if (wantNewMessage || isNewCompose) {
+      setComposing(true);
+      return;
+    }
+    if (!wantCompose || loading) return;
     if (!autoComposeRef.current) {
       autoComposeRef.current = true;
       setComposing(true);
@@ -946,7 +965,7 @@ export default function EmailThreadScreen() {
       // should show the received thread with the composer at the bottom.
     }
     if (draft) setComposing(true);
-  }, [wantCompose, loading, draft, dismissed]);
+  }, [wantCompose, wantNewMessage, isNewCompose, loading, draft, dismissed]);
 
   useEffect(() => {
     const raw = Array.isArray(toParam) ? toParam[0] : toParam;
@@ -1024,8 +1043,8 @@ export default function EmailThreadScreen() {
         expects_reply: expectsReply,
       });
       if (res.pending_send?.id) setPendingSend({ id: res.pending_send.id });
-      const secsRaw = Number(res.undo_seconds ?? 20);
-      const secs = Number.isFinite(secsRaw) && secsRaw > 0 ? secsRaw : 20;
+      const secsRaw = Number(res.undo_seconds ?? 10);
+      const secs = Number.isFinite(secsRaw) && secsRaw > 0 ? secsRaw : 10;
       if (res.pending_send?.id) {
         emailSyncSetUndo({
           pendingId: res.pending_send.id,
@@ -1452,7 +1471,7 @@ export default function EmailThreadScreen() {
       : aiRequestCount > 1
         ? `AI · ${aiRequestCount} items · ${toneLabel}`
         : `AI · ${toneLabel}`;
-  const aiCardCollapsed = !isNewCompose && !aiDetailsOpen && !aiCardOpen;
+  const aiCardCollapsed = isNewCompose || (!aiDetailsOpen && !aiCardOpen);
   const composeFill = isNewCompose || composeFullscreen || threadCollapsedForCompose;
   const showDraftPeek =
     Platform.OS !== 'web' && !!draft && !composing && !isNewCompose && !dismissed && !fullscreenMessage;
@@ -1522,7 +1541,7 @@ export default function EmailThreadScreen() {
 
   useEffect(() => {
     // A new draft has no thread to collapse. The peek would only show "Conversation".
-    if (threadReading || isNewCompose) {
+    if (threadReading || isNewCompose || !hasConversation) {
       setThreadCollapsedForCompose(false);
       return;
     }
@@ -1531,7 +1550,7 @@ export default function EmailThreadScreen() {
       return;
     }
     setThreadCollapsedForCompose(false);
-  }, [composeFullscreen, composing, keyboardOpen, threadReading, isNewCompose]);
+  }, [composeFullscreen, composing, keyboardOpen, threadReading, isNewCompose, hasConversation]);
 
   useEffect(() => {
     if (keyboardOpen) return;
@@ -1638,6 +1657,7 @@ export default function EmailThreadScreen() {
             workspaceId: String(ws),
             filter: 'drafts',
             compose: '1',
+            newMessage: '1',
           },
         } as any);
       }
@@ -1933,7 +1953,7 @@ export default function EmailThreadScreen() {
           </View>
         )}
 
-        {!fullscreenMessage && !composeFullscreen && Number.isFinite(threadId) && threadId > 0 ? (
+        {!fullscreenMessage && !composeFullscreen && !isNewCompose && Number.isFinite(threadId) && threadId > 0 ? (
           <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
             <ClientContextStrip itemType="email_thread" itemId={threadId} />
           </View>
@@ -1966,7 +1986,7 @@ export default function EmailThreadScreen() {
               />
             </View>
           </View>
-        ) : isNewCompose ? null : threadCollapsedForCompose ? (
+        ) : isNewCompose || !hasConversation ? null : threadCollapsedForCompose ? (
           <TouchableOpacity
             style={styles.sectionPeek}
             onPress={() => {
@@ -2096,9 +2116,8 @@ export default function EmailThreadScreen() {
               composeScrollHRef.current = e.nativeEvent.layout.height;
             }}
           >
+            {!isNewCompose ? (
             <View style={styles.actions}>
-              {!isNewCompose ? (
-              <>
               {aiCardCollapsed ? (
                 <View style={styles.aiSummaryBar}>
                   <TouchableOpacity
@@ -2303,9 +2322,8 @@ export default function EmailThreadScreen() {
               </View>
               </>
               )}
-              </>
-              ) : null}
             </View>
+            ) : null}
 
             {composing && draft ? (
               <View style={styles.composeHeaderSection}>
