@@ -14,6 +14,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { Colors } from '../../constants/Colors';
 import { API_BASE_URL } from '../../constants/Config';
@@ -456,14 +457,16 @@ export default function OtpVerificationScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <View style={styles.content}>
-        {!keyboardVisible ? (
-          <View style={styles.iconContainer}>
+      <SafeAreaView style={styles.content} edges={['top']}>
+        <View style={styles.iconContainer}>
+          {keyboardVisible ? (
+            <View style={styles.iconSpacer} />
+          ) : (
             <View style={styles.iconWrapper}>
               <Ionicons name={getMethodIcon()} size={40} color={Colors.primary} />
             </View>
-          </View>
-        ) : null}
+          )}
+        </View>
 
         <Text style={styles.title}>Enter Verification Code</Text>
         <Text style={styles.subtitle}>
@@ -578,7 +581,7 @@ export default function OtpVerificationScreen() {
         >
           <Text style={styles.backToLoginText}>Back to Login</Text>
         </TouchableOpacity>
-      </View>
+      </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }
@@ -596,6 +599,12 @@ const styles = StyleSheet.create({
   iconContainer: {
     alignItems: 'center',
     marginBottom: 30,
+    height: 80,
+    justifyContent: 'center',
+  },
+  iconSpacer: {
+    width: 80,
+    height: 80,
   },
   iconWrapper: {
     width: 80,

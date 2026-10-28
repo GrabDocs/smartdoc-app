@@ -277,8 +277,7 @@ export const DRAFT_EDITOR_FEATURES_JS = `
 export function draftEditorFeaturesCss(pageBg: string, isDarkMode: boolean): string {
   const gutter = isDarkMode ? '#0b0b0d' : '#e9ebef';
   return `
-    #content h2{font-size:1.25em;font-weight:600;margin:14px 0 6px;line-height:1.3}
-    #content h3{font-size:1.1em;font-weight:600;margin:12px 0 4px;line-height:1.35}
+    #content h2,#content h3{font-size:14px;font-weight:600;margin:8px 0 4px;line-height:20px}
     ::highlight(gd-find){background-color:#fde68a;color:#111}
     ::highlight(gd-find-active){background-color:#fb923c;color:#111}
     @media (min-width:700px){
