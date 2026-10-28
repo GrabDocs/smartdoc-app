@@ -1211,22 +1211,22 @@ export default function DraftEditScreen() {
         });
 
         socket.on('doc_presence_list', (data: { members?: Array<{ user_id: number; display_name: string }> }) => {
-          const members = data.members || [];
-          setPresenceEditors(prev => {
-            const next = new Map(prev);
-            members.forEach(m => {
-              if (m.user_id !== currentUserId) next.set(m.user_id, m.display_name || 'Someone');
-            });
-            return next;
+          const next = new Map<number, string>();
+          (data.members || []).forEach(m => {
+            const uid = Number(m.user_id);
+            if (!Number.isFinite(uid) || uid === currentUserId) return;
+            next.set(uid, m.display_name || 'Someone');
           });
+          setPresenceEditors(next);
         });
 
         socket.on('doc_presence', (data: { user_id: number; display_name: string; joined: boolean }) => {
-          if (data.user_id === currentUserId) return;
+          const uid = Number(data.user_id);
+          if (!Number.isFinite(uid) || uid === currentUserId) return;
           setPresenceEditors(prev => {
             const next = new Map(prev);
-            if (data.joined) next.set(data.user_id, data.display_name || 'Someone');
-            else next.delete(data.user_id);
+            if (data.joined) next.set(uid, data.display_name || 'Someone');
+            else next.delete(uid);
             return next;
           });
         });
@@ -1237,22 +1237,12 @@ export default function DraftEditScreen() {
             if (data.draft_id !== draftId) return;
             if (data.version <= (lastKnownVersionRef.current ?? 0)) return;
             const saver = data.saved_by_user_id;
-            if (saver != null && saver === currentUserId) {
+            if (saver != null && Number(saver) === currentUserId) {
               lastKnownVersionRef.current = data.version;
               lastKnownUpdatedAtRef.current = data.updated_at;
               return;
             }
-            if (hasUnsavedRef.current) {
-              Alert.alert(
-                'Note updated elsewhere',
-                'This note was updated on another device. Reload?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  { text: 'Reload', onPress: () => refetchDraftContentRef.current?.(data.version, data.updated_at) },
-                ]
-              );
-              return;
-            }
+            if (hasUnsavedRef.current) return;
             refetchDraftContentRef.current?.(data.version, data.updated_at);
           }
         );
