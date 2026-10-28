@@ -303,9 +303,11 @@ export default function UserChatScreen() {
       const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
       if (!token) return;
 
+      const isLocalApi = /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(API_BASE_URL);
       const socket = io(API_BASE_URL, {
         auth: { token },
-        transports: ['polling', 'websocket'], // Allow polling fallback for development
+        transports: isLocalApi ? ['polling', 'websocket'] : ['websocket'],
+        upgrade: isLocalApi,
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionAttempts: 5,

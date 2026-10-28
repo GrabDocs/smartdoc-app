@@ -731,10 +731,10 @@ function getRichEditorBaseHtml(isDarkMode: boolean): string {
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="format-detection" content="telephone=no,date=no,address=no,email=no"/><style>
     *{box-sizing:border-box}
     html{margin:0;padding:0;background:${page.bg};color-scheme:${isDarkMode ? 'dark' : 'light'}}
-    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:400;font-synthesis:none;line-height:20px;background:${page.bg};color:${page.text};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:none;text-size-adjust:none}
-    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word;font-size:14px;font-weight:400;line-height:20px;color:${page.text}}
-    #content p,#content div,#content li{font-size:14px;font-weight:400;line-height:20px}
-    #content h1{font-size:18px;font-weight:600;margin:0 0 8px;padding:0;line-height:24px;color:${page.text}}
+    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:16px;font-weight:400;font-synthesis:none;line-height:1.5;background:${page.bg};color:${page.text};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:none;text-size-adjust:none}
+    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word;font-size:16px;font-weight:400;line-height:1.5;color:${page.text}}
+    #content p,#content div,#content li{font-size:16px;font-weight:400;line-height:1.5}
+    #content h1{font-size:2em;font-weight:700;margin:0.67em 0 0.4em;padding:0;line-height:1.25;color:${page.text}}
     #content h1:empty:before{content:attr(data-placeholder);color:${page.muted};font-weight:600}
     #content p,#content>div{margin:4px 0}
     #content strong,#content b{font-weight:700}
@@ -1179,13 +1179,18 @@ export default function DraftEditScreen() {
         const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
         if (!token || cancelled) return;
 
+        const isLocalApi = /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(API_BASE_URL);
         const nextSocket = io(API_BASE_URL, {
           auth: { token },
-          transports: ['polling', 'websocket'],
+          // Production sits behind Cloudflare / multiple workers; polling 400s
+          // ("Session ID unknown") prevent presence from joining.
+          transports: isLocalApi ? ['polling', 'websocket'] : ['websocket'],
+          upgrade: isLocalApi,
           reconnection: true,
           reconnectionDelay: 1000,
           reconnectionAttempts: 5,
           timeout: 20000,
+          path: '/socket.io/',
         });
 
         if (cancelled) {
