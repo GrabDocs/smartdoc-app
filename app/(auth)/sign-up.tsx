@@ -15,6 +15,7 @@ import { apiService } from '../../services/api';
 import { googleAuthService } from '../../services/googleAuth';
 import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../utils/defaultHomePath';
 import { isValidEmail } from '../../utils/emailValidation';
+import { NAME_NOT_A_WEB_ADDRESS_MESSAGE, nameLooksLikeWebAddress } from '../../utils/personName';
 import { exchangeGoogleLoginToken } from '../../utils/googleOAuthDeepLink';
 import { useAuth } from '../context/auth';
 
@@ -73,6 +74,11 @@ export default function SignUpScreen() {
         return;
       }
 
+      if (nameLooksLikeWebAddress(firstName) || nameLooksLikeWebAddress(lastName)) {
+        setError(NAME_NOT_A_WEB_ADDRESS_MESSAGE);
+        return;
+      }
+
       // Call Enhanced 2FA signup function
       const result = await signup({
         username,
@@ -85,6 +91,17 @@ export default function SignUpScreen() {
       });
 
       if (result.success) {
+        if (result.emailVerificationRequired) {
+          Alert.alert(
+            'Check your email',
+            'We sent a verification link. Confirm it, then sign in.',
+          );
+          router.replace({
+            pathname: '/(auth)/sign-in',
+            params: { email: result.email || email },
+          });
+          return;
+        }
         Alert.alert('Success', 'Account created successfully!');
         const webPath = await resolveDefaultHomeWebPath();
         navigateTabsThenDefaultHome(router, webPath);

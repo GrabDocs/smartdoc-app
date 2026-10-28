@@ -54,7 +54,7 @@ interface Enhanced2FAContextType {
   login: (credentials: LoginCredentials) => Promise<{ success: boolean; requires2FA?: boolean; authMethod?: string; message?: string }>;
   loginWithBiometric: () => Promise<{ success: boolean; message?: string }>;
   signInWithGoogle: () => Promise<{ success: boolean; requires2FA?: boolean; authMethod?: string; message?: string; completedViaDeepLink?: boolean }>;
-  signup: (data: { username: string; email: string; password: string; firstName?: string; lastName?: string; smsConsent?: boolean; dataRightsConsent?: boolean }) => Promise<{ success: boolean; message?: string }>;
+  signup: (data: { username: string; email: string; password: string; firstName?: string; lastName?: string; smsConsent?: boolean; dataRightsConsent?: boolean }) => Promise<{ success: boolean; message?: string; emailVerificationRequired?: boolean; email?: string }>;
   logout: () => Promise<void>;
   
   // 2FA methods
@@ -330,6 +330,12 @@ export function Enhanced2FAAuthProvider({ children }: { children: React.ReactNod
             success: true,
             message: 'Login successful',
           };
+      } else if (result.error_code === 'EMAIL_NOT_VERIFIED') {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return {
+          success: false,
+          message: result.message || 'Please verify your email before signing in.',
+        };
       } else {
         console.log('❌ LOGIN FAILED:', result.message);
         // Login failed
@@ -729,7 +735,7 @@ export function Enhanced2FAAuthProvider({ children }: { children: React.ReactNod
         body: JSON.stringify(signupBody),
       });
 
-      let signupResult: { success?: boolean; message?: string };
+      let signupResult: { success?: boolean; message?: string; email_verification_required?: boolean; email?: string };
       const contentType = signupRes.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         signupResult = await signupRes.json();
@@ -748,6 +754,16 @@ export function Enhanced2FAAuthProvider({ children }: { children: React.ReactNod
         return {
           success: false,
           message: signupResult.message || 'Signup failed',
+        };
+      }
+
+      if (signupResult.email_verification_required) {
+        setAuthState(prev => ({ ...prev, isLoading: false }));
+        return {
+          success: true,
+          emailVerificationRequired: true,
+          email: signupResult.email || data.email,
+          message: signupResult.message || 'Account created. Please verify your email before signing in.',
         };
       }
 

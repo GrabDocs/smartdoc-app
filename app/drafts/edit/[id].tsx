@@ -360,14 +360,57 @@ const DRAFT_EDITOR_SCRIPT = `
         setTimeout(function(){ titleEnterLock=false; }, 80);
       }
 
+      /** Multi-line paste into the title: keep the first line as the title, move the rest into body paragraphs. */
+      function moveTitleOverflowToBody(h1){
+        var split=null;
+        for(var c=h1.firstChild;c;c=c.nextSibling){
+          if(c.nodeType===1&&/^(BR|DIV|P|UL|OL)$/.test(c.nodeName)){ split=c; break; }
+        }
+        if(!split) return null;
+        var blocks=[];
+        var run=null;
+        while(split){
+          var next=split.nextSibling;
+          if(split.nodeName==='BR'){
+            run=null;
+            split.remove();
+          }else if(split.nodeType===1&&/^(DIV|P|UL|OL)$/.test(split.nodeName)){
+            run=null;
+            var block=split;
+            if(split.nodeName==='DIV'){
+              block=document.createElement('p');
+              while(split.firstChild) block.appendChild(split.firstChild);
+              split.remove();
+            }
+            blocks.push(block);
+          }else{
+            if(!run){ run=document.createElement('p'); blocks.push(run); }
+            run.appendChild(split);
+          }
+          split=next;
+        }
+        var kept=blocks.filter(function(b){ return !isBlockEmpty(b)||b.querySelector('img'); });
+        if(!kept.length) return null;
+        var anchor=h1;
+        for(var i=0;i<kept.length;i++){
+          el.insertBefore(kept[i], anchor.nextSibling);
+          anchor=kept[i];
+        }
+        return anchor;
+      }
+
       function repairTitleAfterEnter(){
         var h1=el.querySelector('h1');
         if(!h1) return false;
-        var br=h1.querySelector('br');
-        var nested=h1.querySelectorAll('div,p,ul,ol');
-        if(!br&&(!nested||!nested.length)) return false;
-        if(br) br.remove();
-        for(var k=0;k<nested.length;k++) nested[k].remove();
+        if(!h1.querySelector('br,div,p,ul,ol')) return false;
+        var lastMoved=moveTitleOverflowToBody(h1);
+        if(lastMoved){
+          var junk=h1.querySelectorAll('br,div,p,ul,ol');
+          for(var j=0;j<junk.length;j++) junk[j].remove();
+          placeCursorAtEnd(lastMoved);
+          sync();
+          return true;
+        }
         moveToBodyFromTitle();
         return true;
       }
@@ -1589,58 +1632,23 @@ export default function DraftEditScreen() {
     formatSelectionRef.current = { ...selectionRef.current };
   }, []);
 
+  const persistEditorSelection = useCallback(() => {
+    webViewRef.current?.injectJavaScript(gdCall('gdSaveRange'));
+  }, []);
+
   const execCommandAndSync = useCallback((command: string, value?: string) => {
-    const cmd = value !== undefined
-      ? `document.execCommand('${command}', false, ${JSON.stringify(value)});`
-      : `document.execCommand('${command}', false);`;
     webViewRef.current?.injectJavaScript(
-      `(function(){ var el=document.getElementById('content'); if(el){ el.focus(); ${cmd} if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(el.innerHTML); window.ReactNativeWebView.postMessage('__UNDO_STATE__:'+JSON.stringify({canUndo:document.queryCommandEnabled('undo'),canRedo:document.queryCommandEnabled('redo')})); } } })(); true;`
+      value !== undefined ? gdCall('gdExec', command, value) : gdCall('gdExec', command)
     );
   }, []);
 
   const setForeColor = useCallback((color: string) => {
-    // Use TipTap-compatible format: <span style="color: #hex">text</span>
-    const script = `(function(){
-      var el=document.getElementById('content');
-      if(!el) return;
-      el.focus();
-      var sel=window.getSelection();
-      if(!sel||sel.rangeCount===0) return;
-      var range=sel.getRangeAt(0);
-      if(range.collapsed) return;
-      var span=document.createElement('span');
-      span.style.color='${color}';
-      try{range.surroundContents(span);}catch(e){
-        var contents=range.extractContents();
-        span.appendChild(contents);
-        range.insertNode(span);
-      }
-      if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
-    })(); true;`;
-    webViewRef.current?.injectJavaScript(script);
+    webViewRef.current?.injectJavaScript(gdCall('gdApplyForeColor', color));
     setShowColorPicker(null);
   }, []);
 
   const setBackColor = useCallback((color: string) => {
-    // Use TipTap-compatible format: <mark style="background-color: #hex">text</mark>
-    const script = `(function(){
-      var el=document.getElementById('content');
-      if(!el) return;
-      el.focus();
-      var sel=window.getSelection();
-      if(!sel||sel.rangeCount===0) return;
-      var range=sel.getRangeAt(0);
-      if(range.collapsed) return;
-      var mark=document.createElement('mark');
-      mark.style.backgroundColor='${color}';
-      try{range.surroundContents(mark);}catch(e){
-        var contents=range.extractContents();
-        mark.appendChild(contents);
-        range.insertNode(mark);
-      }
-      if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
-    })(); true;`;
-    webViewRef.current?.injectJavaScript(script);
+    webViewRef.current?.injectJavaScript(gdCall('gdApplyBackColor', color));
     setShowColorPicker(null);
   }, []);
 
@@ -1748,46 +1756,11 @@ export default function DraftEditScreen() {
   }, [draftId, filename, handleSave, trySyncLocalDraft]);
 
   const insertTable = useCallback(() => {
-    const script = `(function(){
-      var el=document.getElementById('content');
-      if(!el) return;
-      el.focus();
-      var table='<table border="1" style="border-collapse:collapse;width:100%;"><tr><td style="padding:8px;">&nbsp;</td><td style="padding:8px;">&nbsp;</td></tr><tr><td style="padding:8px;">&nbsp;</td><td style="padding:8px;">&nbsp;</td></tr></table>';
-      document.execCommand('insertHTML',false,table);
-      if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
-    })(); true;`;
-    webViewRef.current?.injectJavaScript(script);
+    webViewRef.current?.injectJavaScript(gdCall('gdInsertTable'));
   }, []);
 
   const toggleLink = useCallback(() => {
-    const script = `(function(){
-      var el=document.getElementById('content');
-      if(!el) return;
-      el.focus();
-      var sel=window.getSelection();
-      if(!sel||sel.rangeCount===0) return;
-      var range=sel.getRangeAt(0);
-      var inLink=false;
-      var node=range.commonAncestorContainer;
-      while(node&&node!==el){
-        if(node.nodeType===1&&node.nodeName&&node.nodeName.toUpperCase()==='A'){
-          inLink=true;
-          break;
-        }
-        node=node.parentNode;
-      }
-      if(inLink){
-        document.execCommand('unlink',false);
-      }else{
-        if(range.collapsed){
-          document.execCommand('createLink',false,'https://');
-        }else{
-          document.execCommand('createLink',false,'https://');
-        }
-      }
-      if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage(el.innerHTML);
-    })(); true;`;
-    webViewRef.current?.injectJavaScript(script);
+    webViewRef.current?.injectJavaScript(gdCall('gdToggleLink'));
   }, []);
 
   const applyFormat = useCallback((prefix: string, suffix: string) => {
@@ -2526,12 +2499,12 @@ export default function DraftEditScreen() {
           >
             {/* Undo / Redo */}
             {canUndo && (
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('undo')} accessibilityLabel="Undo">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('undo')} accessibilityLabel="Undo">
               <Ionicons name="arrow-undo-outline" size={24} color={colors.text} />
             </TouchableOpacity>
             )}
             {canRedo && (
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('redo')} accessibilityLabel="Redo">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('redo')} accessibilityLabel="Redo">
               <Ionicons name="arrow-redo-outline" size={24} color={colors.text} />
             </TouchableOpacity>
             )}
@@ -2539,17 +2512,18 @@ export default function DraftEditScreen() {
             <View style={dynamicStyles.toolBtnDivider} />
 
             {/* Bold / Italic / Underline */}
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('bold')} accessibilityLabel="Bold">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('bold')} accessibilityLabel="Bold">
               <Text style={{ fontSize: 20, fontWeight: '800', color: colors.text, letterSpacing: -0.5 }}>B</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('italic')} accessibilityLabel="Italic">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('italic')} accessibilityLabel="Italic">
               <Text style={{ fontSize: 20, fontStyle: 'italic', fontWeight: '700', color: colors.text }}>I</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('underline')} accessibilityLabel="Underline">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('underline')} accessibilityLabel="Underline">
               <Text style={{ fontSize: 20, fontWeight: '700', color: colors.text, textDecorationLine: 'underline' }}>U</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.toolBtn}
+              onPressIn={persistEditorSelection}
               onPress={() => { setShowColorPicker(null); setShowFontSizePicker(true); }}
               accessibilityLabel="Font size"
             >
@@ -2557,6 +2531,7 @@ export default function DraftEditScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.toolBtn}
+              onPressIn={persistEditorSelection}
               onPress={() => { setShowColorPicker(null); setOptionPicker('font'); }}
               accessibilityLabel="Font"
             >
@@ -2564,6 +2539,7 @@ export default function DraftEditScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.toolBtn}
+              onPressIn={persistEditorSelection}
               onPress={() => { setShowColorPicker(null); setOptionPicker('heading'); }}
               accessibilityLabel="Heading"
             >
@@ -2571,6 +2547,7 @@ export default function DraftEditScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={dynamicStyles.toolBtn}
+              onPressIn={persistEditorSelection}
               onPress={() => { setShowColorPicker(null); setOptionPicker('spacing'); }}
               accessibilityLabel="Line spacing"
             >
@@ -2580,32 +2557,32 @@ export default function DraftEditScreen() {
             <View style={dynamicStyles.toolBtnDivider} />
 
             {/* Lists */}
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('insertUnorderedList')} accessibilityLabel="Bullet list">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('insertUnorderedList')} accessibilityLabel="Bullet list">
               <Ionicons name="list-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('insertOrderedList')} accessibilityLabel="Numbered list">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('insertOrderedList')} accessibilityLabel="Numbered list">
               <Ionicons name="reorder-four-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('indent')} accessibilityLabel="Indent">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('indent')} accessibilityLabel="Indent">
               <Ionicons name="chevron-forward-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => execCommandAndSync('outdent')} accessibilityLabel="Outdent">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => execCommandAndSync('outdent')} accessibilityLabel="Outdent">
               <Ionicons name="chevron-back-outline" size={24} color={colors.text} />
             </TouchableOpacity>
 
             <View style={dynamicStyles.toolBtnDivider} />
 
             {/* Link / Color / Table */}
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={toggleLink} accessibilityLabel="Link">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={toggleLink} accessibilityLabel="Link">
               <Ionicons name="link-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => setShowColorPicker('fore')} accessibilityLabel="Text color">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => setShowColorPicker('fore')} accessibilityLabel="Text color">
               <Ionicons name="color-palette-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={() => setShowColorPicker('back')} accessibilityLabel="Highlight">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={() => setShowColorPicker('back')} accessibilityLabel="Highlight">
               <Ionicons name="color-fill-outline" size={24} color={colors.text} />
             </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.toolBtn} onPress={insertTable} accessibilityLabel="Insert table">
+            <TouchableOpacity style={dynamicStyles.toolBtn} onPressIn={persistEditorSelection} onPress={insertTable} accessibilityLabel="Insert table">
               <Ionicons name="grid-outline" size={24} color={colors.text} />
             </TouchableOpacity>
           </ScrollView>

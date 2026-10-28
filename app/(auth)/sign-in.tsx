@@ -169,6 +169,11 @@ export default function SignInScreen() {
         // IMPORTANT: On login failure, stay on login screen and show error
         // Do NOT navigate away - user should see the error message
         
+        if (loginError.error_code === 'EMAIL_NOT_VERIFIED' || loginError.errorCode === 'EMAIL_NOT_VERIFIED') {
+          setError(loginError.message || 'Please verify your email before signing in.');
+          return;
+        }
+
         // Check if error is due to 2FA requirement
         if (loginError.requires2FA) {
           console.log('🔐 2FA required - navigating to OTP verification');

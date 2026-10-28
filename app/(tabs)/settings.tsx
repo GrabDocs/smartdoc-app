@@ -26,6 +26,7 @@ import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityCon
 import { useTheme } from '../../contexts/ThemeContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService as api } from '../../services/api';
+import { NAME_NOT_A_WEB_ADDRESS_MESSAGE, nameLooksLikeWebAddress } from '../../utils/personName';
 import { getMyPlan, getSettingsUsageStats } from '../../services/subscriptionApi';
 import { userProfileScreenKey } from '../../services/userScopedCache';
 import deviceSecurityService from '../../services/deviceSecurity';
@@ -611,6 +612,10 @@ export default function SettingsScreen() {
     const lastName = editLastName.trim();
     if (!firstName || !lastName) {
       Alert.alert('Name required', 'First and last name are required.');
+      return;
+    }
+    if (nameLooksLikeWebAddress(firstName) || nameLooksLikeWebAddress(lastName)) {
+      Alert.alert('Invalid name', NAME_NOT_A_WEB_ADDRESS_MESSAGE);
       return;
     }
     try {

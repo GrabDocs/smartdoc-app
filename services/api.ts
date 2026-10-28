@@ -701,8 +701,11 @@ class ApiService {
         if (error.response.status === 500) {
           throw new Error('Server error occurred. Please try again later.');
         }
-        
-        throw new Error(error.response.data?.message || 'Login failed');
+
+        const loginErr: any = new Error(error.response.data?.message || 'Login failed');
+        loginErr.error_code = error.response.data?.error_code;
+        loginErr.email = error.response.data?.email;
+        throw loginErr;
       } else if (error.request) {
         // console.error('❌ No response received:', error.request);
         throw new Error('No response from server. Please check your connection.');
@@ -848,7 +851,7 @@ class ApiService {
    * call is synchronous from the app's perspective and avoids the Android deep-link navigation race.
    * Backend contract: POST { id_token } -> { success, user, token } (mobile JWT).
    */
-  async googleSignInWithIdToken(idToken: string): Promise<{ success: boolean; user?: { id: number | string; username?: string; email?: string; firstName?: string; lastName?: string; name?: string }; token?: string; access_token?: string; refresh_token?: string; message?: string }> {
+  async googleSignInWithIdToken(idToken: string): Promise<{ success: boolean; user?: { id: number | string; username?: string; email?: string; firstName?: string; lastName?: string; name?: string }; token?: string; access_token?: string; refresh_token?: string; message?: string; error_code?: string; email?: string }> {
     try {
       const response = await this.client.post('/api/v1/web/auth/google-id-token', {
         id_token: idToken,
@@ -866,7 +869,12 @@ class ApiService {
         error?.response?.data?.message ||
         error?.message ||
         'Google sign-in failed';
-      return { success: false, message };
+      return {
+        success: false,
+        message,
+        error_code: error?.response?.data?.error_code,
+        email: error?.response?.data?.email,
+      };
     }
   }
 
