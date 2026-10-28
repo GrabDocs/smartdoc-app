@@ -71,7 +71,7 @@ import {
   LINE_HEIGHT_PRESETS,
   ptToCssPx,
 } from '../../../utils/draftNoteFormat';
-import { exportDraftNotePdf, printDraftNote } from '../../../utils/printDraftNote';
+import { exportDraftNoteDocx, exportDraftNotePdf, printDraftNote } from '../../../utils/printDraftNote';
 
 function stripHtmlToText(html: string): string {
   if (!html) return '';
@@ -584,43 +584,29 @@ ${DRAFT_EDITOR_FEATURES_JS}
     })();
   `;
 
+/** Paper colors match web notes: always white page, dark text, Arial 16px. */
+const NOTE_PAGE_BG = '#ffffff';
+const NOTE_PAGE_TEXT = '#111111';
+
 /** Base editor HTML with empty content; real content is injected in onLoadEnd to avoid escaping/timing issues. */
-function getRichEditorBaseHtml(bgColor: string, textColor: string, isDarkMode: boolean): string {
-  const safeBg = bgColor.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
-  const safeText = textColor.replace(/[^a-zA-Z0-9#(),.% ]/g, '');
-  const darkModeBlackTextFix = isDarkMode
-    ? `
-    #content [style*="color:#000"],
-    #content [style*="color: #000"],
-    #content [style*="color:#000000"],
-    #content [style*="color: #000000"],
-    #content [style*="color:rgb(0,0,0)"],
-    #content [style*="color: rgb(0,0,0)"],
-    #content [style*="color: rgb(0, 0, 0)"],
-    #content font[color="black"],
-    #content font[color="#000"],
-    #content font[color="#000000"]{
-      color:${safeText} !important;
-    }`
-    : '';
-  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>
+function getRichEditorBaseHtml(isDarkMode: boolean): string {
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><meta name="format-detection" content="telephone=no,date=no,address=no,email=no"/><style>
     *{box-sizing:border-box}
     html{margin:0;padding:0}
-    body{margin:0;padding:0 16px 16px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.5;background:${safeBg};color:${safeText};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch}
-    #content{outline:0;min-height:200px;padding-top:0}
-    #content h1{font-size:26px;font-weight:700;margin:0 0 6px 0;padding:0;line-height:1.25}
+    body{margin:0;padding:0 16px 16px 16px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5;background:${NOTE_PAGE_BG};color:${NOTE_PAGE_TEXT};min-height:100vh;-webkit-user-select:auto;user-select:auto;-webkit-overflow-scrolling:touch;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    #content{outline:0;min-height:200px;padding-top:0;overflow-wrap:break-word;word-wrap:break-word;word-break:break-word}
+    #content h1{font-size:2em;font-weight:700;margin:0.67em 0 0.4em;padding:0;line-height:1.25;color:${NOTE_PAGE_TEXT}}
     #content h1:empty:before{content:attr(data-placeholder);color:gray;font-weight:700}
-    #content p{margin:0 0 4px 0;font-size:16px;font-weight:400;line-height:1.5}
-    #content>div{margin:0 0 4px 0;font-size:16px;font-weight:400;line-height:1.5}
-    #content ul,#content ol{margin:4px 0;padding-left:20px}
+    #content p,#content>div{margin:8px 0;font-size:16px;font-weight:400;line-height:1.5;color:${NOTE_PAGE_TEXT}}
+    #content a{color:#2563eb;overflow-wrap:break-word;word-break:break-word}
+    #content ul,#content ol{margin:8px 0;padding-left:20px}
     #content ul ul,#content ol ol,#content ul ol,#content ol ul{margin:2px 0;padding-left:16px}
-    #content li{margin:2px 0;padding-left:0}
-    #content blockquote{margin:8px 0;padding:4px 0 4px 16px;border-left:3px solid ${safeText}40;color:${safeText}99}
+    #content li{margin:2px 0;padding-left:0;line-height:1.5}
+    #content blockquote{margin:8px 0;padding:4px 0 4px 16px;border-left:3px solid #11111140;color:#11111199}
     #content [style*="margin-left"]{display:block}
     table{border-collapse:collapse;width:100%;margin:8px 0}
-    td,th{border:1px solid ${safeText}40;padding:8px}
-    ${draftEditorFeaturesCss(safeBg, isDarkMode)}
-    ${darkModeBlackTextFix}
+    td,th{border:1px solid #11111140;padding:8px}
+    ${draftEditorFeaturesCss(NOTE_PAGE_BG, isDarkMode)}
   </style></head><body><div id="content" contenteditable="true"><h1 data-placeholder="Title"></h1><p><br></p></div>
   <script>${DRAFT_EDITOR_SCRIPT}</script></body></html>`;
 }
@@ -1657,6 +1643,30 @@ export default function DraftEditScreen() {
     }
   }, [filename]);
 
+  const runNoteExportDocx = useCallback(async () => {
+    setEditorMenuVisible(false);
+    if (!draftId || isNaN(draftId)) return;
+    const title = stripExtension(currentFilenameRef.current || filename) || 'Note';
+    try {
+      await handleSave(contentHtmlRef.current, true);
+      let id = draftId;
+      if (draftsCache.isLocalDraftId(id)) {
+        const serverId = await trySyncLocalDraft();
+        if (!serverId) {
+          Alert.alert(
+            'Not available offline',
+            'Connect to the internet to download this note as a Word document.'
+          );
+          return;
+        }
+        id = serverId;
+      }
+      await exportDraftNoteDocx(id, title);
+    } catch (e: any) {
+      Alert.alert('Error', toAlertMessage(e?.message, 'Could not download Word document'));
+    }
+  }, [draftId, filename, handleSave, trySyncLocalDraft]);
+
   const insertTable = useCallback(() => {
     const script = `(function(){
       var el=document.getElementById('content');
@@ -1994,8 +2004,8 @@ export default function DraftEditScreen() {
   }, []);
 
   const webViewSource = useMemo(
-    () => ({ html: getRichEditorBaseHtml(colors.background || '#fff', colors.text || '#000', isDarkMode) }),
-    [colors.background, colors.text, isDarkMode]
+    () => ({ html: getRichEditorBaseHtml(isDarkMode) }),
+    [isDarkMode]
   );
 
   const dynamicStyles = useMemo(() => StyleSheet.create({
@@ -2404,11 +2414,12 @@ export default function DraftEditScreen() {
               onMessage={handleWebViewMessage}
               onScroll={toggleEnabled ? handleWebViewScrollRestoreHeader : undefined}
               scrollEventThrottle={toggleEnabled ? 16 : undefined}
-              style={[dynamicStyles.editor, { backgroundColor: colors.background, minHeight: 200 }]}
+              style={[dynamicStyles.editor, { backgroundColor: NOTE_PAGE_BG, minHeight: 200 }]}
               scrollEnabled={true}
               keyboardDisplayRequiresUserAction={false}
               nestedScrollEnabled
               hideKeyboardAccessoryView={true}
+              dataDetectorTypes="none"
               {...(Platform.OS === 'ios'
                 ? {
                     automaticallyAdjustContentInsets: false,
@@ -2417,7 +2428,7 @@ export default function DraftEditScreen() {
                 : {})}
             />
           ) : (
-            <View style={[dynamicStyles.editor, { backgroundColor: colors.background, minHeight: 200, justifyContent: 'center', alignItems: 'center' }]}>
+            <View style={[dynamicStyles.editor, { backgroundColor: NOTE_PAGE_BG, minHeight: 200, justifyContent: 'center', alignItems: 'center' }]}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
           )}
@@ -3042,6 +3053,10 @@ export default function DraftEditScreen() {
               <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={() => void runNoteExport('pdf')}>
                 <Ionicons name="document-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
                 <Text style={dynamicStyles.popoverItemText}>Export as PDF</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]} onPress={() => void runNoteExportDocx()}>
+                <Ionicons name="download-outline" size={20} color={colors.text} style={dynamicStyles.popoverItemIcon} />
+                <Text style={dynamicStyles.popoverItemText}>Download as Word</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[dynamicStyles.popoverItem, dynamicStyles.popoverItemBorder]}

@@ -28,7 +28,10 @@ export interface ChatTurn {
 
 export interface PlanFileLinkRow {
   file_id?: number;
+  /** Display name. Backend sends `original_filename`; mobile maps that onto `name`. */
   name?: string;
+  original_filename?: string;
+  filename?: string;
   view_path?: string;
   download_path?: string;
 }

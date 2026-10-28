@@ -50,9 +50,18 @@ export function getReachParticipantDisplayName(
   return localPart || email || '';
 }
 
+/**
+ * URLSearchParams and Expo query strings encode spaces as '+'.
+ * useLocalSearchParams() does not turn '+' back into a space, so HMS would
+ * show "GrabDocs+Francis" unless we decode at the param boundary.
+ */
+export function decodeFormEncodedDisplayName(raw: string): string {
+  return String(raw).replace(/\+/g, ' ');
+}
+
 /** Trim, bound length, strip control chars, collapse whitespace — empty means unusable. */
 export function sanitizeReachDisplayName(raw: string): string {
-  return raw
+  return decodeFormEncodedDisplayName(raw)
     .trim()
     .slice(0, 100)
     .replace(/[\u0000-\u001F\u007F]/g, '')

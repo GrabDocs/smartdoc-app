@@ -20,6 +20,7 @@ import { buildPlanFromHistoryRow } from '../utils/formatPlanPreview';
 import {
     buildGateQueue,
     formatPlanPreview,
+    normalizePlanFileLinks,
     isCompletedHistoryStatus,
     isPendingHistoryStatus,
     parseAiFmTelemetry,
@@ -180,7 +181,7 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
           role: 'assistant',
           content: preview,
           planPreview: preview,
-          planFileLinks: res.plan?.file_links,
+          planFileLinks: normalizePlanFileLinks(res.plan?.file_links),
         },
       ]);
 
@@ -524,7 +525,7 @@ export function useAiFileManager(options: UseAiFileManagerOptions) {
           role: 'assistant' as const,
           content: preview,
           planPreview: preview,
-          planFileLinks: restoredPlan.file_links,
+          planFileLinks: normalizePlanFileLinks(restoredPlan.file_links),
         },
       ]);
 

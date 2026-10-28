@@ -317,9 +317,17 @@ export function formatUserFacingPlanMessage(plan: Record<string, unknown>): stri
   const isReadOnlyFileMatch =
     ops.length === 0 && totalCount > 0 && namesFromPlan.length > 0 && !planHasFileMutations(plan);
 
+  const intentRaw = typeof plan.intent_type === 'string' ? plan.intent_type.toLowerCase() : '';
+  const links = plan.file_links as Array<{ original_filename?: string; name?: string }> | undefined;
+  const hasStructuredLinks =
+    Array.isArray(links) &&
+    links.length > 0 &&
+    (intentRaw === 'open' || intentRaw === 'download');
+
   const stratified = plan.resolved_files_preview_stratified as unknown[] | undefined;
   let sampleBlock = '';
-  if (isReadOnlyFileMatch) {
+  // Open/download plans already render tappable file chips — skip the duplicate bullet list.
+  if (!hasStructuredLinks && isReadOnlyFileMatch) {
     const shown = namesFromPlan.length;
     const listedAll = shown >= totalCount;
     const heading = listedAll
@@ -331,7 +339,7 @@ export function formatUserFacingPlanMessage(plan: Record<string, unknown>): stri
       tail = `\n\n… ${totalCount - shown} more not listed here (preview is limited to ${shown} file(s) in chat). Use the Files panel to browse or narrow your filters.`;
     }
     sampleBlock = `${heading}\n${lines.join('\n')}${tail}`;
-  } else if (Array.isArray(stratified) && stratified.length > 0) {
+  } else if (!hasStructuredLinks && Array.isArray(stratified) && stratified.length > 0) {
     const maxSample = 12;
     const sampleLines = stratified.slice(0, maxSample).map((row: unknown) => {
       if (row && typeof row === 'object' && 'original_filename' in row) {
@@ -350,18 +358,11 @@ export function formatUserFacingPlanMessage(plan: Record<string, unknown>): stri
 
   const matchingBlock = formatMatchingExplanation(plan);
 
-  const intentRaw = typeof plan.intent_type === 'string' ? plan.intent_type.toLowerCase() : '';
-  const links = plan.file_links as Array<{ original_filename?: string }> | undefined;
-  const hasStructuredLinks =
-    Array.isArray(links) &&
-    links.length > 0 &&
-    (intentRaw === 'open' || intentRaw === 'download');
-
   const footer =
     ops.length > 0
       ? '\n\nUse Run to apply, or adjust your request.'
       : hasStructuredLinks
-        ? '\n\nRead-only preview — use View (side panel) or Download on the buttons below each file.'
+        ? '\n\nTap a file below to view or download.'
         : intentRaw === 'open' || intentRaw === 'download'
           ? '\n\nRead-only preview — nothing to apply. Adjust your request if you want a different scope.'
           : '\n\nThis was a read-only preview — nothing to apply. Adjust your request if you want a different scope.';

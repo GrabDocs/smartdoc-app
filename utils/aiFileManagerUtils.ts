@@ -1,9 +1,31 @@
-import type { AiFmPlanPayload, GateType, PlanResponse } from '../types/aiFileManager';
+import type { AiFmPlanPayload, GateType, PlanFileLinkRow, PlanResponse } from '../types/aiFileManager';
 import { formatUserFacingPlanMessage } from './formatPlanPreview';
 
 export function formatPlanPreview(plan?: AiFmPlanPayload | null): string {
   if (!plan) return 'No plan details available.';
   return formatUserFacingPlanMessage(plan as Record<string, unknown>);
+}
+
+/** Backend file_links use `original_filename`; PlanFileLinks expects `name`. */
+export function normalizePlanFileLinks(raw: unknown): PlanFileLinkRow[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: PlanFileLinkRow[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const r = item as Record<string, unknown>;
+    const id = Number(r.file_id);
+    if (!Number.isFinite(id)) continue;
+    const name =
+      String(r.name || r.original_filename || r.filename || '').trim() || `File ${id}`;
+    out.push({
+      file_id: id,
+      name,
+      original_filename: name,
+      view_path: typeof r.view_path === 'string' ? r.view_path : undefined,
+      download_path: typeof r.download_path === 'string' ? r.download_path : undefined,
+    });
+  }
+  return out.length ? out : undefined;
 }
 
 /** Rebuild gate queue from latest /plan response — replace only, never merge. */

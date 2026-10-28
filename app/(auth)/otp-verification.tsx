@@ -22,7 +22,6 @@ import { navigateTabsThenDefaultHome, resolveDefaultHomeWebPath } from '../../ut
 import { useAuth } from '../context/auth';
 import deviceSecurityService from '../../services/deviceSecurity';
 
-import AppBackButton from '../../components/AppBackButton';
 
 interface OtpVerificationParams {
   username: string;
@@ -105,11 +104,27 @@ export default function OtpVerificationScreen() {
   const [trustDevice, setTrustDevice] = useState(
     params.rememberDevice === 'true' || params.rememberDevice === true
   );
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const hiddenInputRef = useRef<TextInput>(null);
   const cursorAnim = useRef(new Animated.Value(1)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const needsKeyboardRestoreRef = useRef(false);
+
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   // Blinking cursor animation
   useEffect(() => {
@@ -442,15 +457,13 @@ export default function OtpVerificationScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={styles.content}>
-        <View style={styles.header}>
-          <AppBackButton />
-        </View>
-
-        <View style={styles.iconContainer}>
-          <View style={styles.iconWrapper}>
-            <Ionicons name={getMethodIcon()} size={40} color={Colors.primary} />
+        {!keyboardVisible ? (
+          <View style={styles.iconContainer}>
+            <View style={styles.iconWrapper}>
+              <Ionicons name={getMethodIcon()} size={40} color={Colors.primary} />
+            </View>
           </View>
-        </View>
+        ) : null}
 
         <Text style={styles.title}>Enter Verification Code</Text>
         <Text style={styles.subtitle}>
@@ -579,21 +592,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'center',
-  },
-  header: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    right: 20,
-    zIndex: 1,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   iconContainer: {
     alignItems: 'center',

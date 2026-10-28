@@ -35,7 +35,7 @@ import { formatDateToLocal } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
-import { shareDocumentFile, prefetchShareDocumentFile } from '../../utils/shareDocumentFile';
+import { shareDocumentFile, prefetchShareDocumentFile, shareOptionsForFileKind } from '../../utils/shareDocumentFile';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
@@ -369,7 +369,7 @@ export default function BookmarkDetailScreen() {
     event?.stopPropagation?.();
     setSelectedDocumentForMenu(document);
     setShowKebabMenu(true);
-    prefetchShareDocumentFile(document.id, document.name);
+    prefetchShareDocumentFile(document.id, document.name, shareOptionsForFileKind(document.file_kind));
   };
 
   const handleViewDocument = () => {
@@ -394,7 +394,7 @@ export default function BookmarkDetailScreen() {
     if (!selectedDocumentForMenu) return;
     const doc = selectedDocumentForMenu;
     setShowKebabMenu(false);
-    void shareDocumentFile(doc.id, doc.name).catch((error: unknown) => {
+    void shareDocumentFile(doc.id, doc.name, shareOptionsForFileKind(doc.file_kind)).catch((error: unknown) => {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to share document');
     });
   };

@@ -36,6 +36,12 @@ async function shareHtmlFallback(title: string, html: string): Promise<void> {
 
 export type NoteExportResult = 'native' | 'html-fallback';
 
+/** Download the note as Word (.docx) via the backend converter and open the share sheet. */
+export async function exportDraftNoteDocx(fileId: number, title: string): Promise<void> {
+  const { shareDocumentFile } = await import('./shareDocumentFile');
+  await shareDocumentFile(fileId, title || 'Note', { fallbackExtension: 'docx' });
+}
+
 /** System print dialog (includes "Save as PDF"); falls back to sharing printable HTML. */
 export async function printDraftNote(title: string, bodyHtml: string): Promise<NoteExportResult> {
   const html = buildPrintableNoteHtml(title, bodyHtml);

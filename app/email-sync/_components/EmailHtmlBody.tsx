@@ -198,6 +198,10 @@ body{padding:${plain ? '0 0 4px' : '10px 10px 12px'};font:${fontPx}px/1.55 -appl
 img,video,svg,canvas{max-width:100%!important;height:auto!important;background:transparent!important}
 table{max-width:100%!important}
 td,th,p,div,li,span,a{word-wrap:break-word;overflow-wrap:anywhere}
+/* Outlook/Word uses <p>/MsoNormal with margin:0 in a <style> we do not keep.
+   WebKit then applies ~1em p margins, so blank-line spacers look huge. */
+#gd-fit p,#gd-fit h1,#gd-fit h2,#gd-fit h3,#gd-fit h4,#gd-fit h5,#gd-fit h6,#gd-fit pre,#gd-fit blockquote{margin:0}
+#gd-fit ul,#gd-fit ol{margin:0.35em 0 0.35em 1.25em;padding:0}
 pre,code{white-space:pre-wrap!important;word-break:break-word!important}
 #gd-fit{display:block;width:100%;max-width:100%;vertical-align:top}
 #gd-fit .gd-quote-ellipsis{display:flex;align-items:center;justify-content:flex-start;width:32px;height:28px;margin:8px 0 2px;padding:0;border:0!important;background:transparent!important;color:${fg}!important;cursor:pointer;-webkit-appearance:none;appearance:none}

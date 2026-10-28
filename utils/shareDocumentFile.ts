@@ -97,6 +97,44 @@ function inferMimeFromMagic(bytes: Uint8Array | null): string | null {
   return null;
 }
 
+const OFFICE_ZIP_EXT = new Set(['docx', 'xlsx', 'pptx', 'odt', 'ods', 'odp']);
+
+/** Notes are stored without an extension; Fill/Share used to default them to .pdf. */
+function extensionFromMagic(extension: string, magic: Uint8Array | null): string {
+  const detected = inferMimeFromMagic(magic);
+  if (detected === 'application/pdf') return 'pdf';
+  if (detected === 'application/zip') {
+    if (OFFICE_ZIP_EXT.has(extension)) return extension;
+    return 'docx';
+  }
+  return extension || 'bin';
+}
+
+function mimeForShare(extension: string, magic: Uint8Array | null): string {
+  const detected = inferMimeFromMagic(magic);
+  if (detected === 'application/pdf' || detected === 'image/png' || detected === 'image/jpeg') {
+    return detected;
+  }
+  if (detected === 'application/zip') {
+    const office = mimeTypeFromExtension(extensionFromMagic(extension, magic));
+    if (office !== 'application/octet-stream') return office;
+  }
+  return mimeTypeFromExtension(extension);
+}
+
+function utiForMime(mime: string): string | undefined {
+  if (mime === 'application/pdf') return 'com.adobe.pdf';
+  if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+    return 'org.openxmlformats.wordprocessingml.document';
+  }
+  if (mime === 'application/msword') return 'com.microsoft.word.doc';
+  return undefined;
+}
+
+export function shareOptionsForFileKind(fileKind?: string | null): { fallbackExtension: string } | undefined {
+  return (fileKind || '').toLowerCase() === 'draft' ? { fallbackExtension: 'docx' } : undefined;
+}
+
 function looksLikeErrorPayload(bytes: Uint8Array | null, extension?: string): boolean {
   if (!bytes || bytes.length < 1) return true;
   const first = bytes[0];
@@ -128,9 +166,11 @@ async function presentShareSheet(localUri: string, shareMime: string, displayNam
     sharingAvailableCache = await Sharing.isAvailableAsync();
   }
   if (sharingAvailableCache) {
+    const uti = utiForMime(shareMime);
     try {
       await Sharing.shareAsync(localUri, {
         mimeType: shareMime,
+        ...(uti ? { UTI: uti } : {}),
         dialogTitle: `Share ${displayName}`,
       });
       return;
@@ -186,9 +226,23 @@ async function readValidCachedShare(
       await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
       return null;
     }
+    const resolvedExt = extensionFromMagic(extension, magicBytes);
+    let uri = localUri;
+    if (resolvedExt && !uri.toLowerCase().endsWith(`.${resolvedExt}`)) {
+      const nextUri = `${uri.replace(/\.[a-z0-9]{2,8}$/i, '')}.${resolvedExt}`;
+      if (nextUri !== uri) {
+        try {
+          await FileSystem.deleteAsync(nextUri, { idempotent: true });
+          await FileSystem.moveAsync({ from: uri, to: nextUri });
+          uri = nextUri;
+        } catch {
+          uri = localUri;
+        }
+      }
+    }
     return {
-      localUri,
-      mimeType: inferMimeFromMagic(magicBytes) ?? mimeTypeFromExtension(extension),
+      localUri: uri,
+      mimeType: mimeForShare(resolvedExt, magicBytes),
       displayName,
     };
   } catch {

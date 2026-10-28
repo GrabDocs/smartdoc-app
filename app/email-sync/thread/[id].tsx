@@ -367,6 +367,8 @@ export default function EmailThreadScreen() {
   /** AI summary and custom instructions. Collapsed once a reply exists so the letter fills the screen. */
   const [aiDetailsOpen, setAiDetailsOpen] = useState(true);
   const [threadCollapsedForCompose, setThreadCollapsedForCompose] = useState(false);
+  /** Measured message-list height so a short thread does not leave a gap above the AI card. */
+  const [threadContentH, setThreadContentH] = useState(0);
   const [grabdocsResearchOn, setGrabdocsResearchOn] = useState(false);
   const [replyTone, setReplyTone] = useState<ReplyTone>(DEFAULT_REPLY_TONE);
   const [replyAll, setReplyAll] = useState(false);
@@ -430,6 +432,7 @@ export default function EmailThreadScreen() {
     setThreadStackExpanded(false);
     setOpenMessageIds([]);
     setAiDetailsOpen(true);
+    setThreadContentH(0);
     setComposing(false);
     setCcOpen(false);
     setBccOpen(false);
@@ -1450,7 +1453,7 @@ export default function EmailThreadScreen() {
         ? `AI · ${aiRequestCount} items · ${toneLabel}`
         : `AI · ${toneLabel}`;
   const aiCardCollapsed = !isNewCompose && !aiDetailsOpen && !aiCardOpen;
-  const composeFill = composeFullscreen || threadCollapsedForCompose;
+  const composeFill = isNewCompose || composeFullscreen || threadCollapsedForCompose;
   const showDraftPeek =
     Platform.OS !== 'web' && !!draft && !composing && !isNewCompose && !dismissed && !fullscreenMessage;
   const draftPeekText = (() => {
@@ -1518,13 +1521,17 @@ export default function EmailThreadScreen() {
   }, [threadReading]);
 
   useEffect(() => {
-    if (threadReading) return;
+    // A new draft has no thread to collapse. The peek would only show "Conversation".
+    if (threadReading || isNewCompose) {
+      setThreadCollapsedForCompose(false);
+      return;
+    }
     if (composeFullscreen || (composing && keyboardOpen)) {
       setThreadCollapsedForCompose(true);
       return;
     }
     setThreadCollapsedForCompose(false);
-  }, [composeFullscreen, composing, keyboardOpen, threadReading]);
+  }, [composeFullscreen, composing, keyboardOpen, threadReading, isNewCompose]);
 
   useEffect(() => {
     if (keyboardOpen) return;
@@ -1821,7 +1828,7 @@ export default function EmailThreadScreen() {
         ref={rootRef}
         collapsable={false}
         onLayout={onRootLayout}
-        style={{ flex: 1, paddingBottom: kbInset }}
+        style={{ flex: 1, paddingBottom: kbInset, backgroundColor: colors.background }}
       >
         {fullscreenMessage ? (
           <View style={[styles.header, { paddingTop: 6 }]}>
@@ -1959,7 +1966,7 @@ export default function EmailThreadScreen() {
               />
             </View>
           </View>
-        ) : threadCollapsedForCompose ? (
+        ) : isNewCompose ? null : threadCollapsedForCompose ? (
           <TouchableOpacity
             style={styles.sectionPeek}
             onPress={() => {
@@ -1976,16 +1983,25 @@ export default function EmailThreadScreen() {
             </Text>
           </TouchableOpacity>
         ) : (
-        <View style={{ flex: 1, minHeight: 0 }}>
+        <View
+          style={
+            threadContentH > 0
+              ? { flexGrow: 0, flexShrink: 1, flexBasis: threadContentH, minHeight: 0 }
+              : { flex: 1, minHeight: 0 }
+          }
+        >
         <ScrollView
           style={{
             flex: 1,
             backgroundColor: colors.background,
           }}
           contentContainerStyle={{
-            flexGrow: 1,
             paddingTop: 8,
             paddingBottom: 16,
+          }}
+          onContentSizeChange={(_, h) => {
+            const next = Math.ceil(h);
+            setThreadContentH((prev) => (Math.abs(prev - next) > 1 ? next : prev));
           }}
           keyboardShouldPersistTaps="handled"
           pinchGestureEnabled={false}
@@ -2624,6 +2640,10 @@ export default function EmailThreadScreen() {
             </View>
           ) : null}
           </View>
+        ) : null}
+
+        {!fullscreenMessage && !composeFill ? (
+          <View style={{ flexGrow: 1, flexShrink: 1, minHeight: 0 }} />
         ) : null}
 
         {undo && undoLeft > 0 ? (

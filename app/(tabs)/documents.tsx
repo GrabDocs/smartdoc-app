@@ -68,7 +68,7 @@ import {
 import { removeFileExtension } from '../../utils/fileUtils';
 import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { mapFileRowToDocument } from '../../utils/mapFileRowToDocument';
-import { prefetchShareDocumentFile, shareDocumentFile } from '../../utils/shareDocumentFile';
+import { prefetchShareDocumentFile, shareDocumentFile, shareOptionsForFileKind } from '../../utils/shareDocumentFile';
 import { scaleStyleObject } from '../../utils/styleUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../components/TapToToggleHeaderView';
@@ -2018,7 +2018,7 @@ export default function QuickFilesScreen() {
     setSelectedDocumentForMenu(document);
     setShowKebabMenu(true);
     // Warm the share cache while the user reads the menu — Share sheet opens immediately on tap.
-    prefetchShareDocumentFile(document.id, document.name);
+    prefetchShareDocumentFile(document.id, document.name, shareOptionsForFileKind(document.file_kind));
   };
 
   const handleViewDocument = async () => {
@@ -2079,7 +2079,7 @@ export default function QuickFilesScreen() {
     if (!selectedDocumentForMenu) return;
     const doc = selectedDocumentForMenu;
     setShowKebabMenu(false);
-    void shareDocumentFile(doc.id, doc.name).catch((error: unknown) => {
+    void shareDocumentFile(doc.id, doc.name, shareOptionsForFileKind(doc.file_kind)).catch((error: unknown) => {
       Alert.alert('Error', error instanceof Error ? error.message : 'Failed to share document');
     });
   };
