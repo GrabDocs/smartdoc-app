@@ -26,6 +26,9 @@ export interface FileRowModel {
   id: number;
   filename?: string;
   original_filename?: string;
+  storage_filename?: string;
+  uploaded_original_filename?: string;
+  is_editable_text?: boolean;
   file_size?: number;
   file_kind?: string;
   file_type?: string;

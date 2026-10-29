@@ -81,6 +81,8 @@ import AppHeaderTitle from '../../components/AppHeaderTitle';
 interface Document {
   id: string;
   name: string;
+  filename?: string;
+  file_type?: string;
   type: string; // Now supports more specific types like 'docx', 'xlsx', 'pptx', 'txt', etc.
   size: string;
   uploadDate: Date;
@@ -94,6 +96,9 @@ interface Document {
   is_global?: boolean; // File is global (available across workspaces)
   json_data?: Record<string, unknown> | null; // Store json_data to check if store name is populated
   original_filename?: string;
+  storage_filename?: string;
+  uploaded_original_filename?: string;
+  is_editable_text?: boolean;
   user_id?: number; // File owner's user ID
   /** Workspace list: row opens bookmark detail instead of a file */
   listKind?: 'file' | 'bookmark';
@@ -109,6 +114,9 @@ interface ApiDocument {
   id: number;
   original_filename: string;
   filename?: string;
+  storage_filename?: string;
+  uploaded_original_filename?: string;
+  is_editable_text?: boolean;
   file_size: number;
   file_type?: string;
   created_at: string;
@@ -145,17 +153,20 @@ type FilterOption =
   | 'shared';
 
 // Helper to check if a file is editable as Draft (text-like formats)
-function isEditableTextFormat(file: Document | { original_filename?: string; filename?: string; file_kind?: string }): boolean {
-  const name = file?.original_filename || (file as any)?.filename || '';
-  const ext = name.toLowerCase().substring(name.lastIndexOf('.'));
-  const excluded = ['.pdf', '.zip', '.exe', '.dll', '.bin'];
+function isEditableTextFormat(file: Document | { original_filename?: string; filename?: string; file_kind?: string; file_type?: string; storage_filename?: string; uploaded_original_filename?: string; is_editable_text?: boolean }): boolean {
+  if ((file as any)?.is_editable_text === true) return true;
+  const names = [
+    file?.original_filename,
+    (file as any)?.filename,
+    (file as any)?.storage_filename,
+    (file as any)?.uploaded_original_filename,
+  ].filter(Boolean) as string[];
   const editable = ['.txt', '.doc', '.docx', '.md', '.log', '.csv', '.json'];
-  if (excluded.includes(ext)) return false;
-  if (editable.includes(ext)) return true;
-  // Also check file_kind - Draft files are editable
+  if (names.some((name) => editable.includes(name.toLowerCase().substring(name.lastIndexOf('.'))))) return true;
+  const mime = ((file as any)?.file_type || '').toLowerCase();
+  if (mime.includes('wordprocessing') || mime === 'application/msword' || mime.startsWith('text/')) return true;
   const fk = (file as any)?.file_kind?.toLowerCase();
-  if (fk === 'draft') return true;
-  return false;
+  return fk === 'draft';
 }
 
 /** True when API marks a bookmark as locked (handles 0/1 and string flags). */
@@ -1406,6 +1417,11 @@ export default function QuickFilesScreen() {
                 is_global: doc.is_global,
                 json_data: doc.json_data,
                 original_filename: doc.original_filename || doc.filename,
+                filename: doc.filename,
+                storage_filename: doc.storage_filename,
+                uploaded_original_filename: doc.uploaded_original_filename,
+                is_editable_text: doc.is_editable_text,
+                file_type: doc.file_type || doc.mime_type,
                 user_id: doc.user_id ?? (doc as any).owner?.id,
               };
             });
@@ -4164,15 +4180,11 @@ export default function QuickFilesScreen() {
               </TouchableOpacity>
             )}
 
-            {/* Edit as Draft: for editable text files (not Forms, not PDFs) */}
+            {/* Edit as Note: original Word/text uploads, including converted PDF previews */}
             {(() => {
               const doc = selectedDocumentForMenu;
               if (!doc) return false;
-              // Must be editable format
               if (!isEditableTextFormat(doc)) return false;
-              // Not a Form
-              const fk = doc.file_kind?.toLowerCase();
-              if (fk === 'form') return false;
               // Must be processed (not pending/processing)
               if (doc.status === 'processing' || doc.status === 'pending') return false;
               // User must be owner or have edit access (if user_id matches, they're owner)

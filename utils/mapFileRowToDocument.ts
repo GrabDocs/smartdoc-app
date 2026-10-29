@@ -14,6 +14,11 @@ export interface MappedDocumentRow {
   category?: string;
   file_kind?: string;
   original_filename?: string;
+  filename?: string;
+  storage_filename?: string;
+  uploaded_original_filename?: string;
+  is_editable_text?: boolean;
+  file_type?: string;
   user_id?: number;
   in_locked_bookmark?: boolean;
 }
@@ -48,6 +53,11 @@ export function mapFileRowToDocument(
     tags: [],
     file_kind: doc.file_kind,
     original_filename: originalName,
+    filename: doc.filename,
+    storage_filename: doc.storage_filename || doc.filename,
+    uploaded_original_filename: doc.uploaded_original_filename,
+    is_editable_text: doc.is_editable_text,
+    file_type: doc.file_type,
     in_locked_bookmark: doc.in_locked_bookmark,
   };
 }

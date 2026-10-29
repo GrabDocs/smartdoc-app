@@ -137,13 +137,34 @@ function sharedSearchText(item: SharedItem): string {
     .toLowerCase();
 }
 
+function normalizeSearch(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[\u00a0\u202f\u2007\u2009\u200a\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function linkSearchText(link: SharedLink): string {
-  const fileNames = link.files.map((file) => file.name).join(' ');
-  const access = link.general_access === 'anyone' ? 'anyone with the link' : 'sign-in required';
+  const fileNames = (link.files || []).map((file) => file.name || '').join(' ');
   const phone = link.phone_verification_required
-    ? `phone verification ${link.phone_number || ''}`
-    : 'no phone verification';
-  return [fileNames, link.role, access, phone, link.status, link.share_url].join(' ').toLowerCase();
+    ? `Phone verification ${link.phone_number || ''}`
+    : 'No phone verification';
+  const expires = link.expires_at ? `Expires ${formatWhen(link.expires_at)}` : 'No expiration';
+  const activity = activityLabel(activityCount(link.view_count), activityCount(link.download_count));
+  return normalizeSearch(
+    [
+      fileNames,
+      link.role,
+      accessLabel(link.general_access),
+      phone,
+      `Created ${formatWhen(link.created_at)}`,
+      expires,
+      link.status,
+      activity,
+      link.share_url || '',
+    ].join(' ')
+  );
 }
 
 export default function FilesSharedSection() {
@@ -474,9 +495,9 @@ export default function FilesSharedSection() {
     });
   }, [exitShare]);
 
-  const query = search.trim().toLowerCase();
+  const query = normalizeSearch(search);
   const visibleShared = useMemo(
-    () => (query ? sharedItems.filter((item) => sharedSearchText(item).includes(query)) : sharedItems),
+    () => (query ? sharedItems.filter((item) => normalizeSearch(sharedSearchText(item)).includes(query)) : sharedItems),
     [sharedItems, query]
   );
   const visibleLinks = useMemo(
@@ -545,8 +566,11 @@ export default function FilesSharedSection() {
           </Text>
           <Text style={[styles.meta, { color: colors.textSecondary }]}>
             {activityLabel(activityCount(item.view_count), activityCount(item.download_count))}
+            {' · '}
+            <Text style={{ color: statusColor, fontWeight: '600', textTransform: 'capitalize' }}>
+              {item.status}
+            </Text>
           </Text>
-          <Text style={[styles.status, { color: statusColor }]}>{item.status}</Text>
         </View>
         <TouchableOpacity
           style={styles.kebab}
@@ -739,7 +763,6 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, minWidth: 0 },
   fileLink: { fontSize: 16, fontWeight: '600', textDecorationLine: 'underline' },
   meta: { marginTop: 4, fontSize: 13, lineHeight: 18 },
-  status: { marginTop: 6, fontSize: 13, fontWeight: '600', textTransform: 'capitalize' },
   kebab: { padding: 4, marginLeft: 8 },
   loader: { marginTop: 32 },
   empty: { textAlign: 'center', marginTop: 32, fontSize: 15, lineHeight: 22, paddingHorizontal: 12 },

@@ -664,6 +664,7 @@ export default function ShareAccessSheet({ visible, adapter, onClose, listedFile
                     if (!emails.length) throw new Error('Enter at least one email address.');
                     await adapter!.sendLinkEmail!(emails);
                     setEmailDraft('');
+                    showCopyNote('Sent');
                   })
                 }
               >
