@@ -1,8 +1,12 @@
 import {
+  adjustManualTotal,
+  buildOriginalCapture,
   computeReceiptTotal,
   discoverCapturedExtras,
   extraClearPayload,
+  lineContribution,
   lineMerchandiseAmount,
+  originalCaptureFromSource,
   parseMoney,
   printedTotalFromSource,
 } from '../receiptTotalCalculation';
@@ -204,5 +208,59 @@ describe('receipt total calculation', () => {
     });
     expect(extras).toEqual([]);
     expect(parseMoney('$12.50')).toBe(12.5);
+  });
+
+  test('manual mode subtracts an item contribution without touching extras', () => {
+    const tax = discoverCapturedExtras({ tax: 3 })[0];
+    const before = computeReceiptTotal({
+      items: [
+        { name: 'A', quantity: 1, price: 20 },
+        { name: 'B', quantity: 1, price: 30 },
+      ],
+      extras: [tax],
+      printedTotal: 53,
+      includeRemainder: true,
+    });
+    expect(before.displayTotal).toBe(53);
+    expect(lineContribution({ name: 'B', quantity: 1, price: 30 })).toBe(30);
+    expect(adjustManualTotal('53.00', -30)).toBe('23.00');
+    expect(adjustManualTotal('53.00', 15)).toBe('68.00');
+  });
+
+  test('item-specific tax is included in the incremental contribution', () => {
+    expect(lineContribution({ name: 'A', quantity: 1, price: 10, tax_amount: 0.8 })).toBe(10.8);
+    expect(adjustManualTotal('20.00', -10.8)).toBe('9.20');
+  });
+
+  test('editing price or quantity adjusts by the contribution difference', () => {
+    const oldAmount = lineContribution({ name: 'A', quantity: 1, price: 10 });
+    const newPrice = lineContribution({ name: 'A', quantity: 1, price: 12 });
+    const newQty = lineContribution({ name: 'A', quantity: 2, price: 10 });
+    expect(adjustManualTotal('13.00', newPrice - oldAmount)).toBe('15.00');
+    expect(adjustManualTotal('13.00', newQty - oldAmount)).toBe('23.00');
+  });
+
+  test('original capture snapshot is restored as stored, never overwritten by later totals', () => {
+    const source = {
+      original_capture: {
+        items: [{ name: 'A', price: 20 }],
+        extras: [{ key: 'tax', label: 'Tax', group: 'tax', amount: 3 }],
+        printed_total: 53,
+        total_amount: '53.00',
+        store_name: 'Cafe',
+        date: '2026-10-01',
+        category: 'Meals and Entertainment',
+        auto_calculate: false,
+      },
+      total_amount: '75.00',
+      items: [{ name: 'A', price: 40 }],
+    };
+    const snap = originalCaptureFromSource(source);
+    expect(snap?.total_amount).toBe('53.00');
+    expect(snap?.printed_total).toBe(53);
+    expect(snap?.items).toEqual([{ name: 'A', price: 20 }]);
+    const rebuilt = buildOriginalCapture(snap!);
+    expect(rebuilt.total_amount).toBe('53.00');
+    expect(rebuilt.auto_calculate).toBe(false);
   });
 });

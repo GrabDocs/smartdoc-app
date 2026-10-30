@@ -7,7 +7,6 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -16,19 +15,24 @@ import {
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import {
+  adjustManualTotal,
   autoCalculateFromSource,
+  buildOriginalCapture,
   computeReceiptTotal,
   discoverCapturedExtras,
   editorLineToCalc,
   extraClearPayload,
   extrasToSavePayload,
   formatMoney,
+  lineContribution,
+  originalCaptureFromSource,
   parseMoney,
   parseOptionalMoney,
-  remainderFromSource,
   printedTotalFromSource,
+  remainderFromSource,
   RECEIPT_CALC_META,
   type ReceiptCapturedExtra,
+  type ReceiptOriginalCapture,
 } from '../../utils/receiptTotalCalculation';
 import ClientsButton from '../clients/ClientsButton';
 import { FeedbackTouchable } from '../FeedbackTouchable';
@@ -159,7 +163,7 @@ function normalizeLineItems(raw: unknown): ReceiptLineItem[] {
   });
 }
 
-function extractLineItems(file: any): ReceiptLineItem[] {
+function rawLineItemsFromFile(file: any): unknown[] {
   const j = file?.json_data;
   const nested =
     j?.receipt_data != null && typeof j.receipt_data === 'object'
@@ -176,7 +180,19 @@ function extractLineItems(file: any): ReceiptLineItem[] {
     nested?.line_items ||
     file?.items ||
     [];
-  return normalizeLineItems(raw);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function extractLineItems(file: any): ReceiptLineItem[] {
+  return normalizeLineItems(rawLineItemsFromFile(file));
+}
+
+function contributionOf(item: ReceiptLineItem): number {
+  return lineContribution(editorLineToCalc(item));
+}
+
+function extrasToEdit(extras: ReceiptCapturedExtra[]): ExtraEdit[] {
+  return extras.map((extra) => ({ ...extra, amount: formatMoney(extra.amount) }));
 }
 
 function getStoreName(file: any, type: 'receipt' | 'invoice'): string {
@@ -285,6 +301,7 @@ export default function ReceiptEditSheet({
   const [remainderOverride, setRemainderOverride] = useState<number | null>(null);
   const [itemsExpanded, setItemsExpanded] = useState(false);
   const [autoCalculate, setAutoCalculate] = useState(false);
+  const [originalCapture, setOriginalCapture] = useState<ReceiptOriginalCapture | null>(null);
   const [datePickerValue, setDatePickerValue] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -311,35 +328,73 @@ export default function ReceiptEditSheet({
     setForm((f) => (f.total_amount === next ? f : { ...f, total_amount: next }));
   }, [autoCalculate, calc.displayTotal]);
 
-  const applyItems = useCallback((nextItems: ReceiptLineItem[]) => {
+  const applyItems = useCallback((nextItems: ReceiptLineItem[], delta = 0) => {
     setItems(nextItems);
-    setRemainderOverride(null);
-  }, []);
+    if (autoCalculate) {
+      setRemainderOverride(null);
+      return;
+    }
+    if (delta) {
+      setForm((f) => ({ ...f, total_amount: adjustManualTotal(f.total_amount, delta) }));
+    }
+  }, [autoCalculate]);
 
   const applyExtras = useCallback((nextExtras: ExtraEdit[]) => {
     setExtras(nextExtras);
+    if (autoCalculate) setRemainderOverride(null);
+  }, [autoCalculate]);
+
+  const applySnapshot = useCallback((snap: ReceiptOriginalCapture) => {
+    setItems(normalizeLineItems(snap.items));
+    setExtras(extrasToEdit(snap.extras || []));
+    setPrintedTotal(snap.printed_total == null ? '' : formatMoney(snap.printed_total));
     setRemainderOverride(null);
+    setAutoCalculate(Boolean(snap.auto_calculate));
+    setForm((f) => ({
+      ...f,
+      store_name: snap.store_name || f.store_name,
+      total_amount: snap.total_amount || '',
+      date: snap.date || f.date,
+      category: snap.category || f.category || 'Uncategorized',
+    }));
+    const parsed = snap.date ? parseLocalDateString(snap.date) : null;
+    if (parsed && !Number.isNaN(parsed.getTime())) setDatePickerValue(parsed);
   }, []);
 
   const hydrate = useCallback((file: any, type: 'receipt' | 'invoice') => {
     const dateStr = getEditDateString(file, type);
     const source = file?.json_data ?? file;
     const capturedPrinted = printedTotalFromSource(source);
+    const storeName = getStoreName(file, type);
+    const totalAmount = getAmountString(file);
+    const category = getCategory(file) || 'Uncategorized';
+    const discoveredExtras = discoverCapturedExtras(source);
+    const snapshot =
+      originalCaptureFromSource(source) ||
+      buildOriginalCapture({
+        items: rawLineItemsFromFile(file),
+        extras: discoveredExtras,
+        printed_total: capturedPrinted,
+        total_amount: totalAmount,
+        store_name: storeName,
+        date: dateStr,
+        category,
+        auto_calculate: autoCalculateFromSource(source),
+      });
     setForm({
-      store_name: getStoreName(file, type),
-      total_amount: getAmountString(file),
+      store_name: storeName,
+      total_amount: totalAmount,
       date: dateStr,
-      category: getCategory(file) || 'Uncategorized',
+      category,
     });
     setItems(extractLineItems(file));
-    setExtras(
-      discoverCapturedExtras(source).map((extra) => ({ ...extra, amount: formatMoney(extra.amount) }))
-    );
+    setExtras(extrasToEdit(discoveredExtras));
     setExtrasSource(source);
     setPrintedTotal(capturedPrinted == null ? '' : formatMoney(capturedPrinted));
     setRemainderOverride(remainderFromSource(source));
     setItemsExpanded(false);
     setAutoCalculate(autoCalculateFromSource(source));
+    setOriginalCapture(snapshot);
     const parsed = dateStr ? parseLocalDateString(dateStr) : null;
     setDatePickerValue(parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date());
   }, []);
@@ -406,7 +461,11 @@ export default function ReceiptEditSheet({
         [RECEIPT_CALC_META.calculatedTotal]: calc.calculatedBeforeRemainder,
         [RECEIPT_CALC_META.remainder]: calc.remainder,
         [RECEIPT_CALC_META.autoCalculate]: autoCalculate,
+        [RECEIPT_CALC_META.manualTotal]: autoCalculate ? form.total_amount : totalAmount,
       };
+      if (originalCapture) {
+        correctionData[RECEIPT_CALC_META.originalCapture] = originalCapture;
+      }
       if (editType === 'receipt') {
         correctionData.store_name = form.store_name || undefined;
         correctionData.date = form.date ? localDateStringToUTCISO(form.date) : undefined;
@@ -452,7 +511,56 @@ export default function ReceiptEditSheet({
   };
 
   const updateItem = (key: string, field: keyof Omit<ReceiptLineItem, 'key'>, value: string) => {
-    applyItems(items.map((item) => (item.key === key ? { ...item, [field]: value } : item)));
+    const current = items.find((item) => item.key === key);
+    if (!current) return;
+    const nextItem: ReceiptLineItem = {
+      ...current,
+      [field]: value,
+      ...(field === 'quantity' ? { useExtended: false } : {}),
+    };
+    const delta = contributionOf(nextItem) - contributionOf(current);
+    applyItems(
+      items.map((item) => (item.key === key ? nextItem : item)),
+      delta
+    );
+  };
+
+  const removeItem = (key: string) => {
+    const current = items.find((item) => item.key === key);
+    applyItems(
+      items.filter((item) => item.key !== key),
+      current ? -contributionOf(current) : 0
+    );
+  };
+
+  const addItem = () => {
+    setItemsExpanded(true);
+    applyItems([...items, emptyLineItem()], 0);
+  };
+
+  const requestAutoCalculate = () => {
+    if (autoCalculate) {
+      setAutoCalculate(false);
+      return;
+    }
+    Alert.alert('Recalculate Confirmation', 'Recalculate receipt?\n\nThis will recalculate the total using the current receipt items and captured amounts.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Proceed',
+        onPress: () => {
+          setRemainderOverride(null);
+          setAutoCalculate(true);
+        },
+      },
+    ]);
+  };
+
+  const requestRestoreOriginal = () => {
+    if (!originalCapture) return;
+    Alert.alert('Restore Original Confirmation', 'Restore original receipt?\n\nThis will discard your changes and restore the receipt to its original scanned state.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Restore', style: 'destructive', onPress: () => applySnapshot(originalCapture) },
+    ]);
   };
 
   const sheetVisible = visible && !showDatePicker;
@@ -519,10 +627,7 @@ export default function ReceiptEditSheet({
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => {
-                      setItemsExpanded(true);
-                      applyItems([...items, emptyLineItem()]);
-                    }}
+                    onPress={addItem}
                     accessibilityRole="button"
                     accessibilityLabel="Add item"
                     style={styles.addItemBtn}
@@ -532,20 +637,33 @@ export default function ReceiptEditSheet({
                 </View>
                 {itemsExpanded ? (
                   <View style={[styles.itemsBody, { borderColor: colors.border }]}>
-                    <View style={styles.autoCalcRow}>
-                      <Text style={[styles.autoCalcLabel, { color: colors.text }]}>Auto-calculate</Text>
-                      <Switch
-                        value={autoCalculate}
-                        onValueChange={(on) => {
-                          setAutoCalculate(on);
-                          if (on) {
-                            setForm((f) => ({ ...f, total_amount: formatMoney(calc.displayTotal) }));
-                          }
-                        }}
-                        trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
-                        thumbColor={colors.switchThumbAndroid(autoCalculate)}
-                        ios_backgroundColor={colors.switchTrackOff}
-                      />
+                    <View style={styles.optionRow}>
+                      <TouchableOpacity
+                        onPress={requestAutoCalculate}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: autoCalculate }}
+                        accessibilityLabel="Auto-calculate"
+                        style={styles.autoCalcCheck}
+                      >
+                        <Ionicons
+                          name={autoCalculate ? 'checkbox' : 'square-outline'}
+                          size={18}
+                          color={autoCalculate ? colors.primary : colors.textSecondary}
+                        />
+                        <Text style={[styles.autoCalcCheckLabel, { color: colors.text }]} numberOfLines={1}>
+                          Auto-calculate
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={requestRestoreOriginal}
+                        accessibilityRole="button"
+                        accessibilityLabel="Restore original"
+                        style={[styles.restoreBtn, { borderColor: colors.border, backgroundColor: colors.surface }]}
+                      >
+                        <Text style={[styles.restoreBtnText, { color: colors.text }]} numberOfLines={1}>
+                          Restore Original
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                     {items.length === 0 ? (
                       <Text style={[styles.emptyItems, { color: colors.textLight }]}>No line items captured</Text>
@@ -577,7 +695,7 @@ export default function ReceiptEditSheet({
                               placeholderTextColor={colors.textLight}
                             />
                             <TouchableOpacity
-                              onPress={() => applyItems(items.filter((row) => row.key !== item.key))}
+                              onPress={() => removeItem(item.key)}
                               accessibilityRole="button"
                               accessibilityLabel="Remove item"
                               style={styles.removeItemBtn}
@@ -605,7 +723,7 @@ export default function ReceiptEditSheet({
                 ) : null}
               </View>
 
-              {extras.length || (calc.remainder != null && calc.remainder !== 0) ? (
+              {extras.length || (autoCalculate && calc.remainder != null && calc.remainder !== 0) ? (
                 <View style={styles.row}>
                   {extras.map((extra) => (
                     <View key={extra.key} style={styles.extraRow}>
@@ -634,7 +752,7 @@ export default function ReceiptEditSheet({
                       </TouchableOpacity>
                     </View>
                   ))}
-                  {calc.remainder != null && calc.remainder !== 0 ? (
+                  {autoCalculate && calc.remainder != null && calc.remainder !== 0 ? (
                     <View style={styles.extraRow}>
                       <Text style={[styles.extraLabel, { color: colors.text }]}>Unclassified</Text>
                       <TextInput
@@ -888,15 +1006,35 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 10,
   },
-  autoCalcRow: {
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
     marginBottom: 10,
   },
-  autoCalcLabel: {
-    fontSize: 13,
+  autoCalcCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    minWidth: 0,
+  },
+  autoCalcCheckLabel: {
+    fontSize: 12,
     fontWeight: '500',
+  },
+  restoreBtn: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restoreBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   emptyItems: {
     fontSize: 13,

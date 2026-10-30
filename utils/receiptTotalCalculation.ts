@@ -173,7 +173,60 @@ export const RECEIPT_CALC_META = {
   calculatedTotal: 'calculated_total',
   remainder: 'unclassified_remainder',
   autoCalculate: 'auto_calculate',
+  manualTotal: 'manual_total',
+  originalCapture: 'original_capture',
 } as const;
+
+export type ReceiptOriginalCapture = {
+  items: unknown[];
+  extras: ReceiptCapturedExtra[];
+  printed_total: number | null;
+  total_amount: string;
+  store_name: string;
+  date: string;
+  category: string;
+  auto_calculate: boolean;
+};
+
+export function originalCaptureFromSource(raw: unknown): ReceiptOriginalCapture | null {
+  const src = sourceObject(raw);
+  const snap = src.original_capture ?? src.originalCapture;
+  if (!isPlainObject(snap)) return null;
+  const extras = Array.isArray(snap.extras) ? (snap.extras as ReceiptCapturedExtra[]) : [];
+  return {
+    items: Array.isArray(snap.items) ? snap.items : [],
+    extras: extras.map((extra) => ({
+      key: String(extra.key || ''),
+      label: String(extra.label || extra.key || ''),
+      group: extra.group,
+      amount: parseMoney(extra.amount),
+    })),
+    printed_total: parseOptionalMoney(snap.printed_total),
+    total_amount:
+      snap.total_amount == null || snap.total_amount === ''
+        ? ''
+        : typeof snap.total_amount === 'number'
+          ? formatMoney(snap.total_amount)
+          : String(snap.total_amount),
+    store_name: snap.store_name == null ? '' : String(snap.store_name),
+    date: snap.date == null ? '' : String(snap.date),
+    category: snap.category ? String(snap.category) : 'Uncategorized',
+    auto_calculate: snap.auto_calculate === true || snap.auto_calculate === 'true',
+  };
+}
+
+export function buildOriginalCapture(input: ReceiptOriginalCapture): ReceiptOriginalCapture {
+  return {
+    items: Array.isArray(input.items) ? input.items.map((item) => (isPlainObject(item) ? { ...item } : item)) : [],
+    extras: (input.extras || []).map((extra) => ({ ...extra, amount: parseMoney(extra.amount) })),
+    printed_total: input.printed_total,
+    total_amount: input.total_amount || '',
+    store_name: input.store_name || '',
+    date: input.date || '',
+    category: input.category || 'Uncategorized',
+    auto_calculate: Boolean(input.auto_calculate),
+  };
+}
 
 export function printedTotalFromSource(raw: unknown): number | null {
   const src = sourceObject(raw);
@@ -331,4 +384,15 @@ export function extrasToSavePayload(extras: ReceiptCapturedExtra[]): Record<stri
     out[extra.key] = extra.amount;
   }
   return out;
+}
+
+/** Line merchandise plus item-specific tax. Used for incremental manual adjustments. */
+export function lineContribution(item: ReceiptCalcLineItem): number {
+  const merch = lineMerchandiseAmount(item);
+  const tax = lineItemTax(item, merch);
+  return roundMoney(merch + tax);
+}
+
+export function adjustManualTotal(current: unknown, delta: number): string {
+  return formatMoney(parseMoney(current) + delta);
 }
