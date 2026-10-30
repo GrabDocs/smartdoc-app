@@ -23,6 +23,7 @@ import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { truncateAppHeaderTitle } from '../../utils/chatTitleDisplay';
 import DocumentViewer from '../../components/DocumentViewer';
+import ReceiptEditSheet from '../../components/receipts/ReceiptEditSheet';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import FileNameText from '../../components/FileNameText';
 import { useScrollRestoresHeaderProps } from '../../contexts/HeaderVisibilityContext';
@@ -35,7 +36,6 @@ import { formatDateToLocal } from '../../utils/timeFormatting';
 import { screenCache } from '../../utils/screenCache';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { createFileShareAdapter } from '../../components/share/fileShareAdapter';
-import { shareDocumentFile, prefetchShareDocumentFile, shareOptionsForFileKind } from '../../utils/shareDocumentFile';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../../utils/dialogSurfaceStyles';
 import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
@@ -100,9 +100,8 @@ export default function BookmarkDetailScreen() {
   const [showKebabMenu, setShowKebabMenu] = useState(false);
   const [accessShare, setAccessShare] = useState<{ id: number; name: string } | null>(null);
   const [selectedDocumentForMenu, setSelectedDocumentForMenu] = useState<Document | null>(null);
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showReceiptEditSheet, setShowReceiptEditSheet] = useState(false);
   const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
-  const [categorizingReceipt, setCategorizingReceipt] = useState(false);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState(false);
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameInputValue, setRenameInputValue] = useState('');
@@ -112,11 +111,6 @@ export default function BookmarkDetailScreen() {
   const [togglingLock, setTogglingLock] = useState(false);
   const [addingFiles, setAddingFiles] = useState(false);
 
-  const receiptCategories = [
-    'Uncategorized', 'Advertising', 'Supplies', 'Professional Services', 'Personal',
-    'Rent and Lease', 'Education and Training', 'Cars and Truck', 'Travel', 'Office Expenses',
-    'Meals and Entertainment', 'Contractors', 'Employee Benefit', 'Banking', 'Other Expenses'
-  ];
   const paymentStatuses = ['Paid', 'Unpaid', 'Partial'];
 
   // Edit form state
@@ -369,7 +363,6 @@ export default function BookmarkDetailScreen() {
     event?.stopPropagation?.();
     setSelectedDocumentForMenu(document);
     setShowKebabMenu(true);
-    prefetchShareDocumentFile(document.id, document.name, shareOptionsForFileKind(document.file_kind));
   };
 
   const handleViewDocument = () => {
@@ -389,16 +382,6 @@ export default function BookmarkDetailScreen() {
     setAccessShare({ id, name: doc.name });
   };
 
-  /** Send/export a copy. Not an access change. */
-  const handleSendCopy = () => {
-    if (!selectedDocumentForMenu) return;
-    const doc = selectedDocumentForMenu;
-    setShowKebabMenu(false);
-    void shareDocumentFile(doc.id, doc.name, shareOptionsForFileKind(doc.file_kind)).catch((error: unknown) => {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to share document');
-    });
-  };
-
   const handleChatDocument = () => {
     if (!selectedDocumentForMenu) return;
     openChatGD({
@@ -408,30 +391,10 @@ export default function BookmarkDetailScreen() {
     setShowKebabMenu(false);
   };
 
-  const handleCategorizeReceipt = () => {
+  const handleEditReceipt = () => {
     if (!selectedDocumentForMenu) return;
     setShowKebabMenu(false);
-    setShowCategoryModal(true);
-  };
-
-  const handleSelectCategory = async (category: string) => {
-    if (!selectedDocumentForMenu) return;
-    setCategorizingReceipt(true);
-    try {
-      const response = await apiClient.categorizeReceipt(parseInt(selectedDocumentForMenu.id), category);
-      if (response.success) {
-        Alert.alert('Success', `Receipt categorized as "${category}"`);
-        setFiles(prev => prev.map(f => f.id === selectedDocumentForMenu.id ? { ...f, category } : f));
-        setShowCategoryModal(false);
-        setSelectedDocumentForMenu(null);
-      } else {
-        Alert.alert('Error', response.message || 'Failed to categorize receipt');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to categorize receipt');
-    } finally {
-      setCategorizingReceipt(false);
-    }
+    setShowReceiptEditSheet(true);
   };
 
   const handleUpdatePaymentStatus = () => {
@@ -1267,9 +1230,9 @@ export default function BookmarkDetailScreen() {
               <Text style={dynamicStyles.kebabMenuText}>View</Text>
             </TouchableOpacity>
             {selectedDocumentForMenu && isReceipt(selectedDocumentForMenu) && (
-              <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleCategorizeReceipt}>
-                <Ionicons name="pricetag-outline" size={20} color="#FF9500" />
-                <Text style={dynamicStyles.kebabMenuText}>Categorize</Text>
+              <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleEditReceipt}>
+                <Ionicons name="create-outline" size={20} color="#007AFF" />
+                <Text style={dynamicStyles.kebabMenuText}>Edit</Text>
               </TouchableOpacity>
             )}
             {selectedDocumentForMenu && isInvoice(selectedDocumentForMenu) && (
@@ -1281,10 +1244,6 @@ export default function BookmarkDetailScreen() {
             <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleShareDocument}>
               <Ionicons name="share-outline" size={20} color="#10B981" />
               <Text style={dynamicStyles.kebabMenuText}>Share</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleSendCopy}>
-              <Ionicons name="download-outline" size={20} color="#10B981" />
-              <Text style={dynamicStyles.kebabMenuText}>Send a copy</Text>
             </TouchableOpacity>
             <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleChatDocument}>
               <Ionicons name="chatbubble-outline" size={20} color="#4F46E5" />
@@ -1315,31 +1274,16 @@ export default function BookmarkDetailScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <AdaptiveListPickerModal
-        visible={showCategoryModal}
-        onClose={() => setShowCategoryModal(false)}
-        title="Select Category"
-        itemCount={receiptCategories.length}
-        footer={
-          categorizingReceipt ? (
-            <View style={dynamicStyles.categoryModalLoading}>
-              <ActivityIndicator size="large" color="#007AFF" />
-            </View>
-          ) : null
-        }
-      >
-        {receiptCategories.map((category) => (
-          <TouchableOpacity
-            key={category}
-            style={dynamicStyles.categoryModalItem}
-            onPress={() => handleSelectCategory(category)}
-            disabled={categorizingReceipt}
-          >
-            <Text style={dynamicStyles.categoryItemText}>{category}</Text>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </TouchableOpacity>
-        ))}
-      </AdaptiveListPickerModal>
+      <ReceiptEditSheet
+        visible={showReceiptEditSheet}
+        fileId={selectedDocumentForMenu ? parseInt(selectedDocumentForMenu.id, 10) : null}
+        fileKind="receipt"
+        onClose={() => setShowReceiptEditSheet(false)}
+        onSaved={() => {
+          if (detailCacheKey) screenCache.invalidate(detailCacheKey);
+          loadBookmarkDetails(true);
+        }}
+      />
 
       <AdaptiveListPickerModal
         visible={showPaymentStatusModal}

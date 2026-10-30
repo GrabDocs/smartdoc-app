@@ -42,6 +42,7 @@ import LoadingDots from '../../components/LoadingDots';
 import MeetingAssetTabs from '../../components/meeting/MeetingAssetTabs';
 import { buildRecapAskAndShare, parseNumericId } from '../../components/meeting/meetingRecapTypes';
 import QuickFormViewer from '../../components/QuickFormViewer';
+import ReceiptEditSheet from '../../components/receipts/ReceiptEditSheet';
 import { createFileSetShareAdapter, createFileShareAdapter } from '../../components/share/fileShareAdapter';
 import ShareAccessSheet from '../../components/share/ShareAccessSheet';
 import { AI_FM_ICON_COLOR } from '../../constants/aiFileManagerHelp';
@@ -68,7 +69,6 @@ import {
 import { removeFileExtension } from '../../utils/fileUtils';
 import { extractLimitErrorData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { mapFileRowToDocument } from '../../utils/mapFileRowToDocument';
-import { prefetchShareDocumentFile, shareDocumentFile, shareOptionsForFileKind } from '../../utils/shareDocumentFile';
 import { scaleStyleObject } from '../../utils/styleUtils';
 import { AnimatedHeaderContainer } from '../components/AnimatedHeaderContainer';
 import { TapToToggleHeaderView } from '../components/TapToToggleHeaderView';
@@ -354,9 +354,7 @@ export default function QuickFilesScreen() {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [selectedDocumentForMenu, setSelectedDocumentForMenu] = useState<Document | null>(null);
   
-  // Category selection modal states
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [categorizingReceipt, setCategorizingReceipt] = useState(false);
+  const [showReceiptEditSheet, setShowReceiptEditSheet] = useState(false);
   
   // Payment status selection modal states
   const [showPaymentStatusModal, setShowPaymentStatusModal] = useState(false);
@@ -366,25 +364,6 @@ export default function QuickFilesScreen() {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameInputValue, setRenameInputValue] = useState('');
   const [renaming, setRenaming] = useState(false);
-  
-  // Receipt categories (must match backend validation)
-  const receiptCategories = [
-    'Uncategorized',
-    'Advertising',
-    'Supplies',
-    'Professional Services',
-    'Personal',
-    'Rent and Lease',
-    'Education and Training',
-    'Cars and Truck',
-    'Travel',
-    'Office Expenses',
-    'Meals and Entertainment',
-    'Contractors',
-    'Employee Benefit',
-    'Banking',
-    'Other Expenses'
-  ];
   
   // Invoice payment statuses (must match backend validation)
   const paymentStatuses = [
@@ -405,6 +384,7 @@ export default function QuickFilesScreen() {
   const [newBookmarkName, setNewBookmarkName] = useState('');
   const [newBookmarkColor, setNewBookmarkColor] = useState('#007AFF');
   const [creatingBookmark, setCreatingBookmark] = useState(false);
+  const [creatingNote, setCreatingNote] = useState(false);
   const bookmarkColors = ['#007AFF', '#34C759', '#FF9500', '#FF3B30', '#AF52DE', '#5856D6', '#8E44AD', '#E74C3C'];
 
   // Make Global (workspace visibility) state
@@ -2033,8 +2013,6 @@ export default function QuickFilesScreen() {
 
     setSelectedDocumentForMenu(document);
     setShowKebabMenu(true);
-    // Warm the share cache while the user reads the menu — Share sheet opens immediately on tap.
-    prefetchShareDocumentFile(document.id, document.name, shareOptionsForFileKind(document.file_kind));
   };
 
   const handleViewDocument = async () => {
@@ -2088,16 +2066,6 @@ export default function QuickFilesScreen() {
       .filter((file) => Number.isFinite(file.id));
     if (!files.length) return;
     setAccessShareFiles(files);
-  };
-
-  /** Send/export a copy. Not an access change. */
-  const handleSendCopy = () => {
-    if (!selectedDocumentForMenu) return;
-    const doc = selectedDocumentForMenu;
-    setShowKebabMenu(false);
-    void shareDocumentFile(doc.id, doc.name, shareOptionsForFileKind(doc.file_kind)).catch((error: unknown) => {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to share document');
-    });
   };
 
   const handleDeleteDocument = () => {
@@ -2216,37 +2184,10 @@ export default function QuickFilesScreen() {
     setShowKebabMenu(false);
   };
   
-  const handleCategorizeReceipt = () => {
+  const handleEditReceipt = () => {
     if (!selectedDocumentForMenu) return;
     setShowKebabMenu(false);
-    setShowCategoryModal(true);
-  };
-  
-  const handleSelectCategory = async (category: string) => {
-    if (!selectedDocumentForMenu) return;
-    
-    setCategorizingReceipt(true);
-    try {
-      const response = await apiClient.categorizeReceipt(parseInt(selectedDocumentForMenu.id), category);
-      if (response.success) {
-        Alert.alert('Success', `Receipt categorized as "${category}"`);
-        // Update the document in the local state
-        setDocuments(prev => prev.map(doc => 
-          doc.id === selectedDocumentForMenu.id ? { ...doc, category } : doc
-        ));
-        setShowCategoryModal(false);
-        setSelectedDocumentForMenu(null);
-        // Reload documents to get updated data
-        loadDocuments(true);
-      } else {
-        Alert.alert('Error', response.message || 'Failed to categorize receipt');
-      }
-    } catch (error) {
-      console.error('Error categorizing receipt:', error);
-      Alert.alert('Error', 'Failed to categorize receipt');
-    } finally {
-      setCategorizingReceipt(false);
-    }
+    setShowReceiptEditSheet(true);
   };
   
   const handleUpdatePaymentStatus = () => {
@@ -2387,7 +2328,7 @@ export default function QuickFilesScreen() {
 
   const handleEditAsDraft = async () => {
     const doc = selectedDocumentForMenu;
-    if (!doc) return;
+    if (!doc || creatingNote) return;
 
     // If it's already a Draft, navigate to edit
     if (doc.file_kind?.toLowerCase() === 'draft') {
@@ -2407,18 +2348,21 @@ export default function QuickFilesScreen() {
       Alert.alert('File Processing', 'Please wait for the file to finish processing before editing as Note.');
       return;
     }
-    
+
+    setShowKebabMenu(false);
+    setCreatingNote(true);
     try {
       const res = await apiClient.createDraft(Number(doc.id));
       if ((res as any)?.success && (res as any)?.draft?.id) {
         const draftId = (res as any).draft.id;
-        setShowKebabMenu(false);
         router.push(`/drafts/edit/${draftId}`);
       } else {
         Alert.alert('Error', toAlertMessage((res as any)?.message, 'Failed to create Note'));
       }
     } catch (e: any) {
       Alert.alert('Error', toAlertMessage(e?.response?.data?.message ?? e?.message, 'Failed to create Note'));
+    } finally {
+      setCreatingNote(false);
     }
   };
 
@@ -4097,14 +4041,13 @@ export default function QuickFilesScreen() {
               </TouchableOpacity>
             )}
             
-            {/* Show Categorize option for receipts - check file_kind */}
             {selectedDocumentForMenu?.file_kind?.toLowerCase() === 'receipt' && (
               <TouchableOpacity
                 style={dynamicStyles.kebabMenuItem}
-                onPress={handleCategorizeReceipt}
+                onPress={handleEditReceipt}
               >
-                <Ionicons name="pricetag-outline" size={20} color="#FF9500" />
-                <Text style={dynamicStyles.kebabMenuText}>Categorize</Text>
+                <Ionicons name="create-outline" size={20} color="#007AFF" />
+                <Text style={dynamicStyles.kebabMenuText}>Edit</Text>
               </TouchableOpacity>
             )}
             
@@ -4128,11 +4071,6 @@ export default function QuickFilesScreen() {
               <Ionicons name="share-outline" size={20} color="#10B981" />
               <Text style={dynamicStyles.kebabMenuText}>Share</Text>
             </FeedbackTouchable>
-
-            <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleSendCopy}>
-              <Ionicons name="download-outline" size={20} color="#10B981" />
-              <Text style={dynamicStyles.kebabMenuText}>Send a copy</Text>
-            </TouchableOpacity>
 
             <TouchableOpacity
               style={dynamicStyles.kebabMenuItem}
@@ -4479,35 +4417,16 @@ export default function QuickFilesScreen() {
         </TouchableOpacity>
       </Modal>
       
-      {/* Category Selection Modal */}
-      <AdaptiveListPickerModal
-        visible={showCategoryModal}
-        onClose={() => setShowCategoryModal(false)}
-        title="Select Category"
-        itemCount={receiptCategories.length}
-        footer={
-          categorizingReceipt ? (
-            <View style={dynamicStyles.categoryModalLoading}>
-              <ActivityIndicator size="large" color="#007AFF" />
-            </View>
-          ) : null
-        }
-      >
-        {receiptCategories.map((category) => (
-          <FeedbackTouchable
-            key={category}
-            style={dynamicStyles.categoryModalItem}
-            onPress={() => handleSelectCategory(category)}
-            disabled={categorizingReceipt}
-            loading={categorizingReceipt}
-            replaceWithSpinner={false}
-            spinnerColor="#007AFF"
-          >
-            <Text style={dynamicStyles.categoryItemText}>{category}</Text>
-            <Ionicons name="chevron-forward" size={20} color="#999" />
-          </FeedbackTouchable>
-        ))}
-      </AdaptiveListPickerModal>
+      <ReceiptEditSheet
+        visible={showReceiptEditSheet}
+        fileId={selectedDocumentForMenu ? parseInt(selectedDocumentForMenu.id, 10) : null}
+        fileKind="receipt"
+        workspaceId={workspaceId}
+        onClose={() => setShowReceiptEditSheet(false)}
+        onSaved={() => {
+          loadDocuments(true);
+        }}
+      />
 
       {/* Payment Status Selection Modal */}
       <AdaptiveListPickerModal
@@ -4601,6 +4520,14 @@ export default function QuickFilesScreen() {
         items={sortMenuItems}
         onClose={() => setShowSortMenu(false)}
       />
+      <Modal visible={creatingNote} transparent animationType="fade" onRequestClose={() => {}}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' }}>
+          <View style={{ backgroundColor: colors.card, borderRadius: 12, paddingVertical: 20, paddingHorizontal: 24, alignItems: 'center', minWidth: 180 }}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={{ marginTop: 12, color: colors.text, fontSize: 16, fontWeight: '600' }}>Creating Note…</Text>
+          </View>
+        </View>
+      </Modal>
       <ShareAccessSheet
         visible={accessShareFiles != null && accessShareFiles.length > 0}
         adapter={

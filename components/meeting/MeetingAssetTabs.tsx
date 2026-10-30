@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ClientsButton from '../clients/ClientsButton';
 import { useOpenChatGD } from '../../contexts/ChatGDSheetContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -9,8 +9,6 @@ import { parseMeetingTranscript } from '../../utils/parseMeetingTranscript';
 import MeetingChatView from './MeetingChatView';
 import ShareAccessSheet from '../share/ShareAccessSheet';
 import { createFileShareAdapter } from '../share/fileShareAdapter';
-import { shareDocumentFile, shareTextContent } from '../../utils/shareDocumentFile';
-import { buildRecapShareMarkdown } from '../../utils/buildRecapShareMarkdown';
 import MeetingRecapView from './MeetingRecapView';
 import MeetingTranscriptView from './MeetingTranscriptView';
 import type {
@@ -98,12 +96,7 @@ export default function MeetingAssetTabs({
   }, [hero, extraSpeakers]);
 
   const canAsk = !!askContext && ((askContext.fileIds?.length || 0) + (askContext.transcriptIds?.length || 0) > 0);
-  const shareIds = [
-    shareFiles?.packFileId,
-    shareFiles?.summaryFileId,
-    shareFiles?.transcriptFileId,
-  ].filter((n): n is number => n != null && Number.isFinite(n));
-  const canShare = shareIds.length > 0 || !!summaryContent?.trim() || !!transcriptContent?.trim();
+  const canShare = accessFile != null;
 
   const handleAsk = () => {
     if (!canAsk || !askContext) return;
@@ -116,88 +109,6 @@ export default function MeetingAssetTabs({
       transcriptIds: transcriptIds.length ? transcriptIds.join(',') : undefined,
       chatPlaceholder: 'Ask about this meeting',
     });
-  };
-
-  /** Send/export a copy of the meeting file or text. Access changes use the share sheet. */
-  const shareOrFallback = async (
-    fileId: number | null | undefined,
-    displayName: string,
-    content?: string | null,
-    fallbackExtension = 'txt',
-  ) => {
-    if (fileId != null) {
-      try {
-        await shareDocumentFile(fileId, displayName, { fallbackExtension });
-        return;
-      } catch {
-        if (!content?.trim()) throw new Error('Could not download this file for sharing. Try again.');
-      }
-    }
-    if (content?.trim()) {
-      await shareTextContent(displayName, content, { extension: fallbackExtension });
-      return;
-    }
-    throw new Error('Could not download this file for sharing. Try again.');
-  };
-
-  const handleShare = async () => {
-    if (!canShare) return;
-    try {
-      const packId = shareFiles?.packFileId;
-      if (packId != null) {
-        try {
-          await shareDocumentFile(packId, shareFiles?.packFileName || 'Meeting recap', {
-            fallbackExtension: 'docx',
-          });
-          return;
-        } catch {
-          /* compose from loaded recap + transcript if the pack file cannot download */
-        }
-      }
-      const composed = buildRecapShareMarkdown({
-        hero: resolvedHero,
-        summaryContent,
-        transcriptContent,
-        enrichment,
-        meetingDurationSeconds,
-      });
-      if (composed.trim().length > 20) {
-        await shareTextContent(shareFiles?.packFileName || 'Meeting recap', composed, {
-          extension: 'txt',
-        });
-        return;
-      }
-      const summaryId = shareFiles?.summaryFileId;
-      const transcriptId = shareFiles?.transcriptFileId;
-      if (summaryId != null || summaryContent?.trim()) {
-        await shareOrFallback(
-          summaryId,
-          shareFiles?.summaryFileName || 'Meeting recap',
-          summaryContent,
-          'json',
-        );
-      } else {
-        await shareOrFallback(
-          transcriptId,
-          shareFiles?.transcriptFileName || 'Meeting recap',
-          transcriptContent,
-          'txt',
-        );
-        return;
-      }
-      if (transcriptId != null && transcriptId !== summaryId) {
-        await shareOrFallback(
-          transcriptId,
-          shareFiles?.transcriptFileName || 'Meeting transcript',
-          transcriptContent,
-          'txt',
-        );
-      } else if (transcriptContent?.trim() && summaryId != null && transcriptId == null) {
-        await shareOrFallback(null, shareFiles?.transcriptFileName || 'Meeting transcript', transcriptContent, 'txt');
-      }
-    } catch (error) {
-      Alert.alert('Share', error instanceof Error ? error.message : 'Failed to share recap');
-    }
   };
 
   return (
@@ -232,16 +143,10 @@ export default function MeetingAssetTabs({
         </View>
         {showHeaderActions && (canShare || canAsk) ? (
           <View style={styles.headerActions}>
-            {canShare && accessFile != null ? (
+            {canShare ? (
               <TouchableOpacity onPress={() => setAccessOpen(true)} style={styles.actionBtn} accessibilityLabel="Share">
                 <Ionicons name="share-outline" size={16} color={colors.textSecondary} />
                 <Text style={[styles.actionText, { color: colors.textSecondary }]}>Share</Text>
-              </TouchableOpacity>
-            ) : null}
-            {canShare ? (
-              <TouchableOpacity onPress={() => void handleShare()} style={styles.actionBtn} accessibilityLabel="Send a copy">
-                <Ionicons name="download-outline" size={16} color={colors.textSecondary} />
-                <Text style={[styles.actionText, { color: colors.textSecondary }]}>Send a copy</Text>
               </TouchableOpacity>
             ) : null}
             {canAsk ? (
