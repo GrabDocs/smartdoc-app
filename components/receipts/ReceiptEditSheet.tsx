@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,6 +15,21 @@ import {
 } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import {
+  autoCalculateFromSource,
+  computeReceiptTotal,
+  discoverCapturedExtras,
+  editorLineToCalc,
+  extraClearPayload,
+  extrasToSavePayload,
+  formatMoney,
+  parseMoney,
+  parseOptionalMoney,
+  remainderFromSource,
+  printedTotalFromSource,
+  RECEIPT_CALC_META,
+  type ReceiptCapturedExtra,
+} from '../../utils/receiptTotalCalculation';
 import ClientsButton from '../clients/ClientsButton';
 import { FeedbackTouchable } from '../FeedbackTouchable';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
@@ -53,7 +68,11 @@ export type ReceiptLineItem = {
   quantity: string;
   name: string;
   price: string;
+  taxAmount?: string;
+  useExtended?: boolean;
 };
+
+type ExtraEdit = Omit<ReceiptCapturedExtra, 'amount'> & { amount: string };
 
 function strTrim(v: unknown): string {
   if (v == null) return '';
@@ -108,20 +127,6 @@ function getValidDate(d: Date | undefined): Date {
   return new Date();
 }
 
-function parseMoney(v: unknown): number {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (typeof v === 'string') {
-    const n = parseFloat(v.replace(/[^0-9.-]/g, ''));
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-
-function formatMoney(n: number): string {
-  if (!Number.isFinite(n)) return '0.00';
-  return n.toFixed(2);
-}
-
 function newItemKey(): string {
   return `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -133,14 +138,23 @@ function emptyLineItem(): ReceiptLineItem {
 function normalizeLineItems(raw: unknown): ReceiptLineItem[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((item: any) => {
-    const qty = item?.quantity ?? item?.qty ?? 1;
+    const qtyRaw = item?.quantity ?? item?.qty ?? 1;
+    const qty = parseMoney(qtyRaw) || 1;
     const name = item?.name ?? item?.description ?? item?.item ?? '';
-    const price = item?.price ?? item?.amount ?? item?.total ?? item?.unit_price ?? 0;
+    const unit = item?.unit_price ?? item?.unitPrice;
+    const extended = item?.line_total ?? item?.lineTotal;
+    const useExtended = extended != null && extended !== '' && qty > 1;
+    const price = useExtended
+      ? extended
+      : (item?.price ?? item?.amount ?? item?.total ?? unit ?? 0);
+    const taxRaw = item?.tax_amount ?? item?.taxAmount ?? item?.tax;
     return {
       key: newItemKey(),
-      quantity: String(qty === '' || qty == null ? 1 : qty),
+      quantity: String(qtyRaw === '' || qtyRaw == null ? 1 : qtyRaw),
       name: strTrim(name),
       price: formatMoney(parseMoney(price)),
+      taxAmount: taxRaw == null || taxRaw === '' ? undefined : formatMoney(parseMoney(taxRaw)),
+      useExtended,
     };
   });
 }
@@ -163,14 +177,6 @@ function extractLineItems(file: any): ReceiptLineItem[] {
     file?.items ||
     [];
   return normalizeLineItems(raw);
-}
-
-function itemsTotal(items: ReceiptLineItem[]): number {
-  return items.reduce((sum, item) => {
-    const qty = parseMoney(item.quantity);
-    const price = parseMoney(item.price);
-    return sum + qty * price;
-  }, 0);
 }
 
 function getStoreName(file: any, type: 'receipt' | 'invoice'): string {
@@ -273,20 +279,52 @@ export default function ReceiptEditSheet({
     category: 'Uncategorized',
   });
   const [items, setItems] = useState<ReceiptLineItem[]>([]);
+  const [extras, setExtras] = useState<ExtraEdit[]>([]);
+  const [extrasSource, setExtrasSource] = useState<unknown>(null);
+  const [printedTotal, setPrintedTotal] = useState('');
+  const [remainderOverride, setRemainderOverride] = useState<number | null>(null);
   const [itemsExpanded, setItemsExpanded] = useState(false);
   const [autoCalculate, setAutoCalculate] = useState(false);
   const [datePickerValue, setDatePickerValue] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const applyItems = useCallback((nextItems: ReceiptLineItem[], calc: boolean) => {
+  const extrasForCalc: ReceiptCapturedExtra[] = useMemo(
+    () => extras.map((extra) => ({ ...extra, amount: parseMoney(extra.amount) })),
+    [extras]
+  );
+  const printedTotalNum = parseOptionalMoney(printedTotal);
+  const calc = useMemo(
+    () =>
+      computeReceiptTotal({
+        items: items.map(editorLineToCalc),
+        extras: extrasForCalc,
+        printedTotal: printedTotalNum,
+        includeRemainder: printedTotalNum != null,
+        remainderOverride,
+      }),
+    [items, extrasForCalc, printedTotalNum, remainderOverride]
+  );
+
+  useEffect(() => {
+    if (!autoCalculate) return;
+    const next = formatMoney(calc.displayTotal);
+    setForm((f) => (f.total_amount === next ? f : { ...f, total_amount: next }));
+  }, [autoCalculate, calc.displayTotal]);
+
+  const applyItems = useCallback((nextItems: ReceiptLineItem[]) => {
     setItems(nextItems);
-    if (calc) {
-      setForm((f) => ({ ...f, total_amount: formatMoney(itemsTotal(nextItems)) }));
-    }
+    setRemainderOverride(null);
+  }, []);
+
+  const applyExtras = useCallback((nextExtras: ExtraEdit[]) => {
+    setExtras(nextExtras);
+    setRemainderOverride(null);
   }, []);
 
   const hydrate = useCallback((file: any, type: 'receipt' | 'invoice') => {
     const dateStr = getEditDateString(file, type);
+    const source = file?.json_data ?? file;
+    const capturedPrinted = printedTotalFromSource(source);
     setForm({
       store_name: getStoreName(file, type),
       total_amount: getAmountString(file),
@@ -294,8 +332,14 @@ export default function ReceiptEditSheet({
       category: getCategory(file) || 'Uncategorized',
     });
     setItems(extractLineItems(file));
+    setExtras(
+      discoverCapturedExtras(source).map((extra) => ({ ...extra, amount: formatMoney(extra.amount) }))
+    );
+    setExtrasSource(source);
+    setPrintedTotal(capturedPrinted == null ? '' : formatMoney(capturedPrinted));
+    setRemainderOverride(remainderFromSource(source));
     setItemsExpanded(false);
-    setAutoCalculate(false);
+    setAutoCalculate(autoCalculateFromSource(source));
     const parsed = dateStr ? parseLocalDateString(dateStr) : null;
     setDatePickerValue(parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date());
   }, []);
@@ -338,17 +382,30 @@ export default function ReceiptEditSheet({
     try {
       const persistedItems = items
         .filter((item) => item.name.trim() || parseMoney(item.price) !== 0)
-        .map((item) => ({
-          quantity: parseMoney(item.quantity) || 1,
-          name: item.name.trim(),
-          price: parseMoney(item.price),
-        }));
-      const totalAmount = autoCalculate ? formatMoney(itemsTotal(items)) : form.total_amount;
+        .map((item) => {
+          const row: Record<string, unknown> = {
+            quantity: parseMoney(item.quantity) || 1,
+            name: item.name.trim(),
+            price: parseMoney(item.price),
+          };
+          if (item.useExtended) row.line_total = parseMoney(item.price);
+          if (item.taxAmount != null && item.taxAmount !== '') {
+            row.tax_amount = parseMoney(item.taxAmount);
+          }
+          return row;
+        });
+      const totalAmount = autoCalculate ? formatMoney(calc.displayTotal) : form.total_amount;
       const correctionData: Record<string, unknown> = {
         file_kind: editType,
         category: form.category || 'Uncategorized',
         items: persistedItems,
         total_amount: totalAmount || undefined,
+        ...extraClearPayload(extrasSource, extrasForCalc),
+        ...extrasToSavePayload(extrasForCalc),
+        [RECEIPT_CALC_META.printedTotal]: printedTotalNum,
+        [RECEIPT_CALC_META.calculatedTotal]: calc.calculatedBeforeRemainder,
+        [RECEIPT_CALC_META.remainder]: calc.remainder,
+        [RECEIPT_CALC_META.autoCalculate]: autoCalculate,
       };
       if (editType === 'receipt') {
         correctionData.store_name = form.store_name || undefined;
@@ -395,10 +452,7 @@ export default function ReceiptEditSheet({
   };
 
   const updateItem = (key: string, field: keyof Omit<ReceiptLineItem, 'key'>, value: string) => {
-    applyItems(
-      items.map((item) => (item.key === key ? { ...item, [field]: value } : item)),
-      autoCalculate
-    );
+    applyItems(items.map((item) => (item.key === key ? { ...item, [field]: value } : item)));
   };
 
   const sheetVisible = visible && !showDatePicker;
@@ -467,7 +521,7 @@ export default function ReceiptEditSheet({
                   <TouchableOpacity
                     onPress={() => {
                       setItemsExpanded(true);
-                      applyItems([...items, emptyLineItem()], autoCalculate);
+                      applyItems([...items, emptyLineItem()]);
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Add item"
@@ -485,7 +539,7 @@ export default function ReceiptEditSheet({
                         onValueChange={(on) => {
                           setAutoCalculate(on);
                           if (on) {
-                            setForm((f) => ({ ...f, total_amount: formatMoney(itemsTotal(items)) }));
+                            setForm((f) => ({ ...f, total_amount: formatMoney(calc.displayTotal) }));
                           }
                         }}
                         trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
@@ -497,44 +551,116 @@ export default function ReceiptEditSheet({
                       <Text style={[styles.emptyItems, { color: colors.textLight }]}>No line items captured</Text>
                     ) : (
                       items.map((item) => (
-                        <View key={item.key} style={styles.itemRow}>
-                          <TextInput
-                            style={[styles.input, styles.qtyInput, inputColors]}
-                            value={item.quantity}
-                            onChangeText={(t) => updateItem(item.key, 'quantity', t)}
-                            keyboardType="decimal-pad"
-                            placeholder="1"
-                            placeholderTextColor={colors.textLight}
-                          />
-                          <TextInput
-                            style={[styles.input, styles.nameInput, inputColors]}
-                            value={item.name}
-                            onChangeText={(t) => updateItem(item.key, 'name', t)}
-                            placeholder="Item"
-                            placeholderTextColor={colors.textLight}
-                          />
-                          <TextInput
-                            style={[styles.input, styles.priceInput, inputColors]}
-                            value={item.price}
-                            onChangeText={(t) => updateItem(item.key, 'price', t)}
-                            keyboardType="decimal-pad"
-                            placeholder="0.00"
-                            placeholderTextColor={colors.textLight}
-                          />
-                          <TouchableOpacity
-                            onPress={() => applyItems(items.filter((row) => row.key !== item.key), autoCalculate)}
-                            accessibilityRole="button"
-                            accessibilityLabel="Remove item"
-                            style={styles.removeItemBtn}
-                          >
-                            <Ionicons name="close" size={18} color="#EF4444" />
-                          </TouchableOpacity>
+                        <View key={item.key} style={styles.itemBlock}>
+                          <View style={styles.itemRow}>
+                            <TextInput
+                              style={[styles.input, styles.qtyInput, inputColors]}
+                              value={item.quantity}
+                              onChangeText={(t) => updateItem(item.key, 'quantity', t)}
+                              keyboardType="decimal-pad"
+                              placeholder="1"
+                              placeholderTextColor={colors.textLight}
+                            />
+                            <TextInput
+                              style={[styles.input, styles.nameInput, inputColors]}
+                              value={item.name}
+                              onChangeText={(t) => updateItem(item.key, 'name', t)}
+                              placeholder="Item"
+                              placeholderTextColor={colors.textLight}
+                            />
+                            <TextInput
+                              style={[styles.input, styles.priceInput, inputColors]}
+                              value={item.price}
+                              onChangeText={(t) => updateItem(item.key, 'price', t)}
+                              keyboardType="decimal-pad"
+                              placeholder="0.00"
+                              placeholderTextColor={colors.textLight}
+                            />
+                            <TouchableOpacity
+                              onPress={() => applyItems(items.filter((row) => row.key !== item.key))}
+                              accessibilityRole="button"
+                              accessibilityLabel="Remove item"
+                              style={styles.removeItemBtn}
+                            >
+                              <Ionicons name="close" size={18} color="#EF4444" />
+                            </TouchableOpacity>
+                          </View>
+                          {item.taxAmount != null ? (
+                            <View style={styles.itemTaxRow}>
+                              <Text style={[styles.extraLabel, { color: colors.textSecondary }]}>Item tax</Text>
+                              <TextInput
+                                style={[styles.input, styles.extraAmountInput, inputColors]}
+                                value={item.taxAmount}
+                                onChangeText={(t) => updateItem(item.key, 'taxAmount', t)}
+                                keyboardType="decimal-pad"
+                                placeholder="0.00"
+                                placeholderTextColor={colors.textLight}
+                              />
+                            </View>
+                          ) : null}
                         </View>
                       ))
                     )}
                   </View>
                 ) : null}
               </View>
+
+              {extras.length || (calc.remainder != null && calc.remainder !== 0) ? (
+                <View style={styles.row}>
+                  {extras.map((extra) => (
+                    <View key={extra.key} style={styles.extraRow}>
+                      <Text style={[styles.extraLabel, { color: colors.text }]}>{extra.label}</Text>
+                      <TextInput
+                        style={[styles.input, styles.extraAmountInput, inputColors]}
+                        value={extra.amount}
+                        onChangeText={(t) => {
+                          applyExtras(
+                            extras.map((row) =>
+                              row.key === extra.key ? { ...row, amount: t } : row
+                            )
+                          );
+                        }}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.textLight}
+                      />
+                      <TouchableOpacity
+                        onPress={() => applyExtras(extras.filter((row) => row.key !== extra.key))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${extra.label}`}
+                        style={styles.removeItemBtn}
+                      >
+                        <Ionicons name="close" size={18} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {calc.remainder != null && calc.remainder !== 0 ? (
+                    <View style={styles.extraRow}>
+                      <Text style={[styles.extraLabel, { color: colors.text }]}>Unclassified</Text>
+                      <TextInput
+                        style={[styles.input, styles.extraAmountInput, inputColors]}
+                        value={
+                          remainderOverride != null
+                            ? String(remainderOverride)
+                            : formatMoney(calc.remainder)
+                        }
+                        onChangeText={(t) => setRemainderOverride(parseMoney(t))}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={colors.textLight}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setRemainderOverride(0)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove unclassified amount"
+                        style={styles.removeItemBtn}
+                      >
+                        <Ionicons name="close" size={18} color="#EF4444" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
 
               <View style={styles.rowDateAmount}>
                 <View style={[styles.row, { flex: 1, paddingHorizontal: 0 }]}>
@@ -579,6 +705,20 @@ export default function ReceiptEditSheet({
                     editable={!autoCalculate}
                   />
                 </View>
+              </View>
+              <View style={styles.row}>
+                <Text style={[styles.label, { color: colors.text }]}>Printed total</Text>
+                <TextInput
+                  style={[styles.input, inputColors]}
+                  value={printedTotal}
+                  onChangeText={(t) => {
+                    setPrintedTotal(t);
+                    setRemainderOverride(null);
+                  }}
+                  placeholder="None"
+                  placeholderTextColor={colors.textLight}
+                  keyboardType="decimal-pad"
+                />
               </View>
               <View style={styles.row}>
                 <Text style={[styles.label, { color: colors.text }]}>Category</Text>
@@ -762,11 +902,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     paddingVertical: 8,
   },
+  itemBlock: {
+    marginBottom: 8,
+  },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  itemTaxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    paddingLeft: 54,
+  },
+  extraRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 8,
+  },
+  extraLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  extraAmountInput: {
+    width: 88,
+    paddingHorizontal: 8,
+    fontSize: 14,
   },
   qtyInput: {
     width: 48,
