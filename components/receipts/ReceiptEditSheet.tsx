@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -46,6 +47,13 @@ const DATE_PICKER_MAX = (() => {
   d.setFullYear(d.getFullYear() + 5);
   return d;
 })();
+
+export type ReceiptLineItem = {
+  key: string;
+  quantity: string;
+  name: string;
+  price: string;
+};
 
 function strTrim(v: unknown): string {
   if (v == null) return '';
@@ -100,6 +108,71 @@ function getValidDate(d: Date | undefined): Date {
   return new Date();
 }
 
+function parseMoney(v: unknown): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string') {
+    const n = parseFloat(v.replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function formatMoney(n: number): string {
+  if (!Number.isFinite(n)) return '0.00';
+  return n.toFixed(2);
+}
+
+function newItemKey(): string {
+  return `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function emptyLineItem(): ReceiptLineItem {
+  return { key: newItemKey(), quantity: '1', name: '', price: '0.00' };
+}
+
+function normalizeLineItems(raw: unknown): ReceiptLineItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item: any) => {
+    const qty = item?.quantity ?? item?.qty ?? 1;
+    const name = item?.name ?? item?.description ?? item?.item ?? '';
+    const price = item?.price ?? item?.amount ?? item?.total ?? item?.unit_price ?? 0;
+    return {
+      key: newItemKey(),
+      quantity: String(qty === '' || qty == null ? 1 : qty),
+      name: strTrim(name),
+      price: formatMoney(parseMoney(price)),
+    };
+  });
+}
+
+function extractLineItems(file: any): ReceiptLineItem[] {
+  const j = file?.json_data;
+  const nested =
+    j?.receipt_data != null && typeof j.receipt_data === 'object'
+      ? j.receipt_data
+      : j?.invoice_data != null && typeof j.invoice_data === 'object'
+        ? j.invoice_data
+        : null;
+  const raw =
+    j?.items ||
+    j?.line_items ||
+    j?.lineItems ||
+    j?.JSON?.items ||
+    nested?.items ||
+    nested?.line_items ||
+    file?.items ||
+    [];
+  return normalizeLineItems(raw);
+}
+
+function itemsTotal(items: ReceiptLineItem[]): number {
+  return items.reduce((sum, item) => {
+    const qty = parseMoney(item.quantity);
+    const price = parseMoney(item.price);
+    return sum + qty * price;
+  }, 0);
+}
+
 function getStoreName(file: any, type: 'receipt' | 'invoice'): string {
   const j = file?.json_data;
   const nested =
@@ -141,13 +214,8 @@ function getStoreName(file: any, type: 'receipt' | 'invoice'): string {
 function getAmountString(file: any): string {
   const j = file?.json_data;
   const amount = j?.total_amount ?? j?.amount ?? j?.total ?? file?.total_amount ?? file?.amount ?? 0;
-  const numericAmount =
-    typeof amount === 'number'
-      ? amount
-      : typeof amount === 'string'
-        ? parseFloat(amount.replace(/[^0-9.-]/g, '')) || 0
-        : 0;
-  if (numericAmount > 0) return String(numericAmount);
+  const numericAmount = parseMoney(amount);
+  if (numericAmount > 0) return formatMoney(numericAmount);
   return typeof amount === 'string' ? amount : '';
 }
 
@@ -204,8 +272,18 @@ export default function ReceiptEditSheet({
     date: '',
     category: 'Uncategorized',
   });
+  const [items, setItems] = useState<ReceiptLineItem[]>([]);
+  const [itemsExpanded, setItemsExpanded] = useState(false);
+  const [autoCalculate, setAutoCalculate] = useState(false);
   const [datePickerValue, setDatePickerValue] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const applyItems = useCallback((nextItems: ReceiptLineItem[], calc: boolean) => {
+    setItems(nextItems);
+    if (calc) {
+      setForm((f) => ({ ...f, total_amount: formatMoney(itemsTotal(nextItems)) }));
+    }
+  }, []);
 
   const hydrate = useCallback((file: any, type: 'receipt' | 'invoice') => {
     const dateStr = getEditDateString(file, type);
@@ -215,6 +293,9 @@ export default function ReceiptEditSheet({
       date: dateStr,
       category: getCategory(file) || 'Uncategorized',
     });
+    setItems(extractLineItems(file));
+    setItemsExpanded(false);
+    setAutoCalculate(false);
     const parsed = dateStr ? parseLocalDateString(dateStr) : null;
     setDatePickerValue(parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date());
   }, []);
@@ -255,17 +336,25 @@ export default function ReceiptEditSheet({
     }
     setSaving(true);
     try {
+      const persistedItems = items
+        .filter((item) => item.name.trim() || parseMoney(item.price) !== 0)
+        .map((item) => ({
+          quantity: parseMoney(item.quantity) || 1,
+          name: item.name.trim(),
+          price: parseMoney(item.price),
+        }));
+      const totalAmount = autoCalculate ? formatMoney(itemsTotal(items)) : form.total_amount;
       const correctionData: Record<string, unknown> = {
         file_kind: editType,
         category: form.category || 'Uncategorized',
+        items: persistedItems,
+        total_amount: totalAmount || undefined,
       };
       if (editType === 'receipt') {
         correctionData.store_name = form.store_name || undefined;
-        correctionData.total_amount = form.total_amount || undefined;
         correctionData.date = form.date ? localDateStringToUTCISO(form.date) : undefined;
       } else {
         correctionData.vendor_name = form.store_name || undefined;
-        correctionData.total_amount = form.total_amount || undefined;
         correctionData.due_date = form.date ? localDateStringToUTCISO(form.date) : undefined;
       }
       const response = await apiClient.correctFileData(fileId, correctionData);
@@ -305,7 +394,19 @@ export default function ReceiptEditSheet({
     }
   };
 
+  const updateItem = (key: string, field: keyof Omit<ReceiptLineItem, 'key'>, value: string) => {
+    applyItems(
+      items.map((item) => (item.key === key ? { ...item, [field]: value } : item)),
+      autoCalculate
+    );
+  };
+
   const sheetVisible = visible && !showDatePicker;
+  const inputColors = {
+    borderColor: colors.border,
+    color: colors.text,
+    backgroundColor: colors.inputBackground,
+  };
 
   return (
     <>
@@ -338,32 +439,108 @@ export default function ReceiptEditSheet({
                   {editType === 'invoice' ? 'Vendor name' : 'Store name'}
                 </Text>
                 <TextInput
-                  style={[
-                    styles.input,
-                    {
-                      borderColor: colors.border,
-                      color: colors.text,
-                      backgroundColor: colors.inputBackground,
-                    },
-                  ]}
+                  style={[styles.input, inputColors]}
                   value={form.store_name}
                   onChangeText={(t) => setForm((f) => ({ ...f, store_name: t }))}
                   placeholder={editType === 'invoice' ? 'Vendor name' : 'Store name'}
                   placeholderTextColor={colors.textLight}
                 />
               </View>
+
+              <View style={styles.row}>
+                <View style={styles.itemsHeader}>
+                  <TouchableOpacity
+                    style={styles.itemsToggle}
+                    onPress={() => setItemsExpanded((open) => !open)}
+                    accessibilityRole="button"
+                    accessibilityLabel={itemsExpanded ? 'Collapse items' : 'Expand items'}
+                  >
+                    <Ionicons
+                      name={itemsExpanded ? 'chevron-down' : 'chevron-forward'}
+                      size={18}
+                      color={colors.text}
+                    />
+                    <Text style={[styles.itemsToggleText, { color: colors.text }]}>
+                      Items{items.length ? ` (${items.length})` : ''}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setItemsExpanded(true);
+                      applyItems([...items, emptyLineItem()], autoCalculate);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add item"
+                    style={styles.addItemBtn}
+                  >
+                    <Ionicons name="add" size={22} color={colors.primary} />
+                  </TouchableOpacity>
+                </View>
+                {itemsExpanded ? (
+                  <View style={[styles.itemsBody, { borderColor: colors.border }]}>
+                    <View style={styles.autoCalcRow}>
+                      <Text style={[styles.autoCalcLabel, { color: colors.text }]}>Auto-calculate</Text>
+                      <Switch
+                        value={autoCalculate}
+                        onValueChange={(on) => {
+                          setAutoCalculate(on);
+                          if (on) {
+                            setForm((f) => ({ ...f, total_amount: formatMoney(itemsTotal(items)) }));
+                          }
+                        }}
+                        trackColor={{ false: colors.switchTrackOff, true: colors.switchTrackOn }}
+                        thumbColor={colors.switchThumbAndroid(autoCalculate)}
+                        ios_backgroundColor={colors.switchTrackOff}
+                      />
+                    </View>
+                    {items.length === 0 ? (
+                      <Text style={[styles.emptyItems, { color: colors.textLight }]}>No line items captured</Text>
+                    ) : (
+                      items.map((item) => (
+                        <View key={item.key} style={styles.itemRow}>
+                          <TextInput
+                            style={[styles.input, styles.qtyInput, inputColors]}
+                            value={item.quantity}
+                            onChangeText={(t) => updateItem(item.key, 'quantity', t)}
+                            keyboardType="decimal-pad"
+                            placeholder="1"
+                            placeholderTextColor={colors.textLight}
+                          />
+                          <TextInput
+                            style={[styles.input, styles.nameInput, inputColors]}
+                            value={item.name}
+                            onChangeText={(t) => updateItem(item.key, 'name', t)}
+                            placeholder="Item"
+                            placeholderTextColor={colors.textLight}
+                          />
+                          <TextInput
+                            style={[styles.input, styles.priceInput, inputColors]}
+                            value={item.price}
+                            onChangeText={(t) => updateItem(item.key, 'price', t)}
+                            keyboardType="decimal-pad"
+                            placeholder="0.00"
+                            placeholderTextColor={colors.textLight}
+                          />
+                          <TouchableOpacity
+                            onPress={() => applyItems(items.filter((row) => row.key !== item.key), autoCalculate)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Remove item"
+                            style={styles.removeItemBtn}
+                          >
+                            <Ionicons name="close" size={18} color="#EF4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                ) : null}
+              </View>
+
               <View style={styles.rowDateAmount}>
                 <View style={[styles.row, { flex: 1, paddingHorizontal: 0 }]}>
                   <Text style={[styles.label, { color: colors.text }]}>Date</Text>
                   <TouchableOpacity
-                    style={[
-                      styles.input,
-                      styles.dateTouchable,
-                      {
-                        borderColor: colors.border,
-                        backgroundColor: colors.inputBackground,
-                      },
-                    ]}
+                    style={[styles.input, styles.dateTouchable, inputColors]}
                     activeOpacity={0.7}
                     onPress={() => {
                       const useToday = isEpochOrEmptyDate(form.date);
@@ -391,17 +568,15 @@ export default function ReceiptEditSheet({
                   <TextInput
                     style={[
                       styles.input,
-                      {
-                        borderColor: colors.border,
-                        color: colors.text,
-                        backgroundColor: colors.inputBackground,
-                      },
+                      inputColors,
+                      autoCalculate ? { backgroundColor: colors.surface, color: colors.textSecondary } : null,
                     ]}
                     value={form.total_amount}
                     onChangeText={(t) => setForm((f) => ({ ...f, total_amount: t }))}
                     placeholder="0.00"
                     placeholderTextColor={colors.textLight}
                     keyboardType="decimal-pad"
+                    editable={!autoCalculate}
                   />
                 </View>
               </View>
@@ -547,6 +722,69 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 16,
+  },
+  itemsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  itemsToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    flex: 1,
+    paddingVertical: 4,
+  },
+  itemsToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  addItemBtn: {
+    padding: 4,
+  },
+  itemsBody: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+  },
+  autoCalcRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  autoCalcLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  emptyItems: {
+    fontSize: 13,
+    paddingVertical: 8,
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
+  },
+  qtyInput: {
+    width: 48,
+    paddingHorizontal: 6,
+    fontSize: 14,
+  },
+  nameInput: {
+    flex: 1,
+    paddingHorizontal: 8,
+    fontSize: 14,
+  },
+  priceInput: {
+    width: 72,
+    paddingHorizontal: 6,
+    fontSize: 14,
+  },
+  removeItemBtn: {
+    padding: 4,
   },
   categoryList: {
     marginTop: 4,

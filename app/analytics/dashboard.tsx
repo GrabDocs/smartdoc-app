@@ -22,10 +22,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
-import ClientsButton from '../../components/clients/ClientsButton';
 import DocumentViewer from '../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
+import ReceiptEditSheet from '../../components/receipts/ReceiptEditSheet';
 import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient, type WebAnalysisDownloadReportBody } from '../../services/api';
@@ -668,19 +668,10 @@ export default function AnalyticsDashboard() {
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [updatingPaymentStatus, setUpdatingPaymentStatus] = useState(false);
 
-  // Edit receipt/invoice modal (store name, date, amount, category) - same endpoint as web
+  // Edit receipt/invoice (ReceiptEditSheet — same items / auto-calc as Files kebab)
   const [showEditModal, setShowEditModal] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [editType, setEditType] = useState<'receipt' | 'invoice'>('receipt');
-  const [editForm, setEditForm] = useState<{ store_name: string; total_amount: string; date: string; category: string }>({
-    store_name: '',
-    total_amount: '',
-    date: '',
-    category: 'Uncategorized',
-  });
-  const [savingEdit, setSavingEdit] = useState(false);
-  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
-  const [editDatePickerValue, setEditDatePickerValue] = useState<Date>(() => new Date());
 
   // Document viewer (View opens file; row tap opens edit modal)
   const [showDocumentViewer, setShowDocumentViewer] = useState(false);
@@ -1473,124 +1464,17 @@ export default function AnalyticsDashboard() {
     setShowCategoryModal(true);
   };
 
-  /** Treat epoch or placeholder dates as "no date" so we show "Select date" and default picker to today. */
-  const isEpochOrEmptyDate = (s: string): boolean =>
-    !s || s === '1969-12-31' || s === '1970-01-01';
-
-  /** Get raw date string YYYY-MM-DD for receipt (document date) or invoice (due date). Uses safe parsing; falls back to upload date (created_at) when transaction date is missing or invalid. Epoch/empty treated as no date. */
-  const getEditDateString = (item: any, type: 'receipt' | 'invoice'): string => {
-    let s = '';
-    if (type === 'invoice') {
-      const tx = item?.json_data?.due_date ?? item?.json_data?.invoice_date ?? item?.json_data?.date;
-      s = safeToDateString(tx);
-      if (!s) s = safeToDateString(item?.created_at);
-    } else {
-      const tx = item?.json_data?.date ?? item?.json_data?.receipt_data?.date;
-      s = safeToDateString(tx);
-      if (!s) s = safeToDateString(item?.created_at);
-    }
-    return isEpochOrEmptyDate(s) ? '' : s;
-  };
-
   const handleOpenEdit = (item: any, type: 'receipt' | 'invoice') => {
-    const amount = item?.json_data?.total_amount ?? item?.json_data?.amount ?? item?.json_data?.total ?? item?.amount ?? item?.total_amount ?? 0;
-    const numericAmount = typeof amount === 'number' ? amount : (typeof amount === 'string' ? parseFloat(amount.replace(/[^0-9.-]/g, '')) || 0 : 0);
-    const amountStr = numericAmount > 0 ? String(numericAmount) : (typeof amount === 'string' ? amount : '');
-    const storeName = type === 'invoice'
-      ? (item?.vendor_name ?? item?.json_data?.vendor_name ?? item?.json_data?.business_name ?? item?.json_data?.store_name ?? '')
-      : getReceiptPrimaryStoreName(item);
-    const category = item?.category ?? item?.json_data?.category ?? item?.receipt_category ?? item?.invoice_category ?? 'Uncategorized';
     setEditItem(item);
     setEditType(type);
-    const dateStr = getEditDateString(item, type);
-    setEditForm({
-      store_name: storeName || '',
-      total_amount: amountStr || '',
-      date: dateStr,
-      category: category || 'Uncategorized',
-    });
-    const parsed = dateStr ? parseLocalDateString(dateStr) : null;
-    setEditDatePickerValue(parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date());
     setShowEditModal(true);
   };
 
   const handleCloseEdit = () => {
     setShowEditModal(false);
-    setShowEditDatePicker(false);
     setEditItem(null);
-    setEditForm({ store_name: '', total_amount: '', date: '', category: 'Uncategorized' });
   };
 
-  const handleEditDateChange = (event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      setShowEditDatePicker(false);
-      if (event?.type === 'set' && selectedDate) {
-        setEditDatePickerValue(selectedDate);
-        setEditForm((f) => ({ ...f, date: formatDateForInput(selectedDate) }));
-      }
-      setTimeout(() => setShowEditModal(true), 0);
-    } else {
-      // iOS spinner: update state as user scrolls; modal closes via Done/Cancel
-      if (selectedDate) {
-        setEditDatePickerValue(selectedDate);
-        setEditForm((f) => ({ ...f, date: formatDateForInput(selectedDate) }));
-      }
-    }
-  };
-
-  const handleEditDatePickerDone = () => {
-    setShowEditDatePicker(false);
-    setTimeout(() => setShowEditModal(true), 0);
-  };
-
-  const handleConfirmSave = () => {
-    Alert.alert(
-      'Save changes?',
-      'Are you sure you want to save these changes?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Save', onPress: handleSaveEdit },
-      ]
-    );
-  };
-
-  const handleSaveEdit = async () => {
-    const fileId = getFileId(editItem);
-    if (fileId == null) {
-      Alert.alert('Error', 'Cannot save: file ID not found.');
-      return;
-    }
-    setSavingEdit(true);
-    try {
-      const correctionData: Record<string, unknown> = {
-        file_kind: editType,
-        category: editForm.category || 'Uncategorized',
-      };
-      if (editType === 'receipt') {
-        correctionData.store_name = editForm.store_name || undefined;
-        correctionData.total_amount = editForm.total_amount || undefined;
-        correctionData.date = editForm.date ? localDateStringToUTCISO(editForm.date) : undefined;
-      } else {
-        correctionData.vendor_name = editForm.store_name || undefined;
-        correctionData.total_amount = editForm.total_amount || undefined;
-        correctionData.due_date = editForm.date ? localDateStringToUTCISO(editForm.date) : undefined;
-      }
-      const response = await apiClient.correctFileData(fileId, correctionData);
-      if (response.success) {
-        Alert.alert('Success', 'Saved successfully');
-        handleCloseEdit();
-        await loadAnalytics();
-      } else {
-        Alert.alert('Error', response.message || 'Failed to save');
-      }
-    } catch (error) {
-      console.error('Error saving correction:', error);
-      Alert.alert('Error', 'Failed to save');
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-  
   const handleSelectCategory = async (category: string) => {
     if (!selectedReceipt) return;
     const fileId = getFileId(selectedReceipt);
@@ -2911,164 +2795,16 @@ export default function AnalyticsDashboard() {
         ))}
       </AdaptiveListPickerModal>
 
-      <MinimizableBottomSheet
+      <ReceiptEditSheet
         visible={showEditModal}
+        fileId={getFileId(editItem)}
+        fileKind={editType}
         onClose={handleCloseEdit}
-        title={editType === 'invoice' ? 'Edit Invoice' : 'Correct Data'}
-        heightRatio={0.85}
-      >
-        <ScrollView
-          style={styles.editFormScroll}
-          contentContainerStyle={styles.editFormScrollContent}
-          keyboardShouldPersistTaps="handled"
-          bounces={true}
-          overScrollMode="always"
-        >
-              {getFileId(editItem) != null ? (
-                  <View style={[styles.editFormRow, { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
-                    <Text style={[styles.editFormLabel, themeStyles.editFormLabel, { marginBottom: 0 }]}>Clients</Text>
-                    <ClientsButton
-                      itemType="file"
-                      itemId={getFileId(editItem) as number}
-                      allowCreate
-                      compact
-                    />
-                  </View>
-              ) : null}
-              <View style={styles.editFormRow}>
-                <Text style={[styles.editFormLabel, themeStyles.editFormLabel]}>{editType === 'invoice' ? 'Vendor name' : 'Store name'}</Text>
-                <TextInput
-                  style={[styles.editFormInput, themeStyles.editFormInput]}
-                  value={editForm.store_name}
-                  onChangeText={(t) => setEditForm((f) => ({ ...f, store_name: t }))}
-                  placeholder={editType === 'invoice' ? 'Vendor name' : 'Store name'}
-                  placeholderTextColor={colors.textLight}
-                />
-              </View>
-              <View style={styles.editFormRowDateAmount}>
-                <View style={[styles.editFormRow, { flex: 1 }]}>
-                  <Text style={[styles.editFormLabel, themeStyles.editFormLabel]}>Date</Text>
-                  <View style={styles.editFormDateWrapper}>
-                    <TouchableOpacity
-                      style={[styles.editFormInput, styles.editFormDateTouchable, themeStyles.editFormInput]}
-                      activeOpacity={0.7}
-                      onPress={() => {
-                        const useToday = isEpochOrEmptyDate(editForm.date);
-                        const d = !useToday && editForm.date ? parseLocalDateString(editForm.date) : null;
-                        if (useToday || !d || isNaN(d.getTime())) {
-                          setEditDatePickerValue(new Date());
-                        } else {
-                          setEditDatePickerValue(d);
-                        }
-                        // Close edit modal first so only one Modal is visible at a time (iOS doesn't show a second Modal on top)
-                        setShowEditModal(false);
-                        setTimeout(() => setShowEditDatePicker(true), Platform.OS === 'ios' ? 350 : 0);
-                      }}
-                    >
-                      <View style={styles.editFormDateTextWrap}>
-                        <Text style={[styles.editFormDateText, themeStyles.editFormDateText, !editForm.date && styles.editFormDatePlaceholder, !editForm.date && themeStyles.editFormDatePlaceholder]} numberOfLines={1}>
-                          {editForm.date || 'Select date'}
-                        </Text>
-                      </View>
-                      <Ionicons name="calendar-outline" size={20} color={colors.textSecondary} style={styles.editFormDateIcon} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <View style={[styles.editFormRow, { flex: 1 }]}>
-                  <Text style={[styles.editFormLabel, themeStyles.editFormLabel]}>Total</Text>
-                  <TextInput
-                    style={[styles.editFormInput, themeStyles.editFormInput]}
-                    value={editForm.total_amount}
-                    onChangeText={(t) => setEditForm((f) => ({ ...f, total_amount: t }))}
-                    placeholder="0.00"
-                    placeholderTextColor={colors.textLight}
-                    keyboardType="decimal-pad"
-                  />
-                </View>
-              </View>
-              <View style={styles.editFormRow}>
-                <Text style={[styles.editFormLabel, themeStyles.editFormLabel]}>Category</Text>
-                <View style={styles.editCategoryList}>
-                  {receiptCategories.map((cat) => (
-                    <TouchableOpacity
-                      key={cat}
-                      style={[
-                        styles.editCategoryChip,
-                        themeStyles.editCategoryChip,
-                        editForm.category === cat && styles.editCategoryChipSelected,
-                      ]}
-                      onPress={() => setEditForm((f) => ({ ...f, category: cat }))}
-                    >
-                      <Text style={[
-                        styles.editCategoryChipText,
-                        themeStyles.editCategoryChipText,
-                        editForm.category === cat && styles.editCategoryChipTextSelected,
-                      ]}>{cat}</Text>
-                      {editForm.category === cat && <Ionicons name="checkmark" size={18} color="#fff" />}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-          </ScrollView>
-        <View style={[styles.editFormActions, themeStyles.editFormActions]}>
-          <TouchableOpacity
-            style={[styles.editFormButton, styles.editFormButtonCancel, themeStyles.editFormButtonCancel]}
-            onPress={handleCloseEdit}
-            disabled={savingEdit}
-          >
-            <Text style={[styles.editFormButtonTextCancel, themeStyles.editFormButtonTextCancel]}>Cancel</Text>
-          </TouchableOpacity>
-          <FeedbackTouchable
-            style={[styles.editFormButton, styles.editFormButtonSave]}
-            onPress={handleConfirmSave}
-            disabled={savingEdit}
-            loading={savingEdit}
-            spinnerColor="#fff"
-          >
-            <Text style={styles.editFormButtonText}>Save</Text>
-          </FeedbackTouchable>
-        </View>
-      </MinimizableBottomSheet>
+        onSaved={() => {
+          void loadAnalytics();
+        }}
+      />
 
-      {showEditDatePicker && Platform.OS === 'ios' && (
-        <MinimizableBottomSheet
-          visible={showEditDatePicker}
-          onClose={handleEditDatePickerDone}
-          title="Select date"
-          sheetHeight={320}
-          headerRight={() => (
-            <TouchableOpacity onPress={() => { setShowEditDatePicker(false); setTimeout(() => setShowEditModal(true), 0); }}>
-              <Text style={[styles.doneButton, themeStyles.doneButton]}>Done</Text>
-            </TouchableOpacity>
-          )}
-        >
-          <View style={[styles.pickerModalContent, themeStyles.pickerModalContent]}>
-            <DateTimePicker
-              value={getValidDate(editDatePickerValue)}
-              mode="date"
-              display="spinner"
-              minimumDate={filterDateMin}
-              maximumDate={filterDateMax}
-              onChange={handleEditDateChange}
-              style={styles.pickerModalDatePicker}
-              textColor={colors.text}
-              accentColor={colors.primary}
-            />
-          </View>
-        </MinimizableBottomSheet>
-      )}
-      {/* Edit form date - Android: Native calendar */}
-      {showEditDatePicker && Platform.OS !== 'ios' && (
-        <DateTimePicker
-          value={getValidDate(editDatePickerValue)}
-          mode="date"
-          display="default"
-          minimumDate={filterDateMin}
-          maximumDate={filterDateMax}
-          onChange={handleEditDateChange}
-        />
-      )}
-      
       <AdaptiveListPickerModal
         visible={showPaymentStatusModal}
         onClose={() => setShowPaymentStatusModal(false)}
