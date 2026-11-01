@@ -1,4 +1,5 @@
 import { extractMeetingIdFromJoinUrl } from './grabdocsJoinUrl';
+import { resumeLiveReachMeetingRoute } from '../constants/reachMeeting';
 
 export const APP_HOME_PATH = '/(tabs)';
 
@@ -117,6 +118,8 @@ export function resolveAppDeepLinkPath(raw: string | null | undefined): string {
 
   const meetingId = extractMeetingIdFromJoinUrl(trimmed);
   if (meetingId) {
+    const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+    if (liveRoute) return liveRoute;
     let join = `/join-meeting?meeting_id=${encodeURIComponent(meetingId)}`;
     try {
       const href = trimmed.includes('://') ? trimmed : `https://app.grabdocs.com${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
@@ -195,6 +198,16 @@ export function resolveAppDeepLinkPath(raw: string | null | undefined): string {
 
   const qs = params.toString();
   const candidate = qs ? `${pathname}?${qs}` : pathname;
+  if (
+    pathname === '/join-meeting' ||
+    pathname === '/quick-reach/hms-meeting-interface' ||
+    pathname.endsWith('/hms-meeting-interface')
+  ) {
+    const liveRoute = resumeLiveReachMeetingRoute(
+      params.get('meeting_id') || params.get('meetingId') || '',
+    );
+    if (liveRoute) return liveRoute;
+  }
   if (isKnownAppPath(pathname)) return candidate;
 
   // Unknown https or relative paths → home (never Unmatched Route).

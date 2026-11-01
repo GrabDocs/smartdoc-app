@@ -719,66 +719,72 @@ export default function ReceiptEditSheet({
                         </View>
                       ))
                     )}
+                    {extras.map((extra) => (
+                      <View key={extra.key} style={styles.extraRow}>
+                        <Text style={[styles.extraLabel, { color: colors.text }]}>{extra.label}</Text>
+                        <TextInput
+                          style={[styles.input, styles.extraAmountInput, inputColors]}
+                          value={extra.amount}
+                          onChangeText={(t) => {
+                            applyExtras(
+                              extras.map((row) =>
+                                row.key === extra.key ? { ...row, amount: t } : row
+                              )
+                            );
+                          }}
+                          keyboardType="decimal-pad"
+                          placeholder="0.00"
+                          placeholderTextColor={colors.textLight}
+                        />
+                        <TouchableOpacity
+                          onPress={() => applyExtras(extras.filter((row) => row.key !== extra.key))}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${extra.label}`}
+                          style={styles.removeItemBtn}
+                        >
+                          <Ionicons name="close" size={18} color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    {autoCalculate && calc.remainder != null && calc.remainder !== 0 ? (
+                      <View style={styles.extraRow}>
+                        <Text style={[styles.extraLabel, { color: colors.text }]}>Unclassified</Text>
+                        <TextInput
+                          style={[styles.input, styles.extraAmountInput, inputColors]}
+                          value={
+                            remainderOverride != null
+                              ? String(remainderOverride)
+                              : formatMoney(calc.remainder)
+                          }
+                          onChangeText={(t) => setRemainderOverride(parseMoney(t))}
+                          keyboardType="decimal-pad"
+                          placeholder="0.00"
+                          placeholderTextColor={colors.textLight}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setRemainderOverride(0)}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove unclassified amount"
+                          style={styles.removeItemBtn}
+                        >
+                          <Ionicons name="close" size={18} color="#EF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                    <View style={styles.extraRow}>
+                      <Text style={[styles.extraLabel, { color: colors.text }]}>Printed total</Text>
+                      <Text
+                        style={[
+                          styles.printedTotalValue,
+                          { color: printedTotal ? colors.text : colors.textLight },
+                        ]}
+                      >
+                        {printedTotal || 'None'}
+                      </Text>
+                    </View>
                   </View>
                 ) : null}
               </View>
-
-              {extras.length || (autoCalculate && calc.remainder != null && calc.remainder !== 0) ? (
-                <View style={styles.row}>
-                  {extras.map((extra) => (
-                    <View key={extra.key} style={styles.extraRow}>
-                      <Text style={[styles.extraLabel, { color: colors.text }]}>{extra.label}</Text>
-                      <TextInput
-                        style={[styles.input, styles.extraAmountInput, inputColors]}
-                        value={extra.amount}
-                        onChangeText={(t) => {
-                          applyExtras(
-                            extras.map((row) =>
-                              row.key === extra.key ? { ...row, amount: t } : row
-                            )
-                          );
-                        }}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
-                        placeholderTextColor={colors.textLight}
-                      />
-                      <TouchableOpacity
-                        onPress={() => applyExtras(extras.filter((row) => row.key !== extra.key))}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Remove ${extra.label}`}
-                        style={styles.removeItemBtn}
-                      >
-                        <Ionicons name="close" size={18} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                  {autoCalculate && calc.remainder != null && calc.remainder !== 0 ? (
-                    <View style={styles.extraRow}>
-                      <Text style={[styles.extraLabel, { color: colors.text }]}>Unclassified</Text>
-                      <TextInput
-                        style={[styles.input, styles.extraAmountInput, inputColors]}
-                        value={
-                          remainderOverride != null
-                            ? String(remainderOverride)
-                            : formatMoney(calc.remainder)
-                        }
-                        onChangeText={(t) => setRemainderOverride(parseMoney(t))}
-                        keyboardType="decimal-pad"
-                        placeholder="0.00"
-                        placeholderTextColor={colors.textLight}
-                      />
-                      <TouchableOpacity
-                        onPress={() => setRemainderOverride(0)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Remove unclassified amount"
-                        style={styles.removeItemBtn}
-                      >
-                        <Ionicons name="close" size={18} color="#EF4444" />
-                      </TouchableOpacity>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
 
               <View style={styles.rowDateAmount}>
                 <View style={[styles.row, { flex: 1, paddingHorizontal: 0 }]}>
@@ -823,20 +829,6 @@ export default function ReceiptEditSheet({
                     editable={!autoCalculate}
                   />
                 </View>
-              </View>
-              <View style={styles.row}>
-                <Text style={[styles.label, { color: colors.text }]}>Printed total</Text>
-                <TextInput
-                  style={[styles.input, inputColors]}
-                  value={printedTotal}
-                  onChangeText={(t) => {
-                    setPrintedTotal(t);
-                    setRemainderOverride(null);
-                  }}
-                  placeholder="None"
-                  placeholderTextColor={colors.textLight}
-                  keyboardType="decimal-pad"
-                />
               </View>
               <View style={styles.row}>
                 <Text style={[styles.label, { color: colors.text }]}>Category</Text>
@@ -1070,6 +1062,12 @@ const styles = StyleSheet.create({
     width: 88,
     paddingHorizontal: 8,
     fontSize: 14,
+  },
+  printedTotalValue: {
+    width: 88,
+    paddingHorizontal: 8,
+    fontSize: 14,
+    textAlign: 'right',
   },
   qtyInput: {
     width: 48,

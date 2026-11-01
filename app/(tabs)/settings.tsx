@@ -50,6 +50,7 @@ import { parseAsUTC } from '../../utils/timeFormatting';
 import { secureStorage } from '../../utils/storage';
 import {
   isMobileAppToggleLocked,
+  isRegistryAppVisible,
 } from '../../utils/visibleApps';
 import {
   dialogSurfaceBorder,
@@ -99,7 +100,12 @@ interface DeviceFingerprint {
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ section?: string; openPhone?: string; refresh?: string }>();
+  const params = useLocalSearchParams<{
+    section?: string;
+    openPhone?: string;
+    refresh?: string;
+    chooseApps?: string;
+  }>();
   const { signOut, user: authUser, setUserFromExternal, forceReset } = useAuth();
   const { user, logout } = useEnhanced2FAAuth();
   const { theme, setTheme } = useTheme();
@@ -111,11 +117,11 @@ export default function SettingsScreen() {
     togglePreference: toggleStoredPreference,
   } = useUserPreferences();
   const {
+    hiddenApps,
     disabledApps,
     appChoices,
     saving: visibleAppsSaving,
     summaryLabel: visibleAppsSummaryLabel,
-    isHomeAppVisible,
     refresh: refreshVisibleApps,
     toggleApp: toggleVisibleApp,
     showAllApps,
@@ -228,6 +234,25 @@ export default function SettingsScreen() {
       const section = typeof params.section === 'string' ? params.section : '';
       const openPhone = params.openPhone === '1' || params.openPhone === 'true';
       const refresh = params.refresh === '1' || params.refresh === 'true';
+      const chooseApps = params.chooseApps === '1' || params.chooseApps === 'true';
+
+      if (chooseApps) {
+        setExpandedSections({
+          notifications: false,
+          profile: false,
+          security: false,
+          fileManagement: false,
+          uploadSettings: false,
+          display: true,
+          privacy: false,
+          about: false,
+          account: false,
+        });
+        setChooseAppsPickerOpen(true);
+        skipAboutResetRef.current = true;
+        router.setParams({ chooseApps: undefined } as any);
+        return undefined;
+      }
 
       if (section === 'profile' || openPhone || refresh) {
         setExpandedSections({
@@ -295,7 +320,7 @@ export default function SettingsScreen() {
         account: false,
       });
       return undefined;
-    }, [params.section, params.openPhone, params.refresh])
+    }, [params.section, params.openPhone, params.refresh, params.chooseApps, router])
   );
 
   const scopedUserId = authUser?.id ?? user?.id;
@@ -2486,7 +2511,7 @@ export default function SettingsScreen() {
               <View style={dynamicStyles.settingContent}>
                 <Text style={dynamicStyles.settingTitle}>Choose your apps</Text>
                 <Text style={dynamicStyles.settingSubtitle}>
-                  Pick which apps appear on Home
+                  ChatGD, Reach, and Calendar stay on
                 </Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -3012,15 +3037,16 @@ export default function SettingsScreen() {
         }
       >
         <Text style={dynamicStyles.chooseAppsHint}>
-          Always-on apps follow the shared app registry. Turn off apps you do not want in the
-          Home Apps list.
+          ChatGD, Reach, and Calendar stay on. You can change the rest anytime here.
         </Text>
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Always on</Text>
         {appChoices.filter((app) => app.section === 'always-on').map((app) => (
           <View key={app.key} style={dynamicStyles.chooseAppsRow}>
             <View style={dynamicStyles.chooseAppsRowText}>
               <Text style={dynamicStyles.chooseAppsRowLabel}>{app.title}</Text>
-              <Text style={dynamicStyles.chooseAppsRowHint}>Always on</Text>
+              <Text style={dynamicStyles.chooseAppsRowHint}>
+                {app.description ? `${app.description} · Always on` : 'Always on'}
+              </Text>
             </View>
             <Switch
               value={true}
@@ -3033,15 +3059,17 @@ export default function SettingsScreen() {
         ))}
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Apps</Text>
         {appChoices.filter((app) => app.section === 'apps').map((app) => {
-          const locked = app.alwaysOn || isMobileAppToggleLocked(app.key, disabledApps);
+          const locked = app.alwaysOn || isMobileAppToggleLocked(app.webKey, disabledApps);
           const companyDisabled = Boolean(disabledApps[app.webKey]);
-          const visible = isHomeAppVisible(app.key);
+          const visible = isRegistryAppVisible(app.webKey, hiddenApps, disabledApps);
           return (
             <View key={app.key} style={dynamicStyles.chooseAppsRow}>
               <View style={dynamicStyles.chooseAppsRowText}>
                 <Text style={dynamicStyles.chooseAppsRowLabel}>{app.title}</Text>
                 {companyDisabled ? (
                   <Text style={dynamicStyles.chooseAppsRowHint}>Disabled by company</Text>
+                ) : app.description ? (
+                  <Text style={dynamicStyles.chooseAppsRowHint}>{app.description}</Text>
                 ) : null}
               </View>
               <Switch

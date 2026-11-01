@@ -1,5 +1,6 @@
 import type { Router } from 'expo-router';
 import { router as expoRouter } from 'expo-router';
+import { resumeLiveReachMeetingRoute } from '../constants/reachMeeting';
 
 const GRABDOCS_JOIN_HOST_RE = /(?:^|\.)grabdocs\.com$/i;
 
@@ -74,6 +75,11 @@ export function navigateGrabDocsJoinFromUrl(
   const mid = extractMeetingIdFromJoinUrl(rawUrl);
   if (!mid) return false;
   const r = options?.router ?? expoRouter;
+  const liveRoute = resumeLiveReachMeetingRoute(mid);
+  if (liveRoute) {
+    r.replace(liveRoute as any);
+    return true;
+  }
   const params: Record<string, string> = { meeting_id: mid };
   const returnTo = options?.returnTo?.trim();
   if (returnTo) params.returnTo = returnTo;

@@ -38,6 +38,8 @@ type Props = {
   /** When true, join confirm succeeded — disable stuck timer entirely. */
   joinCompleted?: boolean;
   onEnteredRoom: () => void;
+  /** Local peer's name as entered in the HMS preview (fires before onEnteredRoom when known). */
+  onLocalPeerName?: (name: string) => void;
   /**
    * Called when join never completes within {@link STUCK_JOIN_TIMEOUT_MS}. Surfaces an error
    * instead of leaving the HMS prebuilt spinner hanging forever.
@@ -69,13 +71,15 @@ function isRoomEntryPeerUpdate(data: {
   return false;
 }
 
-function InnerPresenceBridge({ enabled, joinCompleted, onEnteredRoom, onConnectionStuck }: Props) {
+function InnerPresenceBridge({ enabled, joinCompleted, onEnteredRoom, onLocalPeerName, onConnectionStuck }: Props) {
   const doneRef = useRef(false);
   const firedRef = useRef(false);
   const stuckFiredRef = useRef(false);
   const stuckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onConnectionStuckRef = useRef<(() => void) | undefined>(undefined);
   onConnectionStuckRef.current = onConnectionStuck;
+  const onLocalPeerNameRef = useRef<((name: string) => void) | undefined>(undefined);
+  onLocalPeerNameRef.current = onLocalPeerName;
   const hmsPkg = useMemo(() => getHmsPkg(), []);
 
   const clearStuckTimer = useCallback(() => {
@@ -130,11 +134,14 @@ function InnerPresenceBridge({ enabled, joinCompleted, onEnteredRoom, onConnecti
 
   useHMSPeerUpdates(
     (...args: unknown[]) => {
-      if (!enabled || doneRef.current || joinCompleted) return;
+      if (!enabled) return;
       const data = args[0] as {
         type?: string;
-        peer?: { peerID?: string; isLocal?: boolean };
+        peer?: { peerID?: string; isLocal?: boolean; name?: string };
       } | undefined;
+      const localName = data?.peer?.isLocal === true ? (data.peer.name ?? '').trim() : '';
+      if (localName) onLocalPeerNameRef.current?.(localName);
+      if (doneRef.current || joinCompleted) return;
       if (isRoomEntryPeerUpdate(data)) {
         fireOnce();
       }
@@ -152,6 +159,7 @@ export function MeetingPresenceConfirmBridge(props: Props) {
       enabled={props.enabled}
       joinCompleted={props.joinCompleted}
       onEnteredRoom={props.onEnteredRoom}
+      onLocalPeerName={props.onLocalPeerName}
       onConnectionStuck={props.onConnectionStuck}
     />
   );

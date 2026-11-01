@@ -1629,19 +1629,25 @@ export default function MeetingDetailsScreen() {
     return m ? parseInt(m[1], 10) : null;
   };
 
+  const meetingAssetFileStamp = (dateValue?: string | null): string => {
+    const parsed = dateValue ? new Date(dateValue) : new Date();
+    const when = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}_${pad(when.getHours())}-${pad(when.getMinutes())}-${pad(when.getSeconds())}`;
+  };
+
   const recordingShareFilename = (asset: MeetingAsset): string => {
     const anyAsset = asset as any;
-    const base = (asset.original_filename || asset.title || 'recording').replace(/[^a-zA-Z0-9.-]/g, '_');
-    if (/\.\w{2,8}$/i.test(base)) return base;
     const hint = `${asset.url || ''} ${asset.downloadUrl || ''} ${asset.original_filename || ''}`.toLowerCase();
-    if (/\.mp3(\?|#|$)/i.test(hint)) return `${base}.mp3`;
     const tt = String(anyAsset.track_type || anyAsset.trackType || '').toLowerCase();
     const isAudio =
       tt === 'audio' ||
       tt.includes('audio-m4a') ||
       asset.quality === 'audio_only' ||
       /\.(m4a|mp3|aac|wav)(\?|#|$)/i.test(hint);
-    return isAudio ? (hint.includes('.mp3') ? `${base}.mp3` : `${base}.m4a`) : `${base}.mp4`;
+    const ext = hint.includes('.mp3') ? 'mp3' : hint.includes('.wav') ? 'wav' : isAudio ? 'm4a' : hint.includes('.webm') ? 'webm' : 'mp4';
+    const kind = isAudio ? 'meeting_audio' : 'meeting_recording';
+    return `${kind}_${meetingAssetFileStamp(asset.date)}.${ext}`;
   };
 
   const appendTokenQuery = (url: string, token: string | null): string => {
@@ -1710,9 +1716,14 @@ export default function MeetingDetailsScreen() {
         asset.type === 'meeting_chat')
     ) {
       const downloadUrl = `${API_BASE_URL}/api/v1/video/transcript/${transcriptId}/download`;
-      const name = (asset.original_filename || asset.title || 'transcript').replace(/[^a-zA-Z0-9.-]/g, '_');
-      const withExt = /\.(txt|vtt|csv)$/i.test(name) ? name : `${name}.txt`;
-      return { url: appendTokenQuery(downloadUrl, token), filename: withExt };
+      const isChat = asset.type === 'chat_log' || asset.type === 'chat' || asset.type === 'meeting_chat';
+      const kind = isChat ? 'meeting_chat' : 'meeting_transcript';
+      const hinted = `${asset.original_filename || ''}`.toLowerCase();
+      const ext = hinted.endsWith('.vtt') ? 'vtt' : hinted.endsWith('.csv') ? 'csv' : 'txt';
+      return {
+        url: appendTokenQuery(downloadUrl, token),
+        filename: `${kind}_${meetingAssetFileStamp(asset.date)}.${ext}`,
+      };
     }
 
     if (
@@ -1721,9 +1732,12 @@ export default function MeetingDetailsScreen() {
       asset.id.startsWith('meeting_summary_')
     ) {
       const downloadUrl = `${API_BASE_URL}/api/v1/video/summary/${encodeURIComponent(asset.id)}/download`;
-      const name = (asset.original_filename || asset.title || 'summary').replace(/[^a-zA-Z0-9.-]/g, '_');
-      const withExt = /\.txt$/i.test(name) ? name : `${name}.txt`;
-      return { url: appendTokenQuery(downloadUrl, token), filename: withExt };
+      const hinted = `${asset.original_filename || ''}`.toLowerCase();
+      const ext = hinted.endsWith('.json') ? 'json' : 'txt';
+      return {
+        url: appendTokenQuery(downloadUrl, token),
+        filename: `meeting_summary_${meetingAssetFileStamp(asset.date)}.${ext}`,
+      };
     }
 
     const direct = asset.url || asset.downloadUrl;

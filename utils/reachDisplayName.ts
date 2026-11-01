@@ -108,3 +108,21 @@ export function getHmsDisplayUserName(
   const fromUser = getReachParticipantDisplayName(user);
   return (paramIsGeneric ? '' : fromParam) || fromUser || fromParam || 'Guest';
 }
+
+/** A real name (not a placeholder like "Guest"), or '' when there is none. */
+export function usableReachDisplayName(raw: string | null | undefined): string {
+  const clean = typeof raw === 'string' ? sanitizeReachDisplayName(raw) : '';
+  return GENERIC_PARAM_FALLBACKS.has(clean.toLowerCase()) ? '' : clean;
+}
+
+/**
+ * Name to lock into the HMS preview. Empty for signed-out users with no typed name,
+ * so the preview's name field stays editable and they must enter one.
+ */
+export function getHmsPrefillUserName(
+  paramUserName: string | string[] | undefined,
+  user: ReachParticipantLike | null | undefined
+): string {
+  const raw = Array.isArray(paramUserName) ? paramUserName[0] : paramUserName;
+  return usableReachDisplayName(raw) || getReachParticipantDisplayName(user);
+}

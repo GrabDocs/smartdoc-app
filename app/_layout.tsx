@@ -45,6 +45,16 @@ import { runSignatureGCOnLaunch } from '../services/signatureFileGC';
 import { evictStaleSessions } from '../services/signatureSessionCache';
 import AppLockScreen from './components/AppLockScreen';
 import DataRightsConsentScreen from './components/DataRightsConsentScreen';
+import { useVisibleApps } from '../contexts/VisibleAppsContext';
+import {
+  extractRegistryFromPayload,
+  normalizePreferenceMap,
+  type AppFeatureFromApi,
+} from '../utils/visibleApps';
+import {
+  readVisibleAppsSetupLocal,
+  writeVisibleAppsSetupLocal,
+} from '../utils/visibleAppsSetupLocal';
 import OtaUpdateBanner from './components/OtaUpdateBanner';
 import SoftStoreUpdateBanner from './components/SoftStoreUpdateBanner';
 import PersistentBottomNavigation from './components/PersistentBottomNavigation';
@@ -76,7 +86,11 @@ function RootLayoutNav() {
   // start with an existing session, never right after sign-in/sign-up in the same app session.
   const coldStartAuthenticatedUserIdRef = useRef<string | null | undefined>(undefined);
   const [appLockReminderVisible, setAppLockReminderVisible] = useState(false);
+  const { refresh: refreshVisibleApps } = useVisibleApps();
   const [needsDataRightsConsent, setNeedsDataRightsConsent] = useState(false);
+  const [needsVisibleAppsSetup, setNeedsVisibleAppsSetup] = useState(false);
+  const [welcomeRegistry, setWelcomeRegistry] = useState<AppFeatureFromApi[]>([]);
+  const [welcomeHiddenApps, setWelcomeHiddenApps] = useState<Record<string, boolean>>({});
   const [meetingStartedBanner, setMeetingStartedBanner] = useState<{
     meetingId: string;
     message: string;
@@ -482,6 +496,7 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!user) {
       setNeedsDataRightsConsent(false);
+      setNeedsVisibleAppsSetup(false);
       return;
     }
     let cancelled = false;
@@ -489,12 +504,25 @@ function RootLayoutNav() {
       try {
         const res = await apiClient.getUserProfile();
         const data = (res as any)?.data ?? res;
-        if (!cancelled) {
-          setNeedsDataRightsConsent(!!data?.needsDataRightsConsent);
+        if (cancelled) return;
+        const needsConsent = !!data?.needsDataRightsConsent;
+        const needsApps = !!data?.needsVisibleAppsSetup;
+        setNeedsDataRightsConsent(needsConsent);
+        setNeedsVisibleAppsSetup(needsApps);
+        setWelcomeHiddenApps(normalizePreferenceMap(data?.hiddenApps ?? data?.hidden_apps));
+        const fromPref = extractRegistryFromPayload(data);
+        if (fromPref.length) setWelcomeRegistry(fromPref);
+        else if (Array.isArray(data?.appFeatures)) {
+          setWelcomeRegistry(data.appFeatures as AppFeatureFromApi[]);
+        }
+        if (!needsConsent && !needsApps && user.id) {
+          const localDone = await readVisibleAppsSetupLocal(user.id);
+          if (!localDone) await writeVisibleAppsSetupLocal(user.id);
         }
       } catch {
         if (!cancelled) {
           setNeedsDataRightsConsent(false);
+          setNeedsVisibleAppsSetup(false);
         }
       }
     })();
@@ -541,8 +569,20 @@ function RootLayoutNav() {
   return (
     <>
       {showLock && <AppLockScreen />}
-      {!showLock && needsDataRightsConsent && (
-        <DataRightsConsentScreen onAccepted={() => setNeedsDataRightsConsent(false)} />
+      {!showLock && (needsDataRightsConsent || needsVisibleAppsSetup) && (
+        <DataRightsConsentScreen
+          userId={user?.id}
+          needsConsent={needsDataRightsConsent}
+          needsAppsSetup={needsVisibleAppsSetup}
+          registry={welcomeRegistry}
+          hiddenApps={welcomeHiddenApps}
+          onAccepted={(hidden) => {
+            setNeedsDataRightsConsent(false);
+            setNeedsVisibleAppsSetup(false);
+            if (hidden) setWelcomeHiddenApps(normalizePreferenceMap(hidden));
+            void refreshVisibleApps();
+          }}
+        />
       )}
       <StatusBar style={isMeetingScreen ? "light" : isDark ? "light" : "dark"} />
       {meetingStartedBanner && !isMeetingScreen && !isJoinMeetingScreen && (

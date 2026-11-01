@@ -24,6 +24,7 @@ import {
   getReachParticipantDisplayName,
   sanitizeReachDisplayName,
 } from '../utils/reachDisplayName';
+import { resumeLiveReachMeetingRoute } from '../constants/reachMeeting';
 import { apiClient } from '../services/api';
 import { useAuth } from './context/auth';
 
@@ -161,6 +162,14 @@ export default function JoinMeetingScreen() {
     }
     if (checkState !== 'idle') return;
 
+    const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+    if (liveRoute) {
+      hasNavigatedRef.current = true;
+      clearPersistedWaiting();
+      router.replace(liveRoute as any);
+      return;
+    }
+
     const runPreCheck = async () => {
       setCheckState('loading');
       setErrorMessage('');
@@ -224,6 +233,15 @@ export default function JoinMeetingScreen() {
           return;
         }
 
+        // Already in this call on the HMS screen — stay there (do not remount / leave).
+        const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+        if (liveRoute) {
+          hasNavigatedRef.current = true;
+          clearPersistedWaiting();
+          router.replace(liveRoute as any);
+          return;
+        }
+
         // Open meeting immediately — use signed-in account name (no name-collection screen).
         hasNavigatedRef.current = true;
         clearPersistedWaiting();
@@ -262,6 +280,13 @@ export default function JoinMeetingScreen() {
 
   const navigateToMeeting = useCallback(() => {
     if (hasNavigatedRef.current || !isMountedRef.current) return;
+    const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+    if (liveRoute) {
+      hasNavigatedRef.current = true;
+      clearPersistedWaiting();
+      router.replace(liveRoute as any);
+      return;
+    }
     hasNavigatedRef.current = true;
     clearPersistedWaiting();
     const q = new URLSearchParams({ meetingId: meetingId.trim() });

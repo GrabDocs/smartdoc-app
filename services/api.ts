@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import Constants from 'expo-constants';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 // @ts-ignore - react-native-fetch-api provides true ReadableStream support
@@ -116,6 +116,7 @@ const MOBILE_ENDPOINTS = {
   // User
   USER: '/api/v1/mobile/user',
   USER_DATA_RIGHTS_CONSENT: '/api/v1/mobile/user/data-rights-consent',
+  USER_WELCOME_SETUP: '/api/v1/mobile/user/welcome-setup',
   USER_REQUEST_EMAIL_CHANGE: '/api/v1/mobile/user/request-email-change',
   USER_CANCEL_EMAIL_CHANGE: '/api/v1/mobile/user/cancel-email-change',
   USER_VERIFY_EMAIL_CHANGE: '/api/v1/mobile/user/verify-email-change',
@@ -499,21 +500,24 @@ class ApiService {
         // });
 
         if (error.response?.status === 401) {
-          const originalRequest = error.config as SessionAwareAxiosConfig & { _retriedAfterRefresh?: boolean };
+          const originalRequest = error.config as InternalAxiosRequestConfig &
+            SessionAwareAxiosConfig & { _retriedAfterRefresh?: boolean };
           const reqUrl = String(originalRequest?.url || '');
           const skipSessionClear =
             shouldSkipSessionExpiryOn401(reqUrl) ||
             !!originalRequest?.skipSessionExpiry;
           const isRefreshCall = reqUrl.includes('/mobile/refresh');
+          const hadBearer = Boolean(originalRequest?.headers?.get?.('Authorization'));
 
-          if (!skipSessionClear && !isRefreshCall && !originalRequest._retriedAfterRefresh) {
+          // Always try refresh on 401 when we sent a Bearer token. skipSessionClear
+          // only prevents wiping the local login (meeting 401s are often room-scoped).
+          if (hadBearer && !isRefreshCall && !originalRequest._retriedAfterRefresh) {
             originalRequest._retriedAfterRefresh = true;
             const refreshed = await this.tryRefreshAccessToken();
             if (refreshed) {
               const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
               if (token && token !== 'session_token') {
-                originalRequest.headers = originalRequest.headers ?? {};
-                originalRequest.headers.Authorization = `Bearer ${token}`;
+                originalRequest.headers.set('Authorization', `Bearer ${token}`);
               }
               return this.client(originalRequest);
             }
@@ -1095,6 +1099,18 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to save confirmation');
+    }
+  }
+
+  async completeWelcomeSetup(data: {
+    dataRightsConsent?: boolean;
+    enabledApps: string[];
+  }): Promise<ApiResponse & { hiddenApps?: Record<string, boolean>; hidden_apps?: Record<string, boolean> }> {
+    try {
+      const response = await this.client.post(MOBILE_ENDPOINTS.USER_WELCOME_SETUP, data);
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Failed to save setup');
     }
   }
 
@@ -6624,10 +6640,12 @@ class ApiService {
 
   async sendMeetingHeartbeat(
     roomId: number,
-    options?: { guestId?: string },
+    options?: { guestId?: string; participantName?: string },
   ): Promise<ApiResponse> {
     try {
-      const body = options?.guestId ? { guest_id: options.guestId } : {};
+      const body: Record<string, string> = {};
+      if (options?.guestId) body.guest_id = options.guestId;
+      if (options?.participantName) body.participant_name = options.participantName;
       const response = await this.client.post(`/api/v1/video/room/${roomId}/heartbeat`, body);
       return response.data;
     } catch (error: any) {

@@ -36,7 +36,10 @@ import { expoHrefForWebDefaultHome } from '../../utils/defaultHomePath';
 import { getRecentApps, trackRecentApp } from '../../utils/recentApps';
 import { screenCache } from '../../utils/screenCache';
 import { navigatePrimaryShell } from '../../utils/tabNavigation';
-import { QUICK_ACTION_APP_KEY_SET } from '../../utils/visibleApps';
+import {
+  hasOnlyDefaultAppsOn,
+  QUICK_ACTION_APP_KEY_SET,
+} from '../../utils/visibleApps';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
@@ -95,7 +98,13 @@ function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { user, signOut } = useAuth();
-  const { isHomeAppVisible, refresh: refreshVisibleApps } = useVisibleApps();
+  const {
+    isHomeAppVisible,
+    refresh: refreshVisibleApps,
+    hiddenApps,
+    disabledApps,
+    appChoices,
+  } = useVisibleApps();
   const { uploadFromGallery, uploadFromDocuments } = useFileStore();
   const colors = useThemeColors();
   const [fontsLoaded] = useFonts({ SpaceGrotesk_500Medium });
@@ -619,6 +628,9 @@ function DashboardScreen() {
         // Show upload options modal
         uploadSheet.open();
         break;
+      case 'files':
+        navigatePrimaryShell(router, '/(tabs)/documents');
+        break;
       case 'chat':
         // Navigate to user chat screen (user-to-user and workspace chats ONLY)
         router.push('/user-chat');
@@ -698,6 +710,7 @@ function DashboardScreen() {
   const ALL_APPS: HomeAppDef[] = useMemo(
     () => [
       { key: 'upload', title: 'Upload', subtitle: 'Add documents', icon: 'cloud-upload', color: '#34C759', action: 'upload' },
+      { key: 'files', title: 'My Files', subtitle: 'Browse documents', icon: 'folder', color: '#0EA5E9', action: 'files' },
       { key: 'clients', title: 'My Clients', subtitle: 'Track client work', icon: 'people', color: '#0D9488', action: 'clients' },
       { key: 'chatgd', title: 'ChatGD', subtitle: 'Ask a question', icon: 'chatbubbles', color: '#AF52DE', action: 'chatgd' },
       { key: 'intake', title: 'Intake', subtitle: 'Request documents', icon: 'checkbox-outline', color: '#14B8A6', action: 'intake' },
@@ -742,6 +755,11 @@ function DashboardScreen() {
     // Recent is shortcuts only; do not remove those apps from this list.
     return ALL_APPS.filter((a) => !QUICK_ACTION_APP_KEY_SET.has(a.key) && isHomeAppVisible(a.key));
   }, [ALL_APPS, isHomeAppVisible]);
+
+  const showMoreAppsTile = useMemo(
+    () => hasOnlyDefaultAppsOn(hiddenApps, disabledApps, appChoices),
+    [hiddenApps, disabledApps, appChoices],
+  );
 
   const hasPendingAttention = attentionItems.some(
     (i) =>
@@ -1172,13 +1190,23 @@ function DashboardScreen() {
           </Text>
           <View style={dynamicStyles.statsRow}>
             <StatCard
-              key="stat-files"
+              key="stat-upload"
               title="Upload"
               icon="cloud-upload"
               color="#34C759"
               subtitle="Add documents"
               onPress={() => handleQuickAction('upload')}
             />
+            <StatCard
+              key="stat-my-files"
+              title="My Files"
+              icon="folder"
+              color="#0EA5E9"
+              subtitle="Browse documents"
+              onPress={() => handleQuickAction('files')}
+            />
+          </View>
+          <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
             <StatCard
               key="stat-chats"
               title="ChatGD"
@@ -1187,23 +1215,13 @@ function DashboardScreen() {
               subtitle="Ask a question"
               onPress={() => handleQuickAction('chatgd')}
             />
-          </View>
-          <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
             <StatCard
-              key="stat-intake"
-              title="Intake"
-              icon="checkbox-outline"
-              color="#14B8A6"
-              subtitle="Document checklists"
-              onPress={() => handleQuickAction('intake')}
-            />
-            <StatCard
-              key="stat-email-replies"
-              title="Email Replies"
-              icon="mail-outline"
+              key="stat-reach"
+              title="Reach"
+              icon="call"
               color="#007AFF"
-              subtitle="Draft reply with AI"
-              onPress={() => handleQuickAction('email-sync')}
+              subtitle="Start a meeting"
+              onPress={() => handleQuickAction('meeting-call')}
             />
           </View>
         </View>
@@ -1259,37 +1277,30 @@ function DashboardScreen() {
         {/* Apps */}
         <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
           <Text style={[dynamicStyles.sectionTitle, { marginBottom: 10 }]}>Apps</Text>
-          {moreApps.length ? (
-            <View style={dynamicStyles.quickActionsContainer}>
-              {moreApps.map((app) => (
-                <QuickActionCard
-                  key={`app-${app.key}`}
-                  title={app.title}
-                  subtitle={app.subtitle || 'Open'}
-                  icon={app.icon}
-                  iconElement={app.iconElement}
-                  color={app.color}
-                  onPress={() => handleQuickAction(app.action)}
-                  showLiveMeetingIndicator={app.showLive}
-                />
-              ))}
-            </View>
-          ) : (
-            <View
-              style={{
-                backgroundColor: colors.card,
-                borderRadius: 12,
-                borderWidth: StyleSheet.hairlineWidth,
-                borderColor: colors.border,
-                padding: 14,
-              }}
-            >
-              <Text style={{ color: colors.text, fontWeight: '600' }}>No extra apps</Text>
-              <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4 }}>
-                Turn apps back on in Settings → Display → Choose your apps.
-              </Text>
-            </View>
-          )}
+          <View style={dynamicStyles.quickActionsContainer}>
+            {moreApps.map((app) => (
+              <QuickActionCard
+                key={`app-${app.key}`}
+                title={app.title}
+                subtitle={app.subtitle || 'Open'}
+                icon={app.icon}
+                iconElement={app.iconElement}
+                color={app.color}
+                onPress={() => handleQuickAction(app.action)}
+                showLiveMeetingIndicator={app.showLive}
+              />
+            ))}
+            {showMoreAppsTile ? (
+              <QuickActionCard
+                key="app-more-apps"
+                title="More Apps"
+                subtitle="Add features"
+                icon="apps-outline"
+                color="#6B7280"
+                onPress={() => router.push('/(tabs)/settings?chooseApps=1' as any)}
+              />
+            ) : null}
+          </View>
         </View>
 
         <View style={{ height: 100 }} />

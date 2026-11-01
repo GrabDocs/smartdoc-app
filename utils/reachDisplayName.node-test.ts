@@ -3,7 +3,9 @@ import { describe, it } from 'node:test';
 import {
   decodeFormEncodedDisplayName,
   getHmsDisplayUserName,
+  getHmsPrefillUserName,
   sanitizeReachDisplayName,
+  usableReachDisplayName,
 } from './reachDisplayName.ts';
 
 describe('decodeFormEncodedDisplayName', () => {
@@ -36,5 +38,28 @@ describe('getHmsDisplayUserName', () => {
       getHmsDisplayUserName('', { firstName: 'GrabDocs', lastName: 'Francis' }),
       'GrabDocs Francis'
     );
+  });
+});
+
+describe('getHmsPrefillUserName', () => {
+  it('is empty for a signed-out user with no typed name, so the preview field stays editable', () => {
+    assert.equal(getHmsPrefillUserName(undefined, null), '');
+    assert.equal(getHmsPrefillUserName('Guest', null), '');
+  });
+
+  it('keeps a name typed on the join form', () => {
+    assert.equal(getHmsPrefillUserName('Jane+Doe', null), 'Jane Doe');
+  });
+
+  it('uses the account name for signed-in users', () => {
+    assert.equal(getHmsPrefillUserName('Guest', { firstName: 'Nat', lastName: 'T' }), 'Nat T');
+  });
+});
+
+describe('usableReachDisplayName', () => {
+  it('drops placeholder names', () => {
+    assert.equal(usableReachDisplayName(' guest '), '');
+    assert.equal(usableReachDisplayName('Participant'), '');
+    assert.equal(usableReachDisplayName('Ada'), 'Ada');
   });
 });

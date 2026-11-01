@@ -1,15 +1,15 @@
 /**
  * Mobile Home app visibility — registry (`APP_REGISTRY`) is the source of truth.
  *
- * Always-on = registry `system: true` (web + mobile).
- * Quick actions ⊆ always-on features, plus Upload as a mobile-only utility.
- * Bookmarks = mobile-only extra (not in registry; hideable).
- *
- * Message workspace seeds hide only non-system registry apps (+ bookmarks).
+ * Always-on = registry `system: true` (web + mobile): ChatGD, Reach, Calendar.
+ * Hideable apps are the same registry keys on web and mobile.
+ * Quick actions = Upload + My Files utilities, plus ChatGD and Reach.
+ * Bookmarks is a shortcut, not an app, and is not stored in hidden_apps.
  */
 
 export type MobileHomeAppKey =
   | 'upload'
+  | 'files'
   | 'chatgd'
   | 'intake'
   | 'email-sync'
@@ -36,12 +36,14 @@ export type AppFeatureFromApi = {
 };
 
 export type VisibleAppChoice = {
-  key: MobileHomeAppKey;
+  /** Home key when the app has a mobile screen; otherwise the registry key. */
+  key: string;
   title: string;
-  /** Canonical registry key stored in User.hidden_apps. */
+  description?: string;
+  /** Canonical registry key stored in User.hidden_apps. Same on web and mobile. */
   webKey: string;
   alwaysOn: boolean;
-  /** Choose-your-apps grouping. Upload is omitted from this catalog. */
+  /** Choose-your-apps grouping. Upload and Bookmarks are omitted from this catalog. */
   section: 'always-on' | 'apps';
   sortOrder: number;
 };
@@ -49,13 +51,15 @@ export type VisibleAppChoice = {
 /** Mobile-only utility shortcut on Home Quick actions — not a feature / not choosable. */
 export const UPLOAD_UTILITY_KEY = 'upload' as const;
 
-/** Mobile-only feature not in APP_REGISTRY. */
-export const BOOKMARKS_MOBILE_KEY = 'bookmarks' as const;
-export const BOOKMARKS_WEB_KEY = 'bookmarks' as const;
+/** Home shortcut to the existing Documents tab — not choosable. */
+export const FILES_UTILITY_KEY = 'files' as const;
+
+export const VISIBLE_APPS_SETUP_VERSION = '2026-10-30';
 
 /**
- * Registry key → mobile Home key for apps that exist on mobile.
- * Web-only apps (files, trends, categories) are omitted from Choose your apps.
+ * Registry key → mobile Home key for apps that have a mobile screen.
+ * Registry apps without a mobile screen stay in Choose your apps under their registry key
+ * so the hidden set matches web.
  */
 export const REGISTRY_TO_MOBILE: Record<string, MobileHomeAppKey> = {
   chatgd: 'chatgd',
@@ -75,57 +79,48 @@ export const REGISTRY_TO_MOBILE: Record<string, MobileHomeAppKey> = {
 
 export const MOBILE_TO_WEB_KEY: Record<string, string> = {
   [UPLOAD_UTILITY_KEY]: 'upload',
-  [BOOKMARKS_MOBILE_KEY]: BOOKMARKS_WEB_KEY,
+  [FILES_UTILITY_KEY]: 'files',
   ...Object.fromEntries(
     Object.entries(REGISTRY_TO_MOBILE).map(([webKey, mobileKey]) => [mobileKey, webKey]),
   ),
 };
 
 /**
- * Quick action *feature* tiles (must be always-on / system in registry).
- * Upload is added separately as a utility — not from this list.
+ * Quick action *feature* tiles (ChatGD + Reach). Upload and My Files are utilities.
  */
-export const QUICK_ACTION_FEATURE_WEB_KEYS = ['chatgd', 'intake', 'email_replies'] as const;
+export const QUICK_ACTION_FEATURE_WEB_KEYS = ['chatgd', 'reach'] as const;
 
 export const QUICK_ACTION_APP_KEYS: readonly MobileHomeAppKey[] = [
   UPLOAD_UTILITY_KEY,
+  FILES_UTILITY_KEY,
   'chatgd',
-  'intake',
-  'email-sync',
+  'meeting-call',
 ];
 
 export const QUICK_ACTION_APP_KEY_SET = new Set<string>(QUICK_ACTION_APP_KEYS);
-
-const BOOKMARKS_CHOICE: VisibleAppChoice = {
-  key: BOOKMARKS_MOBILE_KEY,
-  title: 'Bookmarks',
-  webKey: BOOKMARKS_WEB_KEY,
-  alwaysOn: false,
-  section: 'apps',
-  sortOrder: 10_000,
-};
 
 /**
  * Offline / pre-registry fallback matching current backend system flags.
  * Used until auth-check / app-preferences delivers `appFeatures`.
  */
 export const FALLBACK_REGISTRY: AppFeatureFromApi[] = [
-  { key: 'chatgd', name: 'ChatGD', system: true, sortOrder: 10 },
-  { key: 'reach', name: 'Reach', system: true, sortOrder: 20 },
-  { key: 'files', name: 'Files + AI', system: true, sortOrder: 30 },
-  { key: 'notes', name: 'Notes', system: false, sortOrder: 40 },
-  { key: 'calendar', name: 'Calendar', system: false, sortOrder: 50 },
-  { key: 'email_replies', name: 'Email Replies', system: true, sortOrder: 55 },
-  { key: 'clients', name: 'My Clients', system: false, sortOrder: 58 },
-  { key: 'file_request', name: 'File Request', system: true, sortOrder: 60 },
-  { key: 'intake', name: 'Intake', system: true, sortOrder: 65 },
-  { key: 'forms', name: 'Forms', system: true, sortOrder: 70 },
-  { key: 'signatures', name: 'Signatures', system: false, sortOrder: 80 },
-  { key: 'chat', name: 'Secure Messaging', system: false, sortOrder: 90 },
-  { key: 'workspace', name: 'Workspace', description: 'Collaborate with a team', system: true, sortOrder: 100 },
-  { key: 'financials', name: 'Financials', system: false, sortOrder: 110 },
-  { key: 'trends', name: 'Trends', system: false, sortOrder: 120 },
-  { key: 'categories', name: 'Categories', system: false, sortOrder: 130 },
+  { key: 'chatgd', name: 'ChatGD', description: 'Ask questions of my documents', system: true, sortOrder: 10 },
+  { key: 'reach', name: 'Reach', description: 'Start and join video meetings', system: true, sortOrder: 20 },
+  { key: 'files', name: 'Files + AI', description: 'Browse and organize my files', system: false, sortOrder: 30 },
+  { key: 'notes', name: 'Notes', description: 'Write and manage notes', system: false, sortOrder: 40 },
+  { key: 'calendar', name: 'Calendar', description: 'Schedule and manage events', system: true, sortOrder: 50 },
+  { key: 'email_replies', name: 'Email Replies', description: 'Draft replies to emails', system: false, sortOrder: 55 },
+  { key: 'clients', name: 'My Clients', description: 'Track client work', system: false, sortOrder: 58 },
+  { key: 'agentic', name: 'Agents', description: 'Run custom document agents', system: false, sortOrder: 59 },
+  { key: 'file_request', name: 'File Request', description: 'Collect files from others', system: false, sortOrder: 60 },
+  { key: 'intake', name: 'Intake', description: 'Request documents with a checklist', system: false, sortOrder: 65 },
+  { key: 'forms', name: 'Forms', description: 'Create and send forms', system: false, sortOrder: 70 },
+  { key: 'signatures', name: 'Signatures', description: 'Send documents for signature', system: false, sortOrder: 80 },
+  { key: 'chat', name: 'Secure Messaging', description: 'Private encrypted messaging', system: false, sortOrder: 90 },
+  { key: 'workspace', name: 'Workspace', description: 'Collaborate with a team', system: false, sortOrder: 100 },
+  { key: 'financials', name: 'Financials', description: 'Track expenses and receipts', system: false, sortOrder: 110 },
+  { key: 'trends', name: 'Trends', description: 'See document trends', system: false, sortOrder: 120 },
+  { key: 'categories', name: 'Categories', description: 'Organize files by category', system: false, sortOrder: 130 },
 ];
 
 /** @deprecated Use buildMobileAppChoices(registry) — kept for tests / gradual migration. */
@@ -173,32 +168,36 @@ export function isUploadUtility(mobileKey: string): boolean {
   return mobileKey === UPLOAD_UTILITY_KEY;
 }
 
+export function isFilesUtility(mobileKey: string): boolean {
+  return mobileKey === FILES_UTILITY_KEY;
+}
+
+export function isHomeUtility(mobileKey: string): boolean {
+  return isUploadUtility(mobileKey) || isFilesUtility(mobileKey);
+}
+
 export function isQuickActionApp(mobileKey: string): boolean {
   return QUICK_ACTION_APP_KEY_SET.has(mobileKey);
 }
 
-/** Build Choose-your-apps rows from registry + Bookmarks exception (no Upload). */
+/** Choose-your-apps rows: every registry app, same keys as web. No Upload, no Bookmarks. */
 export function buildMobileAppChoices(
   registry: AppFeatureFromApi[],
 ): VisibleAppChoice[] {
   const source = registry.length ? registry : FALLBACK_REGISTRY;
-  const choices: VisibleAppChoice[] = [];
-
-  for (const app of source) {
-    const mobileKey = REGISTRY_TO_MOBILE[app.key];
-    if (!mobileKey) continue; // web-only (files, trends, categories, …)
+  const choices: VisibleAppChoice[] = source.map((app) => {
     const alwaysOn = Boolean(app.system);
-    choices.push({
-      key: mobileKey,
+    return {
+      key: REGISTRY_TO_MOBILE[app.key] ?? app.key,
       title: app.name,
+      description: app.description,
       webKey: app.key,
       alwaysOn,
       section: alwaysOn ? 'always-on' : 'apps',
       sortOrder: app.sortOrder ?? 0,
-    });
-  }
+    };
+  });
 
-  choices.push(BOOKMARKS_CHOICE);
   return choices.sort((a, b) => {
     if (a.section !== b.section) return a.section === 'always-on' ? -1 : 1;
     return a.sortOrder - b.sortOrder;
@@ -222,10 +221,28 @@ export function isAlwaysOnMobileApp(
   mobileKey: string,
   systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
 ): boolean {
-  if (isUploadUtility(mobileKey)) return false;
+  if (isHomeUtility(mobileKey)) return false;
   const webKey = webKeyForMobileApp(mobileKey);
   if (!webKey) return false;
   return systemWebKeys.has(webKey);
+}
+
+/** Bookmarks is a shortcut, not a registry app. */
+export function isBookmarkShortcut(mobileKey: string): boolean {
+  return mobileKey === 'bookmarks';
+}
+
+/** Registry visibility. Same hidden_apps keys as web. Ignores Home shortcuts. */
+export function isRegistryAppVisible(
+  webKey: string,
+  hiddenApps: Record<string, boolean>,
+  disabledApps: Record<string, boolean> = {},
+  systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
+): boolean {
+  if (systemWebKeys.has(webKey)) return true;
+  if (disabledApps[webKey]) return false;
+  if (hiddenApps[webKey]) return false;
+  return true;
 }
 
 export function isMobileHomeAppVisible(
@@ -234,12 +251,9 @@ export function isMobileHomeAppVisible(
   disabledApps: Record<string, boolean> = {},
   systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
 ): boolean {
-  if (isUploadUtility(mobileKey)) return true;
+  if (isHomeUtility(mobileKey) || isBookmarkShortcut(mobileKey)) return true;
   const webKey = webKeyForMobileApp(mobileKey) ?? mobileKey;
-  if (systemWebKeys.has(webKey)) return true;
-  if (disabledApps[webKey]) return false;
-  if (hiddenApps[webKey]) return false;
-  return true;
+  return isRegistryAppVisible(webKey, hiddenApps, disabledApps, systemWebKeys);
 }
 
 export function isMobileAppToggleLocked(
@@ -252,6 +266,18 @@ export function isMobileAppToggleLocked(
   return Boolean(disabledApps[webKey]);
 }
 
+/** True when no hideable (non-always-on) app is visible — show the More Apps tile. */
+export function hasOnlyDefaultAppsOn(
+  hiddenApps: Record<string, boolean>,
+  disabledApps: Record<string, boolean> = {},
+  choices: readonly VisibleAppChoice[] = MOBILE_APP_CHOICES,
+  systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
+): boolean {
+  return choices
+    .filter((app) => !app.alwaysOn)
+    .every((app) => !isRegistryAppVisible(app.webKey, hiddenApps, disabledApps, systemWebKeys));
+}
+
 export function visibleAppsSummary(
   hiddenApps: Record<string, boolean>,
   disabledApps: Record<string, boolean> = {},
@@ -260,7 +286,7 @@ export function visibleAppsSummary(
 ): { visible: number; total: number; label: string } {
   const total = choices.length;
   const visible = choices.filter((app) =>
-    isMobileHomeAppVisible(app.key, hiddenApps, disabledApps, systemWebKeys),
+    isRegistryAppVisible(app.webKey, hiddenApps, disabledApps, systemWebKeys),
   ).length;
   return { visible, total, label: `${visible} of ${total} apps visible` };
 }

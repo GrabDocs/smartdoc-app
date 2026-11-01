@@ -2,7 +2,12 @@ jest.mock('expo-router', () => ({
   router: { push: jest.fn() },
 }));
 
+import { clearLiveReachMeeting, setLiveReachMeeting } from '../../constants/reachMeeting';
 import { resolveAppDeepLinkPath, APP_HOME_PATH } from '../resolveAppDeepLinkPath';
+
+afterEach(() => {
+  clearLiveReachMeeting();
+});
 
 describe('resolveAppDeepLinkPath', () => {
   it('maps meeting App Links to join-meeting', () => {
@@ -10,6 +15,19 @@ describe('resolveAppDeepLinkPath', () => {
       '/join-meeting?meeting_id=48974916',
     );
     expect(resolveAppDeepLinkPath('/meeting/48974916')).toBe('/join-meeting?meeting_id=48974916');
+  });
+
+  it('returns the live HMS route instead of join-meeting when already in that call', () => {
+    setLiveReachMeeting('48974916', '/quick-reach/hms-meeting-interface?meetingId=48974916');
+    expect(resolveAppDeepLinkPath('https://app.grabdocs.com/meeting/48974916')).toBe(
+      '/quick-reach/hms-meeting-interface?meetingId=48974916',
+    );
+    expect(resolveAppDeepLinkPath('/join-meeting?meeting_id=48974916')).toBe(
+      '/quick-reach/hms-meeting-interface?meetingId=48974916',
+    );
+    expect(resolveAppDeepLinkPath('https://app.grabdocs.com/meeting/11111111')).toBe(
+      '/join-meeting?meeting_id=11111111',
+    );
   });
 
   it('maps empty / unknown to home', () => {

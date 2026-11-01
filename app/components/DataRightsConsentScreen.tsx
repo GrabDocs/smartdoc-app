@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -10,85 +11,195 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
+import {
+  FALLBACK_REGISTRY,
+  normalizeAppRegistry,
+  type AppFeatureFromApi,
+} from '../../utils/visibleApps';
+import { writeVisibleAppsSetupLocal } from '../../utils/visibleAppsSetupLocal';
 
 const CONSENT_TEXT =
   "I confirm I have the necessary rights and permissions to upload others' information to GrabDocs.";
 
 interface DataRightsConsentScreenProps {
-  onAccepted: () => void;
+  userId?: string | number | null;
+  needsConsent?: boolean;
+  needsAppsSetup?: boolean;
+  registry?: AppFeatureFromApi[];
+  hiddenApps?: Record<string, boolean>;
+  onAccepted: (hiddenApps?: Record<string, boolean>) => void;
 }
 
-export default function DataRightsConsentScreen({ onAccepted }: DataRightsConsentScreenProps) {
+function initialEnabled(
+  registry: AppFeatureFromApi[],
+  hiddenApps: Record<string, boolean>,
+): Record<string, boolean> {
+  const out: Record<string, boolean> = {};
+  for (const app of registry) {
+    if (app.system) {
+      out[app.key] = true;
+      continue;
+    }
+    out[app.key] = !hiddenApps[app.key];
+  }
+  return out;
+}
+
+export default function DataRightsConsentScreen({
+  userId,
+  needsConsent = false,
+  needsAppsSetup = true,
+  registry,
+  hiddenApps = {},
+  onAccepted,
+}: DataRightsConsentScreenProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const [checked, setChecked] = useState(false);
+  const apps = useMemo(
+    () => normalizeAppRegistry(registry?.length ? registry : FALLBACK_REGISTRY),
+    [registry],
+  );
+  const [consentChecked, setConsentChecked] = useState(!needsConsent);
+  const [enabled, setEnabled] = useState<Record<string, boolean>>(() =>
+    initialEnabled(apps, hiddenApps),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    setConsentChecked(!needsConsent);
+    setEnabled(initialEnabled(apps, hiddenApps));
+  }, [needsConsent, apps, hiddenApps]);
+
+  const alwaysOn = apps.filter((a) => a.system);
+  const optional = apps.filter((a) => !a.system);
+
   const handleContinue = async () => {
-    if (!checked) {
+    if (needsConsent && !consentChecked) {
       setError('Please confirm you have the necessary rights and permissions to upload others\' information.');
       return;
     }
     try {
       setError('');
       setSaving(true);
-      const res = await apiService.acceptDataRightsConsent();
+      const enabledApps = Object.entries(enabled)
+        .filter(([key, on]) => on && !apps.find((a) => a.key === key)?.system)
+        .map(([key]) => key);
+      const res = await apiService.completeWelcomeSetup({
+        dataRightsConsent: needsConsent ? true : undefined,
+        enabledApps,
+      });
       if ((res as any)?.success === false) {
-        setError((res as any)?.message || 'Failed to save confirmation');
+        setError((res as any)?.message || 'Failed to save');
         return;
       }
-      onAccepted();
+      if (userId != null) await writeVisibleAppsSetupLocal(userId);
+      onAccepted((res as any)?.hiddenApps ?? (res as any)?.hidden_apps);
     } catch (err: any) {
-      setError(err?.message || 'Failed to save confirmation');
+      setError(err?.message || 'Failed to save');
     } finally {
       setSaving(false);
     }
   };
 
+  const renderRow = (app: AppFeatureFromApi, locked: boolean) => {
+    const checked = locked ? true : !!enabled[app.key];
+    return (
+      <Pressable
+        key={app.key}
+        style={styles.appRow}
+        onPress={() => {
+          if (locked) return;
+          setEnabled((prev) => ({ ...prev, [app.key]: !prev[app.key] }));
+        }}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked, disabled: locked }}
+      >
+        <View
+          style={[
+            styles.checkbox,
+            { borderColor: '#007AFF' },
+            checked && styles.checkboxChecked,
+            locked && styles.checkboxLocked,
+          ]}
+        />
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.appName, { color: colors.text }]}>{app.name}</Text>
+          {app.description ? (
+            <Text style={[styles.appDesc, { color: colors.text }]}>{app.description}</Text>
+          ) : null}
+          {locked ? (
+            <Text style={[styles.appDesc, { color: colors.text, opacity: 0.55 }]}>Always on</Text>
+          ) : null}
+        </View>
+      </Pressable>
+    );
+  };
+
   return (
     <View style={[StyleSheet.absoluteFill, styles.container, { backgroundColor: colors.background }]}>
-      <View style={[styles.card, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 32 }]}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.card,
+          { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={[styles.title, { color: colors.text }]}>Welcome to GrabDocs</Text>
-        <Text style={[styles.subtitle, { color: colors.text }]}>
-          Before you continue, please confirm:
-        </Text>
+        {needsConsent ? (
+          <>
+            <Text style={[styles.subtitle, { color: colors.text }]}>
+              Before you continue, please confirm:
+            </Text>
+            <Pressable
+              style={styles.consentRow}
+              onPress={() => setConsentChecked((v) => !v)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: consentChecked }}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  { borderColor: '#007AFF' },
+                  consentChecked && styles.checkboxChecked,
+                ]}
+              />
+              <Text style={[styles.consentText, { color: colors.text }]}>{CONSENT_TEXT}</Text>
+            </Pressable>
+            <Text style={[styles.legal, { color: colors.text }]}>
+              By continuing, you agree to our{' '}
+              <Text
+                style={styles.link}
+                onPress={() => Linking.openURL('https://grabdocs.com/terms-of-service')}
+              >
+                Terms of Service
+              </Text>
+              {' '}and{' '}
+              <Text
+                style={styles.link}
+                onPress={() => Linking.openURL('https://grabdocs.com/privacy-policy')}
+              >
+                Privacy Policy
+              </Text>
+              .
+            </Text>
+          </>
+        ) : null}
 
-        <Pressable
-          style={styles.consentRow}
-          onPress={() => setChecked((v) => !v)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked }}
-        >
-          <View
-            style={[
-              styles.checkbox,
-              { borderColor: '#007AFF' },
-              checked && styles.checkboxChecked,
-            ]}
-          />
-          <Text style={[styles.consentText, { color: colors.text }]}>{CONSENT_TEXT}</Text>
-        </Pressable>
+        {needsAppsSetup ? (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Choose the features you want to see
+            </Text>
+            <Text style={[styles.hint, { color: colors.text }]}>
+              You can add or remove features later in Settings → Choose your apps.
+            </Text>
+            {alwaysOn.map((app) => renderRow(app, true))}
+            {optional.map((app) => renderRow(app, false))}
+          </>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <Text style={[styles.legal, { color: colors.text }]}>
-          By continuing, you agree to our{' '}
-          <Text
-            style={styles.link}
-            onPress={() => Linking.openURL('https://grabdocs.com/terms-of-service')}
-          >
-            Terms of Service
-          </Text>
-          {' '}and{' '}
-          <Text
-            style={styles.link}
-            onPress={() => Linking.openURL('https://grabdocs.com/privacy-policy')}
-          >
-            Privacy Policy
-          </Text>
-          .
-        </Text>
 
         <TouchableOpacity
           style={[styles.button, saving && styles.buttonDisabled]}
@@ -98,7 +209,7 @@ export default function DataRightsConsentScreen({ onAccepted }: DataRightsConsen
         >
           <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Continue'}</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -108,8 +219,6 @@ const styles = StyleSheet.create({
     zIndex: 9998,
   },
   card: {
-    flex: 1,
-    justifyContent: 'center',
     paddingHorizontal: 24,
   },
   title: {
@@ -120,13 +229,30 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     lineHeight: 22,
-    marginBottom: 20,
+    marginBottom: 16,
     opacity: 0.85,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  hint: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+    opacity: 0.75,
   },
   consentRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 16,
+  },
+  appRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   checkbox: {
     width: 20,
@@ -139,10 +265,23 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: '#007AFF',
   },
+  checkboxLocked: {
+    opacity: 0.7,
+  },
   consentText: {
     flex: 1,
     fontSize: 15,
     lineHeight: 22,
+  },
+  appName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  appDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+    opacity: 0.75,
   },
   error: {
     color: '#dc2626',
@@ -152,7 +291,7 @@ const styles = StyleSheet.create({
   legal: {
     fontSize: 14,
     lineHeight: 20,
-    marginBottom: 24,
+    marginBottom: 16,
     opacity: 0.8,
   },
   link: {
@@ -164,6 +303,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
+    marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.6,

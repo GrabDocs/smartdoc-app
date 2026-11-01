@@ -26,7 +26,7 @@ import { apiClient } from '../../services/api';
 import { parseMobileMeetingInfoResponse } from '../../utils/meetingJoinPresence';
 import { getReachParticipantDisplayName, sanitizeReachDisplayName } from '../../utils/reachDisplayName';
 import { formatMeetingTimeToLocal } from '../../utils/timeFormatting';
-import { REACH_CURRENT_MEETING_KEY, canonicalizeReachMeetingId } from '../../constants/reachMeeting';
+import { REACH_CURRENT_MEETING_KEY, canonicalizeReachMeetingId, resumeLiveReachMeetingRoute } from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
 import { isValidEmail } from '../../utils/emailValidation';
 
@@ -776,6 +776,11 @@ export default function MeetingCallScreen() {
         const currentCanon = currentRaw ? canonicalizeReachMeetingId(currentRaw.trim()) : '';
         const meetingCanon = canonicalizeReachMeetingId(meeting.meetingId);
         if (currentCanon && meetingCanon && currentCanon === meetingCanon) {
+          const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
+          if (liveRoute) {
+            router.replace(liveRoute as any);
+            return;
+          }
           navigateToMeetingScreen({
             meetingId: meeting.meetingId,
             title: meeting.title,

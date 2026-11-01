@@ -240,9 +240,9 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
 
   const toggleApp = useCallback(
     async (mobileKey: string, visible: boolean) => {
-      const webKey = webKeyForMobileApp(mobileKey);
-      if (!webKey) return;
-      if (systemWebKeys.has(webKey)) return;
+      if (mobileKey === 'upload' || mobileKey === 'bookmarks') return;
+      const webKey = webKeyForMobileApp(mobileKey) ?? mobileKey;
+      if (webKey === 'upload' || systemWebKeys.has(webKey)) return;
       const patch = hiddenPatchForToggle(webKey, visible);
       const prevHidden = hiddenApps;
       const optimistic = { ...hiddenApps };
