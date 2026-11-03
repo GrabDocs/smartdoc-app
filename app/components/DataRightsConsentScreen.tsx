@@ -13,9 +13,11 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { useAuth } from '../context/auth';
 import { apiService } from '../../services/api';
 import {
+  buildMobileAppChoices,
   FALLBACK_REGISTRY,
   normalizeAppRegistry,
   type AppFeatureFromApi,
+  type VisibleAppChoice,
 } from '../../utils/visibleApps';
 import { writeVisibleAppsSetupLocal } from '../../utils/visibleAppsSetupLocal';
 
@@ -32,16 +34,16 @@ interface DataRightsConsentScreenProps {
 }
 
 function initialEnabled(
-  registry: AppFeatureFromApi[],
+  choices: VisibleAppChoice[],
   hiddenApps: Record<string, boolean>,
 ): Record<string, boolean> {
   const out: Record<string, boolean> = {};
-  for (const app of registry) {
-    if (app.system) {
-      out[app.key] = true;
+  for (const app of choices) {
+    if (app.alwaysOn) {
+      out[app.webKey] = true;
       continue;
     }
-    out[app.key] = !hiddenApps[app.key];
+    out[app.webKey] = !hiddenApps[app.webKey];
   }
   return out;
 }
@@ -58,7 +60,10 @@ export default function DataRightsConsentScreen({
   const insets = useSafeAreaInsets();
   const { signOut } = useAuth();
   const apps = useMemo(
-    () => normalizeAppRegistry(registry?.length ? registry : FALLBACK_REGISTRY),
+    () =>
+      buildMobileAppChoices(
+        normalizeAppRegistry(registry?.length ? registry : FALLBACK_REGISTRY),
+      ),
     [registry],
   );
   const [consentChecked, setConsentChecked] = useState(!needsConsent);
@@ -74,8 +79,8 @@ export default function DataRightsConsentScreen({
     setEnabled(initialEnabled(apps, hiddenApps));
   }, [needsConsent, apps, hiddenApps]);
 
-  const alwaysOn = apps.filter((a) => a.system);
-  const optional = apps.filter((a) => !a.system);
+  const alwaysOn = apps.filter((a) => a.alwaysOn);
+  const optional = apps.filter((a) => !a.alwaysOn);
 
   const handleContinue = async () => {
     if (needsConsent && !consentChecked) {
@@ -86,7 +91,7 @@ export default function DataRightsConsentScreen({
       setError('');
       setSaving(true);
       const enabledApps = Object.entries(enabled)
-        .filter(([key, on]) => on && !apps.find((a) => a.key === key)?.system)
+        .filter(([key, on]) => on && !apps.find((a) => a.webKey === key)?.alwaysOn)
         .map(([key]) => key);
       const res = await apiService.completeWelcomeSetup({
         dataRightsConsent: needsConsent ? true : undefined,
@@ -117,15 +122,15 @@ export default function DataRightsConsentScreen({
     }
   };
 
-  const renderRow = (app: AppFeatureFromApi, locked: boolean) => {
-    const checked = locked ? true : !!enabled[app.key];
+  const renderRow = (app: VisibleAppChoice, locked: boolean) => {
+    const checked = locked ? true : !!enabled[app.webKey];
     return (
       <Pressable
-        key={app.key}
+        key={app.webKey}
         style={styles.appRow}
         onPress={() => {
           if (locked) return;
-          setEnabled((prev) => ({ ...prev, [app.key]: !prev[app.key] }));
+          setEnabled((prev) => ({ ...prev, [app.webKey]: !prev[app.webKey] }));
         }}
         accessibilityRole="checkbox"
         accessibilityState={{ checked, disabled: locked }}
@@ -139,7 +144,7 @@ export default function DataRightsConsentScreen({
           ]}
         />
         <View style={{ flex: 1 }}>
-          <Text style={[styles.appName, { color: colors.text }]}>{app.name}</Text>
+          <Text style={[styles.appName, { color: colors.text }]}>{app.title}</Text>
           {app.description ? (
             <Text style={[styles.appDesc, { color: colors.text }]}>{app.description}</Text>
           ) : null}

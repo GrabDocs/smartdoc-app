@@ -207,18 +207,24 @@ function DashboardScreen() {
       /* keep prior visibility */
     }
     try {
-      const count = await getClientsCount();
-      setClientsCount(count);
-      if (count > 0) {
-        const att = await getAttentionQueue('all', { limit: 8, offset: 0 });
-        setAttentionItems(att.items || []);
-      } else {
+      // Needs attention is a My Clients surface — skip when that app is hidden.
+      if (!isHomeAppVisible('clients')) {
+        setClientsCount(0);
         setAttentionItems([]);
+      } else {
+        const count = await getClientsCount();
+        setClientsCount(count);
+        if (count > 0) {
+          const att = await getAttentionQueue('all', { limit: 8, offset: 0 });
+          setAttentionItems(att.items || []);
+        } else {
+          setAttentionItems([]);
+        }
       }
     } catch {
       /* keep prior attention rather than flashing an empty block */
     }
-  }, [refreshVisibleApps]);
+  }, [refreshVisibleApps, isHomeAppVisible]);
 
   const loadDashboardData = useCallback(async (forceRefresh = false) => {
     // console.log('🏠 Starting dashboard data load...');
@@ -1116,8 +1122,8 @@ function DashboardScreen() {
           </Text>
         </View>
 
-        {/* Client attention — only if user has clients */}
-        {clientsCount > 0 ? (
+        {/* Client attention — only if My Clients is visible and user has clients */}
+        {isHomeAppVisible('clients') && clientsCount > 0 ? (
           <View style={{ paddingHorizontal: 16, paddingTop: 16 }}>
             {hasPendingAttention ? (
               <>
@@ -1202,22 +1208,22 @@ function DashboardScreen() {
               onPress={() => handleQuickAction('upload')}
             />
             <StatCard
-              key="stat-my-files"
-              title="My Files"
-              icon="folder"
-              color="#0EA5E9"
-              subtitle="Browse documents"
-              onPress={() => handleQuickAction('files')}
-            />
-          </View>
-          <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
-            <StatCard
               key="stat-chats"
               title="ChatGD"
               icon="chatbubbles"
               color="#AF52DE"
               subtitle="Ask a question"
               onPress={() => handleQuickAction('chatgd')}
+            />
+          </View>
+          <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
+            <StatCard
+              key="stat-my-files"
+              title="My Files"
+              icon="folder"
+              color="#0EA5E9"
+              subtitle="Browse documents"
+              onPress={() => handleQuickAction('files')}
             />
             <StatCard
               key="stat-reach"

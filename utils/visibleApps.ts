@@ -1,9 +1,9 @@
 /**
  * Mobile Home app visibility — registry (`APP_REGISTRY`) is the source of truth.
  *
- * Always-on = registry `system: true` (web + mobile): ChatGD, Reach, Calendar.
- * Hideable apps are the same registry keys on web and mobile.
- * Quick actions = Upload + My Files utilities, plus ChatGD and Reach.
+ * Always-on = registry `system: true` (web + mobile): ChatGD, Reach, Files/My Files, Calendar.
+ * Mobile Choose/Welcome lists only registry apps that have a mobile screen (REGISTRY_TO_MOBILE).
+ * Quick actions = Upload, ChatGD, My Files, Reach.
  * Bookmarks is a shortcut, not an app, and is not stored in hidden_apps.
  */
 
@@ -59,12 +59,13 @@ export const VISIBLE_APPS_SETUP_VERSION = '2026-10-30';
 
 /**
  * Registry key → mobile Home key for apps that have a mobile screen.
- * Registry apps without a mobile screen stay in Choose your apps under their registry key
- * so the hidden set matches web.
+ * Web-only registry apps (e.g. categories, trends, agentic) are omitted from
+ * mobile Welcome / Choose your apps.
  */
 export const REGISTRY_TO_MOBILE: Record<string, MobileHomeAppKey> = {
   chatgd: 'chatgd',
   reach: 'meeting-call',
+  files: 'files',
   notes: 'notes',
   calendar: 'calendar',
   email_replies: 'email-sync',
@@ -78,6 +79,11 @@ export const REGISTRY_TO_MOBILE: Record<string, MobileHomeAppKey> = {
   workspace: 'workspaces',
   financials: 'analytics',
 };
+
+/** True when the registry app has a mobile screen / Home entry. */
+export function isMobileAvailableRegistryKey(webKey: string): boolean {
+  return Object.prototype.hasOwnProperty.call(REGISTRY_TO_MOBILE, webKey);
+}
 
 export const MOBILE_TO_WEB_KEY: Record<string, string> = {
   [UPLOAD_UTILITY_KEY]: 'upload',
@@ -94,8 +100,8 @@ export const QUICK_ACTION_FEATURE_WEB_KEYS = ['chatgd', 'reach'] as const;
 
 export const QUICK_ACTION_APP_KEYS: readonly MobileHomeAppKey[] = [
   UPLOAD_UTILITY_KEY,
-  FILES_UTILITY_KEY,
   'chatgd',
+  FILES_UTILITY_KEY,
   'meeting-call',
 ];
 
@@ -108,7 +114,7 @@ export const QUICK_ACTION_APP_KEY_SET = new Set<string>(QUICK_ACTION_APP_KEYS);
 export const FALLBACK_REGISTRY: AppFeatureFromApi[] = [
   { key: 'chatgd', name: 'ChatGD', description: 'Ask questions of my documents', system: true, sortOrder: 10 },
   { key: 'reach', name: 'Reach', description: 'Start and join video meetings', system: true, sortOrder: 20 },
-  { key: 'files', name: 'Files + AI', description: 'Browse and organize my files', system: false, sortOrder: 30 },
+  { key: 'files', name: 'Files + AI', description: 'Browse and organize my files', system: true, sortOrder: 30 },
   { key: 'notes', name: 'Notes', description: 'Write and manage notes', system: false, sortOrder: 40 },
   { key: 'calendar', name: 'Calendar', description: 'Schedule and manage events', system: true, sortOrder: 50 },
   { key: 'email_replies', name: 'Email Replies', description: 'Draft replies to emails', system: false, sortOrder: 55 },
@@ -183,23 +189,32 @@ export function isQuickActionApp(mobileKey: string): boolean {
   return QUICK_ACTION_APP_KEY_SET.has(mobileKey);
 }
 
-/** Choose-your-apps rows: every registry app, same keys as web. No Upload, no Bookmarks. */
+/** Mobile display name for registry apps (web may use a different product name). */
+function mobileTitleForRegistryApp(app: AppFeatureFromApi): string {
+  // Registry "Files + AI" is the same Home feature as Quick action "My Files".
+  if (app.key === 'files') return 'My Files';
+  return app.name;
+}
+
+/** Choose-your-apps / Welcome rows: mobile-available registry apps only. No Upload, no Bookmarks. */
 export function buildMobileAppChoices(
   registry: AppFeatureFromApi[],
 ): VisibleAppChoice[] {
   const source = registry.length ? registry : FALLBACK_REGISTRY;
-  const choices: VisibleAppChoice[] = source.map((app) => {
-    const alwaysOn = Boolean(app.system);
-    return {
-      key: REGISTRY_TO_MOBILE[app.key] ?? app.key,
-      title: app.name,
-      description: app.description,
-      webKey: app.key,
-      alwaysOn,
-      section: alwaysOn ? 'always-on' : 'apps',
-      sortOrder: app.sortOrder ?? 0,
-    };
-  });
+  const choices: VisibleAppChoice[] = source
+    .filter((app) => isMobileAvailableRegistryKey(app.key))
+    .map((app) => {
+      const alwaysOn = Boolean(app.system);
+      return {
+        key: REGISTRY_TO_MOBILE[app.key] ?? app.key,
+        title: mobileTitleForRegistryApp(app),
+        description: app.description,
+        webKey: app.key,
+        alwaysOn,
+        section: alwaysOn ? 'always-on' : 'apps',
+        sortOrder: app.sortOrder ?? 0,
+      };
+    });
 
   return choices.sort((a, b) => {
     if (a.section !== b.section) return a.section === 'always-on' ? -1 : 1;
@@ -224,7 +239,9 @@ export function isAlwaysOnMobileApp(
   mobileKey: string,
   systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
 ): boolean {
-  if (isHomeUtility(mobileKey)) return false;
+  // Upload is a Home utility shortcut, not a registry always-on app.
+  if (isUploadUtility(mobileKey)) return false;
+  if (isBookmarkShortcut(mobileKey)) return false;
   const webKey = webKeyForMobileApp(mobileKey);
   if (!webKey) return false;
   return systemWebKeys.has(webKey);
@@ -269,16 +286,33 @@ export function isMobileAppToggleLocked(
   return Boolean(disabledApps[webKey]);
 }
 
-/** True when no hideable (non-always-on) app is visible — show the More Apps tile. */
+/** Show More Apps when fewer than this many optional (non-always-on) apps are visible. */
+export const MORE_APPS_ADDITIONAL_THRESHOLD = 5;
+
+/** Count of visible hideable (non-always-on) apps. */
+export function countVisibleAdditionalApps(
+  hiddenApps: Record<string, boolean>,
+  disabledApps: Record<string, boolean> = {},
+  choices: readonly VisibleAppChoice[] = MOBILE_APP_CHOICES,
+  systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
+): number {
+  return choices
+    .filter((app) => !app.alwaysOn)
+    .filter((app) => isRegistryAppVisible(app.webKey, hiddenApps, disabledApps, systemWebKeys))
+    .length;
+}
+
+/** True when the user has fewer than MORE_APPS_ADDITIONAL_THRESHOLD optional apps visible. */
 export function hasOnlyDefaultAppsOn(
   hiddenApps: Record<string, boolean>,
   disabledApps: Record<string, boolean> = {},
   choices: readonly VisibleAppChoice[] = MOBILE_APP_CHOICES,
   systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
 ): boolean {
-  return choices
-    .filter((app) => !app.alwaysOn)
-    .every((app) => !isRegistryAppVisible(app.webKey, hiddenApps, disabledApps, systemWebKeys));
+  return (
+    countVisibleAdditionalApps(hiddenApps, disabledApps, choices, systemWebKeys) <
+    MORE_APPS_ADDITIONAL_THRESHOLD
+  );
 }
 
 export function visibleAppsSummary(

@@ -72,6 +72,9 @@ SplashScreen.preventAutoHideAsync().catch((err) => {
   }
 });
 
+/** Reach meeting-started top banner auto-dismisses after this TTL. */
+const MEETING_STARTED_BANNER_TTL_MS = 30 * 60 * 1000;
+
 function RootLayoutNav() {
   const { visible, minimized, progressData, minimizeProgress, expandProgress, closeProgress } = useProgressStore();
   const { isDark } = useTheme();
@@ -95,6 +98,8 @@ function RootLayoutNav() {
     meetingId: string;
     message: string;
     notificationId?: number;
+    /** Epoch ms when the meeting-start event was received / created — banner auto-hides after 30 min. */
+    startedAtMs: number;
   } | null>(null);
   const dismissedMeetingIdsRef = useRef<Set<string>>(new Set());
   // Latest authenticated user, readable from notification listener callbacks without re-registering.
@@ -131,11 +136,21 @@ function RootLayoutNav() {
       meetingId: string;
       message: string;
       notificationId?: number;
+      startedAtMs?: number;
     }) => {
       const meetingId = String(payload.meetingId || '').trim();
       if (!meetingId) return;
       const canon = canonicalizeReachMeetingId(meetingId);
       if (!canon || dismissedMeetingIdsRef.current.has(canon)) return;
+
+      const startedAtMs =
+        typeof payload.startedAtMs === 'number' && Number.isFinite(payload.startedAtMs)
+          ? payload.startedAtMs
+          : Date.now();
+      if (Date.now() - startedAtMs >= MEETING_STARTED_BANNER_TTL_MS) {
+        dismissedMeetingIdsRef.current.add(canon);
+        return;
+      }
 
       try {
         const current = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
@@ -148,6 +163,7 @@ function RootLayoutNav() {
         meetingId: canon,
         message: payload.message || 'A Reach meeting started. Join to participate.',
         notificationId: payload.notificationId,
+        startedAtMs,
       });
     },
     []
@@ -211,8 +227,10 @@ function RootLayoutNav() {
           message?: string;
           type?: string;
           read?: boolean;
+          created_at?: string;
           metadata?: Record<string, any>;
         }>;
+        const now = Date.now();
         const hit = list.find((n) => {
           if (n.read) return false;
           if (!isReachMeetingStartedNotificationType(n.type) &&
@@ -222,7 +240,14 @@ function RootLayoutNav() {
           const mid = n.metadata?.meeting_id ?? n.metadata?.meetingId;
           if (!mid) return false;
           const canon = canonicalizeReachMeetingId(mid);
-          return !!canon && !dismissedMeetingIdsRef.current.has(canon);
+          if (!canon || dismissedMeetingIdsRef.current.has(canon)) return false;
+          if (n.created_at) {
+            const createdMs = new Date(n.created_at).getTime();
+            if (Number.isFinite(createdMs) && now - createdMs >= MEETING_STARTED_BANNER_TTL_MS) {
+              return false;
+            }
+          }
+          return true;
         });
         if (!hit) return;
         const mid = String(hit.metadata?.meeting_id ?? hit.metadata?.meetingId);
@@ -230,10 +255,12 @@ function RootLayoutNav() {
           (hit.message && String(hit.message).trim()) ||
           (hit.title && String(hit.title).trim()) ||
           'A Reach meeting started. Join to participate.';
+        const createdMs = hit.created_at ? new Date(hit.created_at).getTime() : Date.now();
         await maybeShowMeetingStartedBanner({
           meetingId: mid,
           message,
           notificationId: hit.id,
+          startedAtMs: Number.isFinite(createdMs) ? createdMs : Date.now(),
         });
       } catch {
         // non-fatal
@@ -264,6 +291,35 @@ function RootLayoutNav() {
     isJoinMeetingScreen,
     clearMeetingStartedBannerIfJoined,
   ]);
+
+  // Auto-remove meeting-started banner 30 minutes after the meeting started / notification time.
+  useEffect(() => {
+    if (!meetingStartedBanner) return;
+    const remaining =
+      MEETING_STARTED_BANNER_TTL_MS - (Date.now() - meetingStartedBanner.startedAtMs);
+    if (remaining <= 0) {
+      dismissedMeetingIdsRef.current.add(
+        canonicalizeReachMeetingId(meetingStartedBanner.meetingId),
+      );
+      if (meetingStartedBanner.notificationId != null) {
+        apiClient.markNotificationRead(meetingStartedBanner.notificationId).catch(() => {});
+      }
+      setMeetingStartedBanner(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setMeetingStartedBanner((prev) => {
+        if (!prev) return prev;
+        if (prev.meetingId !== meetingStartedBanner.meetingId) return prev;
+        dismissedMeetingIdsRef.current.add(canonicalizeReachMeetingId(prev.meetingId));
+        if (prev.notificationId != null) {
+          apiClient.markNotificationRead(prev.notificationId).catch(() => {});
+        }
+        return null;
+      });
+    }, remaining);
+    return () => clearTimeout(timer);
+  }, [meetingStartedBanner]);
 
   const handleMeetingStartedJoin = useCallback(() => {
     const banner = meetingStartedBanner;
