@@ -641,6 +641,9 @@ function DashboardScreen() {
       case 'clients':
         router.push('/clients' as any);
         break;
+      case 'assist':
+        router.push('/assist' as any);
+        break;
       case 'form':
         router.push('/forms/create');
         break;
@@ -712,6 +715,7 @@ function DashboardScreen() {
       { key: 'upload', title: 'Upload', subtitle: 'Add documents', icon: 'cloud-upload', color: '#34C759', action: 'upload' },
       { key: 'files', title: 'My Files', subtitle: 'Browse documents', icon: 'folder', color: '#0EA5E9', action: 'files' },
       { key: 'clients', title: 'My Clients', subtitle: 'Track client work', icon: 'people', color: '#0D9488', action: 'clients' },
+      { key: 'assist', title: 'Assist', subtitle: 'Daily brief & follow-ups', icon: 'briefcase', color: '#0284C7', action: 'assist' },
       { key: 'chatgd', title: 'ChatGD', subtitle: 'Ask a question', icon: 'chatbubbles', color: '#AF52DE', action: 'chatgd' },
       { key: 'intake', title: 'Intake', subtitle: 'Request documents', icon: 'checkbox-outline', color: '#14B8A6', action: 'intake' },
       { key: 'calendar', title: 'Calendar', subtitle: 'Schedule events', icon: 'calendar-outline', color: '#5856D6', action: 'calendar' },

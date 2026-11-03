@@ -849,7 +849,7 @@ export default function BillingScreen() {
           <View style={styles.card}>
             <Text style={styles.title}>Add credits</Text>
             <Text style={styles.subtitle}>
-              Buy extra AI credits. Available on paid plans only; top-up tokens expire if your subscription
+              Buy extra AI credits. Available on paid plans only; top-up credits expire if your subscription
               expires without a renewal in place.
             </Text>
             {packsLoading ? (

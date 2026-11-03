@@ -32,8 +32,10 @@ import { apiClient } from '../services/api';
 import { sanitizeDisplayFilename } from '../utils/displayFilename';
 import { secureStorage } from '../utils/storage';
 
+import { useVisibleApps } from '../contexts/VisibleAppsContext';
 import AppBackButton from './AppBackButton';
 import AppHeaderTitle from './AppHeaderTitle';
+import ExplainDocumentButton from './assist/ExplainDocumentButton';
 import ClientsButton from './clients/ClientsButton';
 
 // Conditionally import react-native-pdf (only works in development builds, not Expo Go)
@@ -1038,6 +1040,8 @@ export default function DocumentViewer({
   onClose
 }: DocumentViewerProps) {
   const colors = useThemeColors();
+  const { isHomeAppVisible } = useVisibleApps();
+  const assistExplainEnabled = isHomeAppVisible('assist');
   const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [pdfLocalUri, setPdfLocalUri] = useState<string | null>(null);
   /** Local file URI for WebView (Office docs only when native PDF not used). PDF uses only native viewer. */
@@ -2939,12 +2943,18 @@ export default function DocumentViewer({
               {getViewerTitle()}
             </AppHeaderTitle>
             {Number.isFinite(parseInt(String(fileId), 10)) ? (
-              <ClientsButton
-                itemType="file"
-                itemId={parseInt(String(fileId), 10)}
-                compact
-                allowCreate
-              />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ClientsButton
+                  itemType="file"
+                  itemId={parseInt(String(fileId), 10)}
+                  compact
+                  allowCreate
+                />
+                <ExplainDocumentButton
+                  fileId={parseInt(String(fileId), 10)}
+                  enabled={assistExplainEnabled}
+                />
+              </View>
             ) : (
               <View style={styles.placeholder} />
             )}

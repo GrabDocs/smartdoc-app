@@ -11,6 +11,8 @@ import { API_BASE_URL, STORAGE_KEYS } from '../constants/Config';
 import { fetchSermonMeta } from '../utils/isSermonFile';
 import { secureStorage } from '../utils/storage';
 import MinimizableBottomSheet from './MinimizableBottomSheet';
+import ExplainDocumentButton from './assist/ExplainDocumentButton';
+import { useVisibleApps } from '../contexts/VisibleAppsContext';
 
 export interface GeneralFileViewerModalProps {
   visible: boolean;
@@ -42,6 +44,8 @@ export default function GeneralFileViewerModal({
   const { height: windowHeight } = useWindowDimensions();
   const sheetHeight = Math.round(windowHeight * 0.88);
   const webMinHeight = Math.max(320, Math.round(windowHeight * 0.55));
+  const { isHomeAppVisible } = useVisibleApps();
+  const assistExplainEnabled = isHomeAppVisible('assist');
 
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [displayTitle, setDisplayTitle] = useState(title || 'Document');
@@ -80,6 +84,11 @@ export default function GeneralFileViewerModal({
       expandNonce={expandNonce}
       sheetHeight={sheetHeight}
       title={displayTitle}
+      headerRight={
+        assistExplainEnabled && fileId ? (
+          <ExplainDocumentButton fileId={fileId} enabled />
+        ) : undefined
+      }
     >
       <View style={[styles.body, { minHeight: webMinHeight }]}>
         {pdfError ? (

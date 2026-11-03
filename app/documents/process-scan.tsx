@@ -15,7 +15,9 @@ import { captureRef } from 'react-native-view-shot';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import ExplainDocumentButton from '../../components/assist/ExplainDocumentButton';
 import { useLimitError } from '../../contexts/LimitErrorContext';
+import { useVisibleApps } from '../../contexts/VisibleAppsContext';
 import { extractLimitErrorData, getErrorResponseData } from '../../utils/limitErrorUtils';
 
 type EnhancementMode = 'auto' | 'high_contrast' | 'black_white';
@@ -55,6 +57,8 @@ const FILTER_OPTIONS: FilterOption[] = [
 export default function ProcessScanScreen() {
   const router = useRouter();
   const { showLimitError } = useLimitError();
+  const { isHomeAppVisible } = useVisibleApps();
+  const assistExplainEnabled = isHomeAppVisible('assist');
   const { imageUri, returnTo } = useLocalSearchParams<{ imageUri: string; returnTo?: string | string[] }>();
   const guestReturn = returnTo === 'scheduling-guest'
     || (Array.isArray(returnTo) && returnTo[0] === 'scheduling-guest');
@@ -215,20 +219,26 @@ export default function ProcessScanScreen() {
           <AppHeaderIcon name="close" color="#fff" />
         </Pressable>
         <AppHeaderTitle style={{ color: '#fff' }}>Review Scan</AppHeaderTitle>
-        <Pressable
-          style={[styles.saveBtn, uploading && styles.saveBtnDisabled]}
-          onPress={saveDocument}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="cloud-upload-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
-              <Text style={styles.saveBtnText}>Save</Text>
-            </>
-          )}
-        </Pressable>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <ExplainDocumentButton
+            text={`Scanned document ${imageUri || ''}`}
+            enabled={assistExplainEnabled}
+          />
+          <Pressable
+            style={[styles.saveBtn, uploading && styles.saveBtnDisabled]}
+            onPress={saveDocument}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="cloud-upload-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.saveBtnText}>Save</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
       </View>
 
       {/* Image preview with filter applied */}

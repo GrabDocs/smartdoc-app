@@ -14,6 +14,7 @@ export type MobileHomeAppKey =
   | 'intake'
   | 'email-sync'
   | 'clients'
+  | 'assist'
   | 'calendar'
   | 'meeting-call'
   | 'signatures'
@@ -68,6 +69,7 @@ export const REGISTRY_TO_MOBILE: Record<string, MobileHomeAppKey> = {
   calendar: 'calendar',
   email_replies: 'email-sync',
   clients: 'clients',
+  grabdocs_assist: 'assist',
   file_request: 'upload-links',
   intake: 'intake',
   forms: 'form',
@@ -110,6 +112,7 @@ export const FALLBACK_REGISTRY: AppFeatureFromApi[] = [
   { key: 'notes', name: 'Notes', description: 'Write and manage notes', system: false, sortOrder: 40 },
   { key: 'calendar', name: 'Calendar', description: 'Schedule and manage events', system: true, sortOrder: 50 },
   { key: 'email_replies', name: 'Email Replies', description: 'Draft replies to emails', system: false, sortOrder: 55 },
+  { key: 'grabdocs_assist', name: 'Assist', description: 'Daily brief, archive, calls, and follow-ups', system: false, sortOrder: 57 },
   { key: 'clients', name: 'My Clients', description: 'Track client work', system: false, sortOrder: 58 },
   { key: 'agentic', name: 'Agents', description: 'Run custom document agents', system: false, sortOrder: 59 },
   { key: 'file_request', name: 'File Request', description: 'Collect files from others', system: false, sortOrder: 60 },
@@ -315,6 +318,8 @@ export type AppPreferencesPayload = {
   companyPolicy?: { disabledApps?: Record<string, boolean>; disabled_apps?: Record<string, boolean> };
   appFeatures?: AppFeatureFromApi[];
   apps?: AppFeatureFromApi[];
+  /** Feature-flag gate for Assist (same as web `grabdocsAssistEnabled`). */
+  grabdocsAssistEnabled?: boolean;
 };
 
 /** Accept top-level or nested `{ data: ... }` mobile API envelopes. */
@@ -328,7 +333,8 @@ export function extractAppPreferencesPayload(raw: unknown): AppPreferencesPayloa
     'hidden_apps' in candidate ||
     'companyPolicy' in candidate ||
     'appFeatures' in candidate ||
-    'apps' in candidate
+    'apps' in candidate ||
+    'grabdocsAssistEnabled' in candidate
   ) {
     return candidate;
   }

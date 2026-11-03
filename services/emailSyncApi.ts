@@ -26,6 +26,7 @@ export type InboxConnection = {
   needs_reconnect_for_send?: boolean;
   workspace_id?: number | null;
   send_as_addresses?: string[];
+  used_by_assist?: boolean;
 };
 
 export type EmailInboxAlias = {

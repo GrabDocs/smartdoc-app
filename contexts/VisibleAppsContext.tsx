@@ -37,6 +37,8 @@ type VisibleAppsContextValue = {
   registry: AppFeatureFromApi[];
   appChoices: VisibleAppChoice[];
   loading: boolean;
+  /** True after the server preference payload (including Assist flag) has been applied. */
+  loaded: boolean;
   saving: boolean;
   summaryLabel: string;
   isHomeAppVisible: (mobileKey: string) => boolean;
@@ -78,13 +80,19 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   const [hiddenApps, setHiddenApps] = useState<Record<string, boolean>>({});
   const [disabledApps, setDisabledApps] = useState<Record<string, boolean>>({});
   const [registry, setRegistry] = useState<AppFeatureFromApi[]>(FALLBACK_REGISTRY);
+  const [grabdocsAssistEnabled, setGrabdocsAssistEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const registryRef = React.useRef(registry);
   registryRef.current = registry;
 
   const systemWebKeys = useMemo(() => systemWebKeysFromRegistry(registry), [registry]);
-  const appChoices = useMemo(() => buildMobileAppChoices(registry), [registry]);
+  const appChoices = useMemo(() => {
+    const choices = buildMobileAppChoices(registry);
+    if (grabdocsAssistEnabled) return choices;
+    return choices.filter((c) => c.webKey !== 'grabdocs_assist');
+  }, [registry, grabdocsAssistEnabled]);
 
   const persistCache = useCallback(
     async (
@@ -123,6 +131,9 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
 
       setHiddenApps(nextHidden);
       setDisabledApps(nextDisabled);
+      if (typeof payload.grabdocsAssistEnabled === 'boolean') {
+        setGrabdocsAssistEnabled(payload.grabdocsAssistEnabled);
+      }
       if (fromPayload.length) setRegistry(fromPayload);
       await persistCache(nextHidden, nextDisabled, nextRegistry);
     },
@@ -160,6 +171,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       setHiddenApps({});
       setDisabledApps({});
       setRegistry(FALLBACK_REGISTRY);
+      setGrabdocsAssistEnabled(false);
       return;
     }
     try {
@@ -182,9 +194,12 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       setHiddenApps({});
       setDisabledApps({});
       setRegistry(FALLBACK_REGISTRY);
+      setGrabdocsAssistEnabled(false);
       setLoading(false);
+      setLoaded(true);
       return;
     }
+    setLoaded(false);
 
     (async () => {
       setLoading(true);
@@ -216,7 +231,10 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       if (!cancelled) await loadFromUserProfile();
     })()
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoaded(true);
+        }
       });
 
     return () => {
@@ -233,9 +251,11 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   }, [user?.id, refresh]);
 
   const isHomeAppVisible = useCallback(
-    (mobileKey: string) =>
-      isMobileHomeAppVisible(mobileKey, hiddenApps, disabledApps, systemWebKeys),
-    [hiddenApps, disabledApps, systemWebKeys],
+    (mobileKey: string) => {
+      if (mobileKey === 'assist' && !grabdocsAssistEnabled) return false;
+      return isMobileHomeAppVisible(mobileKey, hiddenApps, disabledApps, systemWebKeys);
+    },
+    [hiddenApps, disabledApps, systemWebKeys, grabdocsAssistEnabled],
   );
 
   const toggleApp = useCallback(
@@ -306,6 +326,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       registry,
       appChoices,
       loading,
+      loaded,
       saving,
       summaryLabel,
       isHomeAppVisible,
@@ -319,6 +340,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       registry,
       appChoices,
       loading,
+      loaded,
       saving,
       summaryLabel,
       isHomeAppVisible,

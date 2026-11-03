@@ -30,6 +30,8 @@ interface Workspace {
   slug: string;
   owner_id: number;
   is_personal: boolean;
+  is_assist?: boolean;
+  assist_has_linked_data?: boolean;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -352,6 +354,19 @@ export default function WorkspacesScreen() {
       color: '#007AFF',
       fontWeight: '500',
     },
+    assistTag: {
+      backgroundColor: '#E0F2FE',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: '#38BDF8',
+    },
+    assistText: {
+      fontSize: 12,
+      color: '#0284C7',
+      fontWeight: '600',
+    },
     workspaceActions: {
       flexDirection: 'row',
       gap: 8,
@@ -426,6 +441,11 @@ export default function WorkspacesScreen() {
                 <Text style={dynamicStyles.defaultText}>Default</Text>
               </View>
             )}
+            {workspace.is_assist ? (
+              <View style={dynamicStyles.assistTag}>
+                <Text style={dynamicStyles.assistText}>Assist</Text>
+              </View>
+            ) : null}
             {!workspace.is_active && (
               <View style={dynamicStyles.inactiveTag}>
                 <Text style={dynamicStyles.inactiveText}>Inactive</Text>
@@ -449,8 +469,8 @@ export default function WorkspacesScreen() {
               />
             </FeedbackTouchable>
             
-            {/* Don't show delete button for default/personal workspace */}
-            {!workspace.is_personal && (
+            {/* Hide delete for personal, or Assist with linked mailbox/archive/files */}
+            {!workspace.is_personal && !(workspace.is_assist && workspace.assist_has_linked_data) && (
               <FeedbackTouchable
                 style={[dynamicStyles.actionButton, { backgroundColor: '#FF6B6B' }]}
                 onPress={() => handleDeleteWorkspace(workspace)}

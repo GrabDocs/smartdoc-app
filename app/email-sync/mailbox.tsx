@@ -466,7 +466,12 @@ export function EmailSetupPane({
           label: 'Disconnect',
           icon: 'close-circle-outline',
           onPress: () =>
-            Alert.alert('Disconnect mailbox?', 'Replies will stop for this account.', [
+            Alert.alert(
+              'Disconnect mailbox?',
+              menuConn.used_by_assist
+                ? 'Disconnecting stops sync for Email Replies and Assist. Previously archived Assist mail is kept. Reconnect on this same page to resume.'
+                : 'Replies will stop for this account.',
+              [
               { text: 'Cancel', style: 'cancel' },
               {
                 text: 'Disconnect',
@@ -540,6 +545,9 @@ export function EmailSetupPane({
                         <Text style={styles.statusOnText}>Send on</Text>
                       ) : null}
                     </View>
+                    {c.used_by_assist ? (
+                      <Text style={styles.warn}>Also used by Assist</Text>
+                    ) : null}
                     {c.needs_reconnect || c.needs_reconnect_for_send ? (
                       <Text style={styles.warn}>Tap ••• and reconnect</Text>
                     ) : null}

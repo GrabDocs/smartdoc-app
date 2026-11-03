@@ -30,6 +30,7 @@ const ALLOWED_WEB_PATHS = [
   '/analysis',
   '/signatures',
   '/intake',
+  '/assist',
   '/clients',
 ] as const;
 
@@ -70,6 +71,7 @@ export const DEFAULT_HOME_SCREEN_OPTIONS: ReadonlyArray<{ webPath: WebDefaultHom
   { webPath: '/analysis', label: 'Financials' },
   { webPath: '/signatures', label: 'Signatures' },
   { webPath: '/intake', label: 'Intake' },
+  { webPath: '/assist', label: 'Assist' },
   { webPath: '/clients', label: 'My Clients' },
 ];
 
@@ -88,6 +90,7 @@ const WEB_TO_EXPO_HREF: Record<WebDefaultHomePath, Href> = {
   '/analysis': '/analytics/dashboard',
   '/signatures': '/signatures' as Href,
   '/intake': '/intake' as Href,
+  '/assist': '/assist' as Href,
   '/clients': '/clients' as Href,
 };
 
