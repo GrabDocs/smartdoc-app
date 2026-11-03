@@ -27,9 +27,12 @@ export const ASSIST_USAGE_LABELS: Record<string, string> = {
   daily_brief: 'Daily Brief',
 };
 
-export async function getAssistStatus(ownerUserId?: number) {
+export async function getAssistStatus(ownerUserId?: number, opts?: { light?: boolean }) {
   const res = await client().get(`${BASE}/status`, {
-    params: ownerUserId ? { owner_user_id: ownerUserId } : undefined,
+    params: {
+      ...(ownerUserId ? { owner_user_id: ownerUserId } : {}),
+      ...(opts?.light ? { light: 1 } : {}),
+    },
   });
   return res.data;
 }

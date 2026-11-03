@@ -183,6 +183,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const forceReset = async () => {
       console.log('🧹 Performing complete authentication reset');
+
+      // Clear Google Sign-In SDK local state (Android) so the next "Sign in with Google"
+      // can show the account picker. Does not sign the user out of Google on the device,
+      // and does not revoke GrabDocs access.
+      try {
+        const { googleAuthService } = await import('../../services/googleAuth');
+        await googleAuthService.signOut();
+      } catch (googleErr) {
+        console.warn('Google sign-out during auth reset skipped:', googleErr);
+      }
       
       try {
         const { clearAllPendingCalendarCreates } = await import('../../utils/calendarPendingCreates');

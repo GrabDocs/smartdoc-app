@@ -312,6 +312,21 @@ export function showAllHiddenPatch(
   return patch;
 }
 
+/** Hide every optional app. Always-on apps and company-disabled apps are left unchanged. */
+export function hideAllHiddenPatch(
+  hiddenApps: Record<string, boolean>,
+  disabledApps: Record<string, boolean> = {},
+  choices: readonly VisibleAppChoice[] = MOBILE_APP_CHOICES,
+): Record<string, boolean> {
+  const patch: Record<string, boolean> = {};
+  for (const app of choices) {
+    if (app.alwaysOn) continue;
+    if (disabledApps[app.webKey]) continue;
+    if (!hiddenApps[app.webKey]) patch[app.webKey] = true;
+  }
+  return patch;
+}
+
 export type AppPreferencesPayload = {
   hiddenApps?: Record<string, boolean>;
   hidden_apps?: Record<string, boolean>;

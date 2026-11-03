@@ -155,6 +155,8 @@ class GoogleAuthService {
         responseType: AuthSession.ResponseType.Code,
         extraParams: {
           access_type: 'offline',
+          // Always show the account chooser so users can switch Gmail accounts after logout.
+          prompt: 'select_account',
         },
       });
     } catch (error) {
@@ -195,6 +197,15 @@ class GoogleAuthService {
     try {
       this.ensureGoogleSigninConfigured(mod);
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+
+      // Clear prior Google Sign-In association so the account picker appears
+      // (e.g. after GrabDocs logout, or when switching Gmail accounts).
+      // Does not revoke app access and does not sign out of Google on the device.
+      try {
+        await GoogleSignin.signOut();
+      } catch {
+        /* ignore — may not have been signed in */
+      }
 
       const response = await GoogleSignin.signIn();
       if (!isSuccessResponse(response)) {

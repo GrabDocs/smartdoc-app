@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { useAuth } from '../context/auth';
 import { apiService } from '../../services/api';
 import {
   FALLBACK_REGISTRY,
@@ -55,6 +56,7 @@ export default function DataRightsConsentScreen({
 }: DataRightsConsentScreenProps) {
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
+  const { signOut } = useAuth();
   const apps = useMemo(
     () => normalizeAppRegistry(registry?.length ? registry : FALLBACK_REGISTRY),
     [registry],
@@ -64,6 +66,7 @@ export default function DataRightsConsentScreen({
     initialEnabled(apps, hiddenApps),
   );
   const [saving, setSaving] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -99,6 +102,18 @@ export default function DataRightsConsentScreen({
       setError(err?.message || 'Failed to save');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogOut = async () => {
+    if (saving || loggingOut) return;
+    try {
+      setLoggingOut(true);
+      setError('');
+      await signOut();
+    } catch (err: any) {
+      setError(err?.message || 'Could not log out');
+      setLoggingOut(false);
     }
   };
 
@@ -202,13 +217,25 @@ export default function DataRightsConsentScreen({
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity
-          style={[styles.button, saving && styles.buttonDisabled]}
+          style={[styles.button, (saving || loggingOut) && styles.buttonDisabled]}
           onPress={handleContinue}
-          disabled={saving}
+          disabled={saving || loggingOut}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Continue'}</Text>
         </TouchableOpacity>
+        {needsConsent ? (
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={() => void handleLogOut()}
+            disabled={saving || loggingOut}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.logoutText, { color: colors.text }]}>
+              {loggingOut ? 'Logging out...' : 'Log out'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -312,5 +339,15 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  logoutButton: {
+    marginTop: 14,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  logoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    opacity: 0.8,
   },
 });

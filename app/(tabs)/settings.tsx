@@ -125,6 +125,7 @@ export default function SettingsScreen() {
     refresh: refreshVisibleApps,
     toggleApp: toggleVisibleApp,
     showAllApps,
+    hideAllApps,
   } = useVisibleApps();
   const {
     appLockEnabled,
@@ -567,6 +568,14 @@ export default function SettingsScreen() {
   const applyShowAllApps = async () => {
     try {
       await showAllApps();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not update apps');
+    }
+  };
+
+  const applyHideAllApps = async () => {
+    try {
+      await hideAllApps();
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Could not update apps');
     }
@@ -1737,7 +1746,12 @@ export default function SettingsScreen() {
       color: colors.textSecondary,
       marginTop: 2,
     },
+    chooseAppsFooter: {
+      flexDirection: 'row' as const,
+      alignItems: 'stretch' as const,
+    },
     chooseAppsShowAll: {
+      flex: 1,
       paddingVertical: 14,
       alignItems: 'center' as const,
     },
@@ -1745,6 +1759,13 @@ export default function SettingsScreen() {
       fontSize: scaledFontSize(15),
       color: '#007AFF',
       fontWeight: '600' as const,
+      textAlign: 'center' as const,
+    },
+    chooseAppsHideAllText: {
+      fontSize: scaledFontSize(15),
+      color: colors.textSecondary,
+      fontWeight: '600' as const,
+      textAlign: 'center' as const,
     },
   }), [colors, scaledFontSize]);
 
@@ -3027,17 +3048,30 @@ export default function SettingsScreen() {
         title="Choose your apps"
         itemCount={appChoices.length}
         footer={
-          <TouchableOpacity
-            style={dynamicStyles.chooseAppsShowAll}
-            onPress={() => void applyShowAllApps()}
-            disabled={visibleAppsSaving}
-          >
-            <Text style={dynamicStyles.chooseAppsShowAllText}>Show all apps</Text>
-          </TouchableOpacity>
+          <View style={dynamicStyles.chooseAppsFooter}>
+            <TouchableOpacity
+              style={dynamicStyles.chooseAppsShowAll}
+              onPress={() => void applyHideAllApps()}
+              disabled={visibleAppsSaving}
+              accessibilityRole="button"
+              accessibilityLabel="Hide all apps"
+            >
+              <Text style={dynamicStyles.chooseAppsHideAllText}>Hide all apps</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={dynamicStyles.chooseAppsShowAll}
+              onPress={() => void applyShowAllApps()}
+              disabled={visibleAppsSaving}
+              accessibilityRole="button"
+              accessibilityLabel="Show all apps"
+            >
+              <Text style={dynamicStyles.chooseAppsShowAllText}>Show all apps</Text>
+            </TouchableOpacity>
+          </View>
         }
       >
         <Text style={dynamicStyles.chooseAppsHint}>
-          ChatGD, Reach, and Calendar stay on. You can change the rest anytime here.
+          ChatGD, Reach, and Calendar stay on. Show all apps turns the rest on. Hide all apps turns the rest off. You can also switch apps one at a time.
         </Text>
         <Text style={dynamicStyles.chooseAppsGroupLabel}>Always on</Text>
         {appChoices.filter((app) => app.section === 'always-on').map((app) => (

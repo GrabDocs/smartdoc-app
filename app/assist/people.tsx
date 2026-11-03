@@ -44,7 +44,7 @@ export default function AssistPeopleScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle title="People" />
+        <AppHeaderTitle>People</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
       <View style={{ padding: 16 }}>

@@ -14,6 +14,7 @@ import {
   isRegistryAppVisible,
   isUploadUtility,
   QUICK_ACTION_APP_KEYS,
+  hideAllHiddenPatch,
   showAllHiddenPatch,
   systemWebKeysFromRegistry,
   visibleAppsSummary,
@@ -106,6 +107,28 @@ describe('registry-aligned mobile visible apps', () => {
       choices,
     );
     expect(patch).toEqual({ financials: false, intake: false, forms: false });
+  });
+
+  test('hide all only hides optional apps that are currently shown', () => {
+    const patch = hideAllHiddenPatch(
+      { financials: true, reach: true },
+      { clients: true },
+      choices,
+    );
+    expect(patch.financials).toBeUndefined();
+    expect(patch.reach).toBeUndefined();
+    expect(patch.clients).toBeUndefined();
+    expect(patch.chatgd).toBeUndefined();
+    expect(patch.calendar).toBeUndefined();
+    expect(patch.notes).toBe(true);
+    expect(patch.intake).toBe(true);
+    for (const app of choices) {
+      if (app.alwaysOn || app.webKey === 'clients' || app.webKey === 'financials') {
+        expect(patch[app.webKey]).toBeUndefined();
+      } else {
+        expect(patch[app.webKey]).toBe(true);
+      }
+    }
   });
 
   test('More Apps tile when only default apps are on', () => {

@@ -249,7 +249,7 @@ export default function AssistSetupScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle title="Assist setup" />
+        <AppHeaderTitle>Assist setup</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>

@@ -48,7 +48,7 @@ export default function AssistCallsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle title="Calls" />
+        <AppHeaderTitle>Calls</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
       {health ? (

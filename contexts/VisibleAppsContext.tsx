@@ -22,6 +22,7 @@ import {
   isMobileHomeAppVisible,
   normalizeAppRegistry,
   normalizePreferenceMap,
+  hideAllHiddenPatch,
   showAllHiddenPatch,
   systemWebKeysFromRegistry,
   visibleAppsSummary,
@@ -45,6 +46,7 @@ type VisibleAppsContextValue = {
   refresh: () => Promise<void>;
   toggleApp: (mobileKey: string, visible: boolean) => Promise<void>;
   showAllApps: () => Promise<void>;
+  hideAllApps: () => Promise<void>;
 };
 
 const VisibleAppsContext = createContext<VisibleAppsContextValue | undefined>(undefined);
@@ -53,6 +55,7 @@ type CachedPrefs = {
   hiddenApps: Record<string, boolean>;
   disabledApps: Record<string, boolean>;
   registry?: AppFeatureFromApi[];
+  grabdocsAssistEnabled?: boolean;
 };
 
 function parseCachedPrefs(raw: string | null): CachedPrefs | null {
@@ -63,6 +66,10 @@ function parseCachedPrefs(raw: string | null): CachedPrefs | null {
       hiddenApps: normalizePreferenceMap(parsed.hiddenApps),
       disabledApps: normalizePreferenceMap(parsed.disabledApps),
       registry: normalizeAppRegistry(parsed.registry),
+      grabdocsAssistEnabled:
+        typeof parsed.grabdocsAssistEnabled === 'boolean'
+          ? parsed.grabdocsAssistEnabled
+          : undefined,
     };
   } catch {
     return null;
@@ -86,6 +93,8 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   const [saving, setSaving] = useState(false);
   const registryRef = React.useRef(registry);
   registryRef.current = registry;
+  const assistEnabledRef = React.useRef(grabdocsAssistEnabled);
+  assistEnabledRef.current = grabdocsAssistEnabled;
 
   const systemWebKeys = useMemo(() => systemWebKeysFromRegistry(registry), [registry]);
   const appChoices = useMemo(() => {
@@ -99,6 +108,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       nextHidden: Record<string, boolean>,
       nextDisabled: Record<string, boolean>,
       nextRegistry: AppFeatureFromApi[],
+      nextAssistEnabled: boolean,
     ) => {
       const key = scopedStorageKey(user?.id, STORAGE_KEYS.HIDDEN_APPS);
       if (!key) return;
@@ -109,6 +119,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
             hiddenApps: nextHidden,
             disabledApps: nextDisabled,
             registry: nextRegistry,
+            grabdocsAssistEnabled: nextAssistEnabled,
           }),
         );
       } catch {
@@ -119,7 +130,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
   );
 
   const applyServerPayload = useCallback(
-    async (payload: AppPreferencesPayload) => {
+    async (payload: AppPreferencesPayload, prevAssistEnabled?: boolean): Promise<boolean> => {
       const nextHidden = normalizePreferenceMap(payload.hiddenApps ?? payload.hidden_apps);
       const nextDisabled = extractDisabledApps(payload.companyPolicy);
       const fromPayload = extractRegistryFromPayload(payload);
@@ -128,14 +139,20 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
         : registryRef.current.length
           ? registryRef.current
           : FALLBACK_REGISTRY;
+      const hasAssistFlag = typeof payload.grabdocsAssistEnabled === 'boolean';
+      const nextAssist = hasAssistFlag
+        ? Boolean(payload.grabdocsAssistEnabled)
+        : prevAssistEnabled ?? assistEnabledRef.current;
 
       setHiddenApps(nextHidden);
       setDisabledApps(nextDisabled);
-      if (typeof payload.grabdocsAssistEnabled === 'boolean') {
-        setGrabdocsAssistEnabled(payload.grabdocsAssistEnabled);
+      if (hasAssistFlag) {
+        setGrabdocsAssistEnabled(nextAssist);
+        assistEnabledRef.current = nextAssist;
       }
       if (fromPayload.length) setRegistry(fromPayload);
-      await persistCache(nextHidden, nextDisabled, nextRegistry);
+      await persistCache(nextHidden, nextDisabled, nextRegistry, nextAssist);
+      return hasAssistFlag;
     },
     [persistCache],
   );
@@ -146,7 +163,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       const payload = extractAppPreferencesPayload(raw);
       if (!payload) return false;
       await applyServerPayload(payload);
-      return true;
+      return typeof payload.grabdocsAssistEnabled === 'boolean';
     } catch {
       return false;
     }
@@ -160,7 +177,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
         extractAppPreferencesPayload((raw as { data?: unknown })?.data);
       if (!payload) return false;
       await applyServerPayload(payload);
-      return true;
+      return typeof payload.grabdocsAssistEnabled === 'boolean';
     } catch {
       return false;
     }
@@ -174,18 +191,21 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       setGrabdocsAssistEnabled(false);
       return;
     }
+    let gotAssistFlag = false;
     try {
       const res = await apiClient.getAppPreferences();
       const payload = extractAppPreferencesPayload(res);
       if (payload) {
-        await applyServerPayload(payload);
-        return;
+        gotAssistFlag = await applyServerPayload(payload);
       }
     } catch {
       /* fall through */
     }
-    if (await loadFromAuthCheck()) return;
-    await loadFromUserProfile();
+    // Preferences can succeed without the Assist rollout flag; auth-check carries it.
+    if (!gotAssistFlag) {
+      if (await loadFromAuthCheck()) return;
+      await loadFromUserProfile();
+    }
   }, [user?.id, applyServerPayload, loadFromAuthCheck, loadFromUserProfile]);
 
   useEffect(() => {
@@ -203,6 +223,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       setLoading(true);
+      let cachedAssist = false;
       const key = scopedStorageKey(user.id, STORAGE_KEYS.HIDDEN_APPS);
       if (key) {
         try {
@@ -211,24 +232,30 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
             setHiddenApps(cached.hiddenApps);
             setDisabledApps(cached.disabledApps);
             if (cached.registry?.length) setRegistry(cached.registry);
+            if (typeof cached.grabdocsAssistEnabled === 'boolean') {
+              cachedAssist = cached.grabdocsAssistEnabled;
+              setGrabdocsAssistEnabled(cachedAssist);
+            }
           }
         } catch {
           /* ignore */
         }
       }
+      let gotAssistFlag = false;
       try {
         const res = await apiClient.getAppPreferences();
         const payload = extractAppPreferencesPayload(res);
         if (!cancelled && payload) {
-          await applyServerPayload(payload);
-          return;
+          gotAssistFlag = await applyServerPayload(payload, cachedAssist);
         }
       } catch {
         /* fall through */
       }
       if (cancelled) return;
-      if (await loadFromAuthCheck()) return;
-      if (!cancelled) await loadFromUserProfile();
+      if (!gotAssistFlag) {
+        if (await loadFromAuthCheck()) return;
+        if (!cancelled) await loadFromUserProfile();
+      }
     })()
       .finally(() => {
         if (!cancelled) {
@@ -314,6 +341,31 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
     }
   }, [hiddenApps, disabledApps, appChoices, registry, applyServerPayload]);
 
+  const hideAllApps = useCallback(async () => {
+    const patch = hideAllHiddenPatch(hiddenApps, disabledApps, appChoices);
+    if (Object.keys(patch).length === 0) return;
+    const prevHidden = hiddenApps;
+    const optimistic = { ...hiddenApps };
+    for (const key of Object.keys(patch)) optimistic[key] = true;
+    setHiddenApps(optimistic);
+    setSaving(true);
+    try {
+      const res = await apiClient.updateAppPreferences(patch);
+      const payload = extractAppPreferencesPayload(res);
+      if (payload) await applyServerPayload(payload);
+      else await applyServerPayload({
+        hiddenApps: optimistic,
+        companyPolicy: { disabledApps },
+        appFeatures: registry,
+      });
+    } catch (err) {
+      setHiddenApps(prevHidden);
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  }, [hiddenApps, disabledApps, appChoices, registry, applyServerPayload]);
+
   const summaryLabel = useMemo(
     () => visibleAppsSummary(hiddenApps, disabledApps, appChoices, systemWebKeys).label,
     [hiddenApps, disabledApps, appChoices, systemWebKeys],
@@ -333,6 +385,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       refresh,
       toggleApp,
       showAllApps,
+      hideAllApps,
     }),
     [
       hiddenApps,
@@ -347,6 +400,7 @@ export function VisibleAppsProvider({ children }: { children: ReactNode }) {
       refresh,
       toggleApp,
       showAllApps,
+      hideAllApps,
     ],
   );
 

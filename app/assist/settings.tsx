@@ -15,7 +15,6 @@ import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
-  ASSIST_USAGE_LABELS,
   cancelAssistArchive,
   getArchiveProgress,
   getAssistStatus,
@@ -163,9 +162,9 @@ export default function AssistSettingsScreen() {
   useEffect(() => {
     void (async () => {
       try {
-        const st = await getAssistStatus();
+        const [st, prog] = await Promise.all([getAssistStatus(), getArchiveProgress()]);
         setStatus(st);
-        setProgress(await getArchiveProgress());
+        setProgress(prog);
         if (st?.settings?.ring_number) setRing(String(st.settings.ring_number));
       } catch {
         /* ignore */
@@ -192,7 +191,7 @@ export default function AssistSettingsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle title="Assist settings" />
+        <AppHeaderTitle>Assist settings</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -238,30 +237,32 @@ export default function AssistSettingsScreen() {
           </>
         ) : null}
 
-        <Text style={[styles.h, { color: colors.text }]}>AI credits used</Text>
-        {Object.entries(ASSIST_USAGE_LABELS).map(([key, label]) => (
-          <Text key={key} style={{ color: colors.textSecondary }}>
-            {label}: {String(status?.usage?.[key] ?? 0)}
-          </Text>
-        ))}
-
         {status?.calls_enabled ? (
           <>
             <Text style={[styles.h, { color: colors.text }]}>Calls setup</Text>
             <CallsSetupGuide captureNumber={captureNumber} />
             {captureNumber ? (
               <>
-                <Text style={[styles.h, { color: colors.text, marginTop: 12 }]}>eSIM ring number</Text>
-                <Text style={{ color: colors.textSecondary, marginBottom: 8, fontSize: 12 }}>
-                  Your second line that should ring — not the GrabDocs capture number above.
-                </Text>
-                <TextInput
-                  value={ring}
-                  onChangeText={setRing}
-                  placeholder="+1…"
-                  placeholderTextColor={colors.textSecondary}
-                  style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-                />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 }}>
+                  <View style={{ flexShrink: 1, maxWidth: 140 }}>
+                    <Text style={[styles.h, { color: colors.text, marginTop: 0, marginBottom: 2 }]}>
+                      eSIM ring number
+                    </Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
+                      Second line that rings — not the capture number above.
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={ring}
+                    onChangeText={setRing}
+                    placeholder="+1…"
+                    placeholderTextColor={colors.textSecondary}
+                    style={[
+                      styles.input,
+                      { color: colors.text, borderColor: colors.border, flex: 1, marginBottom: 0 },
+                    ]}
+                  />
+                </View>
                 <TouchableOpacity style={styles.btn} onPress={() => void saveCalls()}>
                   <Text style={{ color: '#fff', fontWeight: '700' }}>Save Calls setup</Text>
                 </TouchableOpacity>

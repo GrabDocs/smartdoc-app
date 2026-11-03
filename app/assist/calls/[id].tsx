@@ -97,7 +97,7 @@ export default function AssistCallDetailScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top']}>
       <View style={styles.header}>
         <AppBackButton />
-        <AppHeaderTitle title="Call detail" />
+        <AppHeaderTitle>Call detail</AppHeaderTitle>
         <View style={{ width: 40 }} />
       </View>
       {loading ? (
