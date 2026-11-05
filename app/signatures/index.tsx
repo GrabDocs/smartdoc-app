@@ -34,6 +34,7 @@ import {
   envelopeFinalFileId,
   loadEnvelopeForActions,
   resolveEnvelopeAuditFileId,
+  resolveEnvelopeOriginalFile,
 } from '../../utils/envelopeActions';
 import { submissionDisplayTitle } from '../../utils/signatureActivity';
 import { envelopeDisplayId } from '../../utils/signatureRuntime';
@@ -351,6 +352,22 @@ export default function SignaturesHubScreen() {
     [],
   );
 
+  const openOriginalDocument = useCallback(async (envelope: Envelope) => {
+    try {
+      const file = await resolveEnvelopeOriginalFile(envelope);
+      if (!file) {
+        Alert.alert('Not available', 'The original document is not available for this envelope.');
+        return;
+      }
+      setViewerFile({ id: String(file.id), name: file.name });
+    } catch (e: unknown) {
+      Alert.alert(
+        'Could not open original',
+        e instanceof Error ? e.message : 'Try again.',
+      );
+    }
+  }, []);
+
   const envelopeActionHandlers = useCallback(
     (envelope: Envelope) => {
       const eid = envelopeDisplayId(envelope);
@@ -435,6 +452,11 @@ export default function SignaturesHubScreen() {
                   const env = row.envelope;
                   if (env) router.push(hubSignRoute(envelopeDisplayId(env)));
                 }
+              : undefined
+          }
+          onViewOriginal={
+            row.kind === 'envelope' && row.envelope
+              ? () => openOriginalDocument(row.envelope!)
               : undefined
           }
           onViewDocument={
@@ -528,7 +550,7 @@ export default function SignaturesHubScreen() {
         />
       );
     },
-    [envelopeActionHandlers, handleShareFile, refreshActivity, router],
+    [envelopeActionHandlers, handleShareFile, openOriginalDocument, refreshActivity, router],
   );
 
   const listFooter = loadingMore ? (
@@ -678,6 +700,7 @@ export default function SignaturesHubScreen() {
                 envelope={item}
                 tab={tab}
                 onPress={() => router.push(hubDetailRoute(envelopeDisplayId(item)))}
+                onViewOriginal={() => openOriginalDocument(item)}
                 onSign={
                   item.inbox_context?.can_sign
                     ? () => router.push(hubSignRoute(envelopeDisplayId(item)))

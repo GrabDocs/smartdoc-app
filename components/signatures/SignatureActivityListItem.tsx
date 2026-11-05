@@ -26,6 +26,7 @@ interface Props {
   item: SignatureActivityItem;
   onPress: () => void;
   onSign?: () => void;
+  onViewOriginal?: () => void | Promise<void>;
   onViewDocument?: () => void;
   onFillDocument?: () => void;
   onDeleteDocument?: () => void;
@@ -59,6 +60,7 @@ const COMPLETED_BADGE = {
 function EnvelopeRow({
   envelope,
   onPress,
+  onViewOriginal,
   onSign,
   onViewCompletedPdf,
   onShare,
@@ -67,6 +69,7 @@ function EnvelopeRow({
 }: {
   envelope: Envelope;
   onPress: () => void;
+  onViewOriginal?: () => void | Promise<void>;
   onSign?: () => void;
   onViewCompletedPdf?: () => void | Promise<void>;
   onShare?: () => void | Promise<void>;
@@ -76,10 +79,6 @@ function EnvelopeRow({
   const colors = useThemeColors();
   const [menuVisible, setMenuVisible] = useState(false);
   const canSign = envelope.inbox_context?.can_sign && envelope.inbox_context?.is_my_turn;
-  const isCompleted = envelope.status === 'completed';
-  const showCompletedMenu =
-    isCompleted &&
-    (onViewCompletedPdf || onShare || onViewSubmissions || onViewAuditTrail);
   const statusBadge = envelopeStatusBadge(envelope.status);
   const sourceBadge = envelopeSourceTypeBadge(envelope);
   const signerSummary = envelopeSignerSummary(envelope, 'all');
@@ -89,7 +88,24 @@ function EnvelopeRow({
   const metaParts = [activityLabel, signerSummary].filter(Boolean);
 
   const menuItems = useMemo((): ActionMenuItem[] => {
-    const items: ActionMenuItem[] = [];
+    const items: ActionMenuItem[] = [
+      {
+        id: 'open',
+        label: 'Open',
+        icon: 'open-outline',
+        iconColor: colors.primary,
+        onPress,
+      },
+    ];
+    if (onViewOriginal) {
+      items.push({
+        id: 'view-original',
+        label: 'View Original',
+        icon: 'eye-outline',
+        iconColor: '#007AFF',
+        onPress: onViewOriginal,
+      });
+    }
     if (onViewCompletedPdf) {
       items.push({
         id: 'view-pdf',
@@ -127,14 +143,25 @@ function EnvelopeRow({
       });
     }
     return items;
-  }, [colors.text, onShare, onViewAuditTrail, onViewCompletedPdf, onViewSubmissions]);
+  }, [
+    colors.primary,
+    colors.text,
+    onPress,
+    onShare,
+    onViewAuditTrail,
+    onViewCompletedPdf,
+    onViewOriginal,
+    onViewSubmissions,
+  ]);
 
   return (
     <>
       <TouchableOpacity
         style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-        onPress={onPress}
+        onPress={() => setMenuVisible(true)}
         activeOpacity={0.7}
+        accessibilityLabel="Envelope actions"
+        accessibilityRole="button"
       >
         <View style={styles.body}>
           <FileNameText
@@ -153,17 +180,18 @@ function EnvelopeRow({
             </Text>
           ) : null}
         </View>
-        {canSign && onSign ? (
-          <TouchableOpacity
-            style={[styles.signBtn, { backgroundColor: colors.primary }]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              onSign();
-            }}
-          >
-            <Text style={styles.signText}>Sign</Text>
-          </TouchableOpacity>
-        ) : showCompletedMenu ? (
+        <View style={styles.trailing}>
+          {canSign && onSign ? (
+            <TouchableOpacity
+              style={[styles.signBtn, { backgroundColor: colors.primary }]}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onSign();
+              }}
+            >
+              <Text style={styles.signText}>Sign</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             style={styles.kebabBtn}
             onPress={(e) => {
@@ -176,18 +204,14 @@ function EnvelopeRow({
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
-        ) : (
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        )}
+        </View>
       </TouchableOpacity>
-      {showCompletedMenu ? (
-        <ActionMenuModal
-          visible={menuVisible}
-          title={envelope.title || 'Envelope'}
-          items={menuItems}
-          onClose={() => setMenuVisible(false)}
-        />
-      ) : null}
+      <ActionMenuModal
+        visible={menuVisible}
+        title={envelope.title || 'Envelope'}
+        items={menuItems}
+        onClose={() => setMenuVisible(false)}
+      />
     </>
   );
 }
@@ -407,6 +431,7 @@ export default function SignatureActivityListItem({
   item,
   onPress,
   onSign,
+  onViewOriginal,
   onViewDocument,
   onFillDocument,
   onDeleteDocument,
@@ -421,6 +446,7 @@ export default function SignatureActivityListItem({
       <EnvelopeRow
         envelope={item.envelope}
         onPress={onPress}
+        onViewOriginal={onViewOriginal}
         onSign={onSign}
         onViewCompletedPdf={onViewCompletedPdf}
         onShare={onShare}
@@ -483,6 +509,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   meta: { fontSize: 12, lineHeight: 16 },
+  trailing: { flexDirection: 'row', alignItems: 'center' },
   signBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   signText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   kebabBtn: { padding: 4, marginLeft: 4 },

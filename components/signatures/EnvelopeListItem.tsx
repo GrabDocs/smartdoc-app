@@ -18,6 +18,7 @@ interface Props {
   envelope: Envelope;
   tab?: EnvelopeTab;
   onPress: () => void;
+  onViewOriginal?: () => void | Promise<void>;
   onSign?: () => void;
   onViewCompletedPdf?: () => void | Promise<void>;
   onShare?: () => void | Promise<void>;
@@ -37,6 +38,7 @@ export default function EnvelopeListItem({
   envelope,
   tab,
   onPress,
+  onViewOriginal,
   onSign,
   onViewCompletedPdf,
   onShare,
@@ -46,10 +48,6 @@ export default function EnvelopeListItem({
   const colors = useThemeColors();
   const [menuVisible, setMenuVisible] = useState(false);
   const canSign = envelope.inbox_context?.can_sign && envelope.inbox_context?.is_my_turn;
-  const isCompleted = envelope.status === 'completed';
-  const showCompletedMenu =
-    isCompleted &&
-    (onViewCompletedPdf || onShare || onViewSubmissions || onViewAuditTrail);
   const statusBadge = envelopeStatusBadge(envelope.status);
   const sourceBadge = envelopeSourceTypeBadge(envelope);
   const signerSummary = envelopeSignerSummary(envelope, tab);
@@ -62,7 +60,24 @@ export default function EnvelopeListItem({
   const metaParts = [signerSummary, sentLabel].filter(Boolean);
 
   const menuItems = useMemo((): ActionMenuItem[] => {
-    const items: ActionMenuItem[] = [];
+    const items: ActionMenuItem[] = [
+      {
+        id: 'open',
+        label: 'Open',
+        icon: 'open-outline',
+        iconColor: colors.primary,
+        onPress,
+      },
+    ];
+    if (onViewOriginal) {
+      items.push({
+        id: 'view-original',
+        label: 'View Original',
+        icon: 'eye-outline',
+        iconColor: '#007AFF',
+        onPress: onViewOriginal,
+      });
+    }
     if (onViewCompletedPdf) {
       items.push({
         id: 'view-pdf',
@@ -100,14 +115,25 @@ export default function EnvelopeListItem({
       });
     }
     return items;
-  }, [colors.text, onShare, onViewAuditTrail, onViewCompletedPdf, onViewSubmissions]);
+  }, [
+    colors.primary,
+    colors.text,
+    onPress,
+    onShare,
+    onViewAuditTrail,
+    onViewCompletedPdf,
+    onViewOriginal,
+    onViewSubmissions,
+  ]);
 
   return (
     <>
       <TouchableOpacity
         style={[styles.row, { backgroundColor: colors.card, borderColor: colors.border }]}
-        onPress={onPress}
+        onPress={() => setMenuVisible(true)}
         activeOpacity={0.7}
+        accessibilityLabel="Envelope actions"
+        accessibilityRole="button"
       >
         <View style={styles.body}>
           <FileNameText
@@ -126,17 +152,18 @@ export default function EnvelopeListItem({
             </Text>
           ) : null}
         </View>
-        {canSign && onSign ? (
-          <TouchableOpacity
-            style={[styles.signBtn, { backgroundColor: colors.primary }]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              onSign();
-            }}
-          >
-            <Text style={styles.signText}>Sign</Text>
-          </TouchableOpacity>
-        ) : showCompletedMenu ? (
+        <View style={styles.trailing}>
+          {canSign && onSign ? (
+            <TouchableOpacity
+              style={[styles.signBtn, { backgroundColor: colors.primary }]}
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onSign();
+              }}
+            >
+              <Text style={styles.signText}>Sign</Text>
+            </TouchableOpacity>
+          ) : null}
           <TouchableOpacity
             style={styles.kebabBtn}
             onPress={(e) => {
@@ -149,18 +176,14 @@ export default function EnvelopeListItem({
           >
             <Ionicons name="ellipsis-vertical" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
-        ) : (
-          <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-        )}
+        </View>
       </TouchableOpacity>
-      {showCompletedMenu ? (
-        <ActionMenuModal
-          visible={menuVisible}
-          title={envelope.title || 'Envelope'}
-          items={menuItems}
-          onClose={() => setMenuVisible(false)}
-        />
-      ) : null}
+      <ActionMenuModal
+        visible={menuVisible}
+        title={envelope.title || 'Envelope'}
+        items={menuItems}
+        onClose={() => setMenuVisible(false)}
+      />
     </>
   );
 }
@@ -194,6 +217,7 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   meta: { fontSize: 12, lineHeight: 16 },
+  trailing: { flexDirection: 'row', alignItems: 'center' },
   signBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   signText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   kebabBtn: { padding: 4, marginLeft: 4 },

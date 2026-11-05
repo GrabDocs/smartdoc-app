@@ -17,6 +17,7 @@ import Toast from 'react-native-toast-message';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import ActionMenuModal, { type ActionMenuItem } from '../ActionMenuModal';
+import DocumentViewer from '../DocumentViewer';
 
 type Pane = 'with-me' | 'links';
 
@@ -76,7 +77,13 @@ type SharedItem = {
   created_at?: string;
 };
 
-type PopupFile = { key: string; name: string; deleted?: boolean; detail?: string };
+type PopupFile = {
+  key: string;
+  name: string;
+  deleted?: boolean;
+  detail?: string;
+  fileId?: number | null;
+};
 
 function formatWhen(value?: string | null): string {
   if (!value) return '—';
@@ -169,8 +176,8 @@ function linkSearchText(link: SharedLink): string {
 
 export default function FilesSharedSection() {
   const colors = useThemeColors();
-  const [pane, setPane] = useState<Pane>('with-me');
-  const [linksOpened, setLinksOpened] = useState(false);
+  const [pane, setPane] = useState<Pane>('links');
+  const [linksOpened, setLinksOpened] = useState(true);
   const [search, setSearch] = useState('');
 
   const [sharedItems, setSharedItems] = useState<SharedItem[]>([]);
@@ -187,6 +194,7 @@ export default function FilesSharedSection() {
   const [refreshing, setRefreshing] = useState(false);
   const [menu, setMenu] = useState<{ title: string; items: ActionMenuItem[] } | null>(null);
   const [popup, setPopup] = useState<{ title: string; files: PopupFile[]; loading: boolean } | null>(null);
+  const [viewerFile, setViewerFile] = useState<{ id: string; name: string } | null>(null);
 
   const loadShared = useCallback(async () => {
     setSharedError(null);
@@ -275,6 +283,7 @@ export default function FilesSharedSection() {
         key: `${file.id ?? 'gone'}-${index}`,
         name: file.deleted ? `${file.name} (deleted)` : file.name,
         deleted: file.deleted,
+        fileId: file.deleted ? null : file.id,
         detail: activityLabel(activityCount(file.view_count), activityCount(file.download_count)),
       })),
     });
@@ -290,6 +299,7 @@ export default function FilesSharedSection() {
           files: existing.map((file) => ({
             key: String(file.id),
             name: file.original_filename || 'File',
+            fileId: file.id,
           })),
         });
         return;
@@ -304,6 +314,7 @@ export default function FilesSharedSection() {
           files: files.map((file) => ({
             key: String(file.id),
             name: file.original_filename || 'File',
+            fileId: file.id,
           })),
         });
       } catch (error: any) {
@@ -330,10 +341,11 @@ export default function FilesSharedSection() {
     }
 
     const name = item.file?.original_filename || item.name || 'File';
+    const fileId = item.file?.id ?? item.file_id ?? null;
     setPopup({
       title: name,
       loading: false,
-      files: [{ key: String(item.file?.id ?? item.file_id ?? item.id), name }],
+      files: [{ key: String(fileId ?? item.id), name, fileId }],
     });
   }, []);
 
@@ -598,11 +610,6 @@ export default function FilesSharedSection() {
   return (
     <View style={styles.root}>
       <View style={[styles.tabs, { backgroundColor: colors.isDark ? '#1f2937' : '#f3f4f6' }]}>
-        <TouchableOpacity style={tabStyle(pane === 'with-me')} onPress={() => setPane('with-me')}>
-          <Text style={[styles.tabText, { color: pane === 'with-me' ? colors.primary : colors.textSecondary }]}>
-            Shared with me
-          </Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={tabStyle(pane === 'links')}
           onPress={() => {
@@ -612,6 +619,11 @@ export default function FilesSharedSection() {
         >
           <Text style={[styles.tabText, { color: pane === 'links' ? colors.primary : colors.textSecondary }]}>
             Links Shared
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={tabStyle(pane === 'with-me')} onPress={() => setPane('with-me')}>
+          <Text style={[styles.tabText, { color: pane === 'with-me' ? colors.primary : colors.textSecondary }]}>
+            Shared with me
           </Text>
         </TouchableOpacity>
       </View>
@@ -698,24 +710,44 @@ export default function FilesSharedSection() {
                 ListEmptyComponent={
                   <Text style={[styles.meta, { color: colors.textSecondary }]}>No files</Text>
                 }
-                renderItem={({ item }) => (
-                  <View style={styles.popupFileRow}>
+                renderItem={({ item }) => {
+                  const canOpen = item.fileId != null && !item.deleted;
+                  const name = (
                     <Text
                       style={[
                         styles.popupFile,
-                        { color: item.deleted ? colors.textSecondary : colors.text },
+                        canOpen
+                          ? { color: colors.primary, textDecorationLine: 'underline' }
+                          : { color: item.deleted ? colors.textSecondary : colors.text },
                         item.deleted && styles.deletedFile,
                       ]}
                     >
                       {item.name}
                     </Text>
-                    {item.detail ? (
-                      <Text style={[styles.meta, { color: colors.textSecondary, marginTop: 0 }]}>
-                        {item.detail}
-                      </Text>
-                    ) : null}
-                  </View>
-                )}
+                  );
+                  return (
+                    <View style={styles.popupFileRow}>
+                      {canOpen ? (
+                        <TouchableOpacity
+                          onPress={() => {
+                            setPopup(null);
+                            setViewerFile({ id: String(item.fileId), name: item.name });
+                          }}
+                          accessibilityRole="link"
+                        >
+                          {name}
+                        </TouchableOpacity>
+                      ) : (
+                        name
+                      )}
+                      {item.detail ? (
+                        <Text style={[styles.meta, { color: colors.textSecondary, marginTop: 0 }]}>
+                          {item.detail}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                }}
               />
             )}
             <TouchableOpacity onPress={() => setPopup(null)} accessibilityRole="button">
@@ -724,6 +756,14 @@ export default function FilesSharedSection() {
           </View>
         </TouchableOpacity>
       </Modal>
+      {viewerFile ? (
+        <DocumentViewer
+          fileId={viewerFile.id}
+          fileName={viewerFile.name}
+          fileType="application/octet-stream"
+          onClose={() => setViewerFile(null)}
+        />
+      ) : null}
     </View>
   );
 }
