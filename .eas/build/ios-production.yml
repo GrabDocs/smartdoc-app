@@ -176,8 +176,21 @@ build:
               break
             fi
           done)
+          SHARE_UUID=$(ls "$PROFILE_DIR"/*.mobileprovision 2>/dev/null | while read f; do
+            plist=$(/usr/bin/security cms -D -i "$f" 2>/dev/null)
+            bid=$(echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin 2>/dev/null | sed 's/^[^.]*\.//')
+            if [ "$bid" = "com.grabdocs.mobile.share-extension" ]; then
+              echo "$plist" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin 2>/dev/null
+              break
+            fi
+          done)
           echo "Main app profile UUID: ${MAIN_UUID:-NOT FOUND}"
           echo "Extension profile UUID: ${EXT_UUID:-NOT FOUND}"
+          echo "Share extension profile UUID: ${SHARE_UUID:-NOT FOUND}"
+          if [ -z "$SHARE_UUID" ]; then
+            echo "::error::No installed provisioning profile for com.grabdocs.mobile.share-extension. Run: eas credentials -p ios (GrabDocsShare target)."
+            exit 1
+          fi
 
           # Write ExportOptions.plist with explicit profile mapping for both targets
           EXPORT_PLIST="ios/ExportOptions.plist"
@@ -191,6 +204,7 @@ build:
           printf '    <key>provisioningProfiles</key>\n    <dict>\n' >> "$EXPORT_PLIST"
           printf '        <key>com.grabdocs.mobile</key>\n        <string>%s</string>\n' "${MAIN_UUID}" >> "$EXPORT_PLIST"
           printf '        <key>com.grabdocs.mobile.GrabDocsBroadcastUpload</key>\n        <string>%s</string>\n' "${EXT_UUID}" >> "$EXPORT_PLIST"
+          printf '        <key>com.grabdocs.mobile.share-extension</key>\n        <string>%s</string>\n' "${SHARE_UUID}" >> "$EXPORT_PLIST"
           printf '    </dict>\n</dict>\n</plist>\n' >> "$EXPORT_PLIST"
           echo "=== ExportOptions.plist ==="
           cat ios/ExportOptions.plist
