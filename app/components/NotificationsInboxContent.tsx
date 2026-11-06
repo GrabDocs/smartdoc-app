@@ -16,7 +16,7 @@ import { apiClient } from '../../services/api';
 import { resolveSignatureRoute } from '../../utils/signatureRouteResolver';
 import { useAuth } from '../context/auth';
 import { getNotificationScreen, parseNotificationPath, getEmailReplyComposeScreen } from '../services/pushNotifications';
-import { formatUtcIsoForDevice } from '../../utils/calendarTime';
+import { formatUtcIsoForDevice, parseUTC } from '../../utils/calendarTime';
 import { AnimatedHeaderContainer } from './AnimatedHeaderContainer';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderIcon, { appHeaderActionsStyle, appHeaderButtonStyle } from '../../components/AppHeaderIcon';
@@ -29,6 +29,7 @@ export interface AppNotification {
   type: string;
   read: boolean;
   created_at: string;
+  updated_at?: string | null;
   metadata?: {
     action_type?: string;
     navigation_path?: string;
@@ -45,6 +46,15 @@ export interface AppNotification {
     room_name?: string;
     [key: string]: any;
   };
+}
+
+function notificationActivityIso(n: AppNotification): string {
+  const created = n.created_at?.trim() ? parseUTC(n.created_at).getTime() : NaN;
+  const updated = n.updated_at?.trim() ? parseUTC(n.updated_at).getTime() : NaN;
+  if (!Number.isNaN(updated) && (Number.isNaN(created) || updated >= created)) {
+    return n.updated_at as string;
+  }
+  return n.created_at || '';
 }
 
 export type NotificationsInboxVariant = 'screen' | 'modal';
@@ -630,8 +640,8 @@ export function NotificationsInboxContent({
                   {n.message}
                 </Text>
                 <Text style={dynamicStyles.time}>
-                  {n.created_at
-                    ? formatUtcIsoForDevice(n.created_at, {
+                  {notificationActivityIso(n)
+                    ? formatUtcIsoForDevice(notificationActivityIso(n), {
                         month: 'short',
                         day: 'numeric',
                         hour: '2-digit',

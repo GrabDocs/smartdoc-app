@@ -374,6 +374,39 @@ function removeBrokenDependencyRefsFromMainTarget(pbx) {
 }
 
 /**
+ * True when the main target's dependencies list already points at a PBXTargetDependency
+ * for this extension. The list stores the dependency object's UUID (comment often
+ * "PBXTargetDependency"), not the extension target UUID or name.
+ */
+function dependencyListReferencesExtension(pbx, depsContent, extensionTargetUuid, extensionName) {
+  if (depsContent.includes(extensionName)) return true;
+  const depSection = pbx.match(/\/\* Begin PBXTargetDependency section \*\/[\s\S]*?\/\* End PBXTargetDependency section \*\//);
+  if (depSection) {
+    const re = new RegExp(
+      '([0-9A-F]{24})\\s*\\/\\*[^*]*\\*\\/\\s*=\\s*\\{[^}]*\\btarget = ' +
+        extensionTargetUuid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+        '\\b',
+      'g'
+    );
+    let match;
+    while ((match = re.exec(depSection[0])) !== null) {
+      if (depsContent.includes(match[1])) return true;
+    }
+  }
+  return depsContent.includes(extensionTargetUuid);
+}
+
+/** Rebuild a pbxproj list so items stay comma-separated. A trailing comma on the last existing item must not become ",,". */
+function formatDependencyList(existingDeps, depLine) {
+  const items = existingDeps
+    .split('\n')
+    .map((line) => line.replace(/,\s*$/, '').trim())
+    .filter((line) => line.length > 0);
+  if (!items.includes(depLine)) items.push(depLine);
+  return '\n\t\t\t\t' + items.join(',\n\t\t\t\t') + ',\n\t\t\t';
+}
+
+/**
  * Ensure main app target has the extension in its Target Dependencies.
  * CocoaPods uses user_project.host_targets_for_embedded_target() which returns
  * targets that depend on the extension. Without this, "Unable to find host target(s)".
@@ -400,7 +433,7 @@ function ensureTargetDependency(pbx, extensionName) {
   );
   const mainTargetBlockMatch = mainTargetBlockRe.exec(pbx);
   const depsContent = mainTargetBlockMatch ? mainTargetBlockMatch[1] : '';
-  if (depsContent.includes(extensionTargetUuid) || depsContent.includes(extensionName)) {
+  if (dependencyListReferencesExtension(pbx, depsContent, extensionTargetUuid, extensionName)) {
     return { pbx, changed: false };
   }
   const projectMatch = pbx.match(/([0-9A-F]{24})\s*\/\*\s*Project object\s*\*\/\s*=\s*\{\s*isa = PBXProject;/);
@@ -447,9 +480,7 @@ function ensureTargetDependency(pbx, extensionName) {
   );
   pbx = pbx.replace(mainTargetDepsPattern, (_, prefix, existingDeps) => {
     const depLine = targetDependencyUuid + ' /* ' + extensionName + ' */';
-    const trimmed = existingDeps.trim();
-    const newDeps = trimmed ? trimmed + ',\n\t\t\t\t' + depLine : '\n\t\t\t\t' + depLine;
-    return prefix + 'dependencies = (' + newDeps + '\n\t\t\t);';
+    return prefix + 'dependencies = (' + formatDependencyList(existingDeps, depLine) + ');';
   });
 
   return { pbx, changed: true };
@@ -519,6 +550,17 @@ if (targetDepUndefResult.changed) {
   pbx = targetDepUndefResult.pbx;
   changed = true;
   console.log('[ensure-pbxproj-embed-phase] ✅ Fixed target = undefined → real UUID in PBXTargetDependency (EAS target lookup)');
+}
+
+// A previous patch could leave "dependencies = (UUID /* PBXTargetDependency */,,".
+// Nanaimo rejects the double comma before pod install. Collapse it even when no new dep is added.
+if (pbx.includes(',,')) {
+  const collapsed = pbx.replace(/,\s*,/g, ',');
+  if (collapsed !== pbx) {
+    pbx = collapsed;
+    changed = true;
+    console.log('[ensure-pbxproj-embed-phase] ✅ Removed double comma in project.pbxproj (CocoaPods parse fix)');
+  }
 }
 
 // Run target dependency first - CocoaPods needs this for host detection

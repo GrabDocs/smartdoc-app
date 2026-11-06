@@ -855,7 +855,23 @@ function withPbxprojExtensionTargetDependency(config, { extensionName }) {
       );
       const mainTargetBlockMatch = mainTargetBlockRe.exec(pbx);
       const depsContent = mainTargetBlockMatch ? mainTargetBlockMatch[1] : '';
-      const hasExtensionDep = depsContent.includes(extensionTargetUuid) || depsContent.includes(extensionName);
+      const depSection = pbx.match(/\/\* Begin PBXTargetDependency section \*\/[\s\S]*?\/\* End PBXTargetDependency section \*\//);
+      let hasExtensionDep = depsContent.includes(extensionName) || depsContent.includes(extensionTargetUuid);
+      if (!hasExtensionDep && depSection) {
+        const depRe = new RegExp(
+          '([0-9A-F]{24})\\s*\\/\\*[^*]*\\*\\/\\s*=\\s*\\{[^}]*\\btarget = ' +
+            extensionTargetUuid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+            '\\b',
+          'g'
+        );
+        let depMatch;
+        while ((depMatch = depRe.exec(depSection[0])) !== null) {
+          if (depsContent.includes(depMatch[1])) {
+            hasExtensionDep = true;
+            break;
+          }
+        }
+      }
       if (hasExtensionDep) {
         console.log('[ios-hms-screenshare] ✅ project.pbxproj: main target already has extension dependency');
         // Still run fixExtensionEmbedPhaseForCocoaPods and ensureAppexInProductsGroup below
@@ -902,12 +918,18 @@ function withPbxprojExtensionTargetDependency(config, { extensionName }) {
         );
         pbx = pbx.replace(mainTargetDepsPattern, (_, prefix, existingDeps) => {
           const depLine = targetDependencyUuid + ' /* ' + extensionName + ' */';
-          const trimmed = existingDeps.trim();
-          const newDeps = trimmed
-            ? trimmed + ',\n\t\t\t\t' + depLine
-            : '\n\t\t\t\t' + depLine;
-          return prefix + 'dependencies = (' + newDeps + '\n\t\t\t);';
+          const items = existingDeps
+            .split('\n')
+            .map((line) => line.replace(/,\s*$/, '').trim())
+            .filter((line) => line.length > 0);
+          if (!items.includes(depLine)) items.push(depLine);
+          const newDeps = '\n\t\t\t\t' + items.join(',\n\t\t\t\t') + ',\n\t\t\t';
+          return prefix + 'dependencies = (' + newDeps + ');';
         });
+      }
+
+      if (pbx.includes(',,')) {
+        pbx = pbx.replace(/,\s*,/g, ',');
       }
 
       // Nanaimo (CocoaPods pbxproj parser) treats $(...) inside double-quoted values as a dict and fails.

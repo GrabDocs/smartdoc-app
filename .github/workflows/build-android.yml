@@ -125,6 +125,14 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
+      # ubuntu-latest now defaults to JDK 25. Expo SDK 54 runs Gradle 8.14.3, which
+      # fails on that JVM with "Unsupported class file major version 69".
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
       - name: Setup EAS
         uses: expo/expo-github-action@v8
         with:
@@ -225,6 +233,13 @@ jobs:
           echo 'org.gradle.daemon=true' >> android/gradle.properties
           echo 'org.gradle.parallel=true' >> android/gradle.properties
           echo 'org.gradle.configureondemand=true' >> android/gradle.properties
+          if [ -z "$JAVA_HOME" ]; then
+            echo "::error::JAVA_HOME is empty. Setup Java 17 must run before this step."
+            exit 1
+          fi
+          echo "org.gradle.java.home=$JAVA_HOME" >> android/gradle.properties
+          echo "Gradle JVM: $JAVA_HOME"
+          java -version
 
       # Lint for release is disabled by Expo config plugin (plugins/android-disable-release-lint.js) during prebuild.
 
@@ -324,9 +339,12 @@ jobs:
           PROFILE="${{ github.event.inputs.profile || 'production' }}"
           echo "Final android/app/build.gradle versionCode before eas build:"
           grep -n versionCode android/app/build.gradle || true
+          echo "JAVA_HOME=$JAVA_HOME"
+          java -version
           eas build --platform android --profile "$PROFILE" --local --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          JAVA_HOME: ${{ env.JAVA_HOME }}
           GRADLE_USER_HOME: ${{ env.GRADLE_USER_HOME }}
           GRADLE_OPTS: -Xmx6g -XX:MaxMetaspaceSize=2g -Dkotlin.daemon.jvm.options=-Xmx3g
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.3.13750724

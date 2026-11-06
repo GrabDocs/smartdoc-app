@@ -286,8 +286,8 @@ export function isMobileAppToggleLocked(
   return Boolean(disabledApps[webKey]);
 }
 
-/** Show More Apps when fewer than this many optional (non-always-on) apps are visible. */
-export const MORE_APPS_ADDITIONAL_THRESHOLD = 5;
+/** Hide More Apps once this share of available apps is already visible. */
+export const MORE_APPS_VISIBLE_RATIO = 0.8;
 
 /** Count of visible hideable (non-always-on) apps. */
 export function countVisibleAdditionalApps(
@@ -302,17 +302,19 @@ export function countVisibleAdditionalApps(
     .length;
 }
 
-/** True when the user has fewer than MORE_APPS_ADDITIONAL_THRESHOLD optional apps visible. */
+/** True while fewer than 80% of available apps are already visible. */
 export function hasOnlyDefaultAppsOn(
   hiddenApps: Record<string, boolean>,
   disabledApps: Record<string, boolean> = {},
   choices: readonly VisibleAppChoice[] = MOBILE_APP_CHOICES,
   systemWebKeys: Set<string> = systemWebKeysFromRegistry(FALLBACK_REGISTRY),
 ): boolean {
-  return (
-    countVisibleAdditionalApps(hiddenApps, disabledApps, choices, systemWebKeys) <
-    MORE_APPS_ADDITIONAL_THRESHOLD
-  );
+  const eligible = choices.filter((app) => !disabledApps[app.webKey]);
+  if (eligible.length === 0) return false;
+  const visible = eligible.filter((app) =>
+    isRegistryAppVisible(app.webKey, hiddenApps, disabledApps, systemWebKeys),
+  ).length;
+  return visible / eligible.length < MORE_APPS_VISIBLE_RATIO;
 }
 
 export function visibleAppsSummary(

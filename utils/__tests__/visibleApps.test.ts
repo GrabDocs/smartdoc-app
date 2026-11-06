@@ -133,28 +133,30 @@ describe('registry-aligned mobile visible apps', () => {
     }
   });
 
-  test('More Apps tile when fewer than 5 additional apps are visible', () => {
+  test('More Apps tile stays until 80% of apps are visible', () => {
     const allOptionalHidden: Record<string, boolean> = {};
     for (const app of choices) {
       if (!app.alwaysOn) allOptionalHidden[app.webKey] = true;
     }
     expect(hasOnlyDefaultAppsOn(allOptionalHidden, {}, choices, systemKeys)).toBe(true);
 
-    const fourVisible = { ...allOptionalHidden };
     const optional = choices.filter((app) => !app.alwaysOn);
-    for (const app of optional.slice(0, 4)) {
-      delete fourVisible[app.webKey];
-    }
-    expect(hasOnlyDefaultAppsOn(fourVisible, {}, choices, systemKeys)).toBe(true);
+    const alwaysOnCount = choices.length - optional.length;
+    const hideAt = Math.ceil(choices.length * 0.8);
+    const optionalNeededToHide = Math.max(0, hideAt - alwaysOnCount);
 
-    const fiveVisible = { ...allOptionalHidden };
-    for (const app of optional.slice(0, 5)) {
-      delete fiveVisible[app.webKey];
+    const justUnder = { ...allOptionalHidden };
+    for (const app of optional.slice(0, Math.max(0, optionalNeededToHide - 1))) {
+      delete justUnder[app.webKey];
     }
-    expect(hasOnlyDefaultAppsOn(fiveVisible, {}, choices, systemKeys)).toBe(false);
-    expect(hasOnlyDefaultAppsOn({}, {}, choices, systemKeys)).toBe(
-      optional.length < 5,
-    );
+    expect(hasOnlyDefaultAppsOn(justUnder, {}, choices, systemKeys)).toBe(true);
+
+    const atThreshold = { ...allOptionalHidden };
+    for (const app of optional.slice(0, optionalNeededToHide)) {
+      delete atThreshold[app.webKey];
+    }
+    expect(hasOnlyDefaultAppsOn(atThreshold, {}, choices, systemKeys)).toBe(false);
+    expect(hasOnlyDefaultAppsOn({}, {}, choices, systemKeys)).toBe(false);
   });
 
   test('summary uses registry-built choices', () => {
