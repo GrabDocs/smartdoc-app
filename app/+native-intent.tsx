@@ -11,6 +11,7 @@ import {
 
 export function redirectSystemPath({ path }: { path: string; initial: boolean }): string {
   try {
+    if (path.includes('dataUrl=')) return '/incoming-import';
     const websiteUrl = publicBookingWebsiteUrl(path);
     if (websiteUrl) {
       void WebBrowser.openBrowserAsync(websiteUrl);

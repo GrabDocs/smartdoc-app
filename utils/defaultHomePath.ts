@@ -297,6 +297,13 @@ function landOnMainTabs(router: PostLoginRouter): void {
 /** Cold start: user lands here then immediately routes into the shell — never rely on Redirect to a tab leaf. */
 export async function bootstrapAuthenticatedNavigation(router: PostLoginRouter): Promise<void> {
   try {
+    const { peekIncomingImport } = await import('./incomingImport');
+    const pendingImport = await peekIncomingImport();
+    if (pendingImport?.files.length) {
+      clearAuthStackBeforeMainApp(router);
+      router.replace('/incoming-import' as Href);
+      return;
+    }
     const webPath = await resolveDefaultHomeWebPath();
     navigateTabsThenDefaultHome(router, webPath);
   } catch {

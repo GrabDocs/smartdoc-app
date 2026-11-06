@@ -55,6 +55,7 @@ import { useMinimizableSheet } from '../../hooks/useMinimizableSheet';
 import { useChatConnectivity } from '../../hooks/useChatConnectivity';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService as api } from '../../services/api';
+import { clearIncomingAskWait, getIncomingAskWaitFileId } from '../../utils/incomingAskWait';
 import { errorLogger } from '../../services/errorLogger';
 import { useChatStore } from '../../stores/chatStore';
 import type { ChatHistory } from '../../types';
@@ -5361,6 +5362,50 @@ export default function ChatsScreen() {
     smartChatPollingChunkReadyRef.current = true;
   }, []); // empty deps: refs are always current; selectedChat uses selectedChatRef
 
+  const [incomingAskPhase, setIncomingAskPhase] = useState<'processing' | 'failed' | null>(null);
+
+  useEffect(() => {
+    const fileId = selectedChat?.document_context?.id;
+    if (fileId == null) {
+      setIncomingAskPhase(null);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const tick = async () => {
+      const waiting = await getIncomingAskWaitFileId();
+      if (cancelled) return;
+      if (waiting !== fileId) {
+        setIncomingAskPhase(null);
+        return;
+      }
+      try {
+        const status = await api.getFileIndexStatus(fileId);
+        const indexStatus = String(status.index_status || '').toLowerCase();
+        const processingStatus = String(status.processing_status || '').toLowerCase();
+        if (indexStatus === 'completed') {
+          await clearIncomingAskWait();
+          if (!cancelled) setIncomingAskPhase(null);
+          if (timer) clearInterval(timer);
+          return;
+        }
+        if (indexStatus === 'failed' || processingStatus === 'failed' || processingStatus === 'error') {
+          if (!cancelled) setIncomingAskPhase('failed');
+          return;
+        }
+        if (!cancelled) setIncomingAskPhase('processing');
+      } catch {
+        if (!cancelled) setIncomingAskPhase('processing');
+      }
+    };
+    void tick();
+    timer = setInterval(() => { void tick(); }, 2000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [selectedChat?.document_context?.id]);
+
   const sendMessage = async (overrideText?: string) => {
     
     const messageText = (overrideText ?? newMessage).trim();
@@ -5370,6 +5415,35 @@ export default function ChatsScreen() {
         hasMessage: !!messageText,
         messageLength: messageText.length
       });
+      return;
+    }
+
+    const waitingFileId = selectedChat.document_context?.id;
+    if (
+      waitingFileId != null &&
+      (await getIncomingAskWaitFileId()) === waitingFileId
+    ) {
+      const notice = incomingAskPhase === 'failed'
+        ? 'This document could not be processed. Use Retry on the status line.'
+        : 'The file you selected is still being processed. Try again in a moment.';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: generateUniqueMessageId(),
+          content: messageText,
+          sender: null,
+          is_own_message: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: generateUniqueMessageId(),
+          content: notice,
+          sender: { id: 1, username: 'ChatGD Assistant', email: 'ai@grabdocs.com' },
+          is_own_message: false,
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      setNewMessage('');
       return;
     }
 
@@ -8782,6 +8856,27 @@ export default function ChatsScreen() {
               </TouchableOpacity>
             ))}
           </ScrollView>
+        ) : null}
+
+        {incomingAskPhase ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+            <Text style={{ color: incomingAskPhase === 'failed' ? '#B45309' : colors.textSecondary, fontSize: 13 }}>
+              {incomingAskPhase === 'failed'
+                ? 'Processing failed.'
+                : 'Processing this document…'}
+            </Text>
+            {incomingAskPhase === 'failed' && selectedChat?.document_context?.id ? (
+              <TouchableOpacity
+                onPress={() => {
+                  const fileId = selectedChat.document_context?.id;
+                  if (fileId == null) return;
+                  void api.retryFileProcessing(fileId).then(() => setIncomingAskPhase('processing')).catch(() => {});
+                }}
+              >
+                <Text style={{ color: colors.primary, fontWeight: '700', marginTop: 4 }}>Retry</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         ) : null}
 
         {/* ── INPUT BAR ── always rendered; styles differ in empty vs conversation state */}

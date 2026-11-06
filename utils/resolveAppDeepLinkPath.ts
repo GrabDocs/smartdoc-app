@@ -61,6 +61,7 @@ const KNOWN_APP_PREFIXES = [
   '/upload-by-link',
   '/upload-by-link-code',
   '/documents',
+  '/incoming-import',
   '/calendar-oauth',
 ] as const;
 

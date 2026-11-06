@@ -103,9 +103,41 @@ export async function uploadFormDataWithGlobalProgress(
  * By default waits until page previews exist. Pass `{ waitForPages: false }` to
  * return as soon as the template id exists so document lists can update immediately.
  */
+export async function uploadIncomingDocuments(
+  assets: Array<{ uri: string; name?: string | null; mimeType?: string | null }>,
+  workspaceId?: number,
+): Promise<number[]> {
+  const formData = new FormData();
+  assets.forEach((asset, index) => {
+    const name = sanitizeDisplayFilename(asset.name || `Document-${index + 1}`);
+    formData.append('file', {
+      uri: asset.uri,
+      name,
+      type: asset.mimeType || 'application/octet-stream',
+    } as unknown as Blob);
+  });
+  if (workspaceId) formData.append('workspace_id', String(workspaceId));
+  const label = assets.length === 1
+    ? sanitizeDisplayFilename(assets[0]?.name || 'Document')
+    : `${assets.length} documents`;
+  const upload = await uploadFormDataWithGlobalProgress(formData as FormData, label);
+  const ids = new Set<number>();
+  const direct = extractUploadedFileId(upload);
+  if (direct) ids.add(direct);
+  const listed = (upload as { uploaded_files?: Array<{ id?: number }> }).uploaded_files;
+  listed?.forEach((file) => {
+    if (file?.id) ids.add(file.id);
+  });
+  if (ids.size === 0 && assets.length === 1) {
+    const resolved = await resolveUploadedFileId(upload, sanitizeDisplayFilename(assets[0]?.name || ''), Date.now() - 120000);
+    if (resolved) ids.add(resolved);
+  }
+  return [...ids];
+}
+
 export async function uploadDocumentForFillable(
   asset: { uri: string; name?: string | null; mimeType?: string | null },
-  options?: { waitForPages?: boolean },
+  options?: { waitForPages?: boolean; workspaceId?: number },
 ): Promise<{ fileId: number; templateId: number; displayName: string }> {
   const displayName = sanitizeDisplayFilename(asset.name || 'Document');
   const filename = displayName;
@@ -117,6 +149,7 @@ export async function uploadDocumentForFillable(
     type: asset.mimeType || 'application/octet-stream',
   } as unknown as Blob);
   formData.append('for_fillable_template', '1');
+  if (options?.workspaceId) formData.append('workspace_id', String(options.workspaceId));
 
   const upload = await uploadFormDataWithGlobalProgress(formData as FormData, filename);
   const fileId = await resolveUploadedFileId(upload, filename);

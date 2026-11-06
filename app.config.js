@@ -73,6 +73,34 @@ const baseExpo = {
         "maps",
       ],
       UIBackgroundModes: ["voip", "audio"],
+      LSSupportsOpeningDocumentsInPlace: false,
+      CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: "PDF",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.adobe.pdf"],
+        },
+        {
+          CFBundleTypeName: "Word",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.microsoft.word.doc", "org.openxmlformats.wordprocessingml.document"],
+        },
+        {
+          CFBundleTypeName: "Excel",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.microsoft.excel.xls", "org.openxmlformats.spreadsheetml.sheet"],
+        },
+        {
+          CFBundleTypeName: "PowerPoint",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.microsoft.powerpoint.ppt", "org.openxmlformats.presentationml.presentation"],
+        },
+        {
+          CFBundleTypeName: "Calendar",
+          LSHandlerRank: "Alternate",
+          LSItemContentTypes: ["com.apple.ical.ics", "public.calendar-event"],
+        },
+      ],
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: true,
         NSExceptionDomains: {
@@ -139,6 +167,10 @@ const baseExpo = {
           { scheme: "https", host: "grabdocs.com", pathPrefix: "/meeting" },
           { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/join-meeting" },
           { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/meeting" },
+          { scheme: "https", host: "api.grabdocs.com", pathPrefix: "/meet/" },
+          { scheme: "https", host: "app.grabdocs.com", pathPrefix: "/meet/" },
+          { scheme: "https", host: "grabdocs.com", pathPrefix: "/meet/" },
+          { scheme: "https", host: "www.grabdocs.com", pathPrefix: "/meet/" },
         ],
         category: ["BROWSABLE", "DEFAULT"],
       },
@@ -229,6 +261,41 @@ const baseExpo = {
       },
     ],
     "expo-secure-store",
+    [
+      "expo-share-intent",
+      {
+        iosShareExtensionName: "GrabDocsShare",
+        iosShareExtensionBundleIdentifier: "com.grabdocs.mobile.share-extension",
+        iosAppGroupIdentifier: "group.com.grabdocs.mobile",
+        iosActivationRules:
+          'SUBQUERY(extensionItems, $extensionItem, SUBQUERY($extensionItem.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.word.doc" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.wordprocessingml.document" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.excel.xls" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.spreadsheetml.sheet" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.powerpoint.ppt" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.openxmlformats.presentationml.presentation" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.ical.ics" OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.calendar-event").@count >= 1).@count >= 1',
+        androidIntentFilters: [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-powerpoint",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "application/octet-stream",
+          "text/calendar",
+          "application/ics",
+        ],
+        androidMultiIntentFilters: [
+          "application/pdf",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "application/vnd.ms-excel",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "application/vnd.ms-powerpoint",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+          "application/octet-stream",
+          "text/calendar",
+          "application/ics",
+        ],
+      },
+    ],
+    "./plugins/android-open-documents",
     // Must be last: injects Broadcast Extension block into Podfile (nested in main target) via config plugin only.
     [
       "./plugins/ios-hms-screenshare",
@@ -250,6 +317,13 @@ const baseExpo = {
               {
                 targetName: "GrabDocsBroadcastUpload",
                 bundleIdentifier: "com.grabdocs.mobile.GrabDocsBroadcastUpload",
+                entitlements: {
+                  "com.apple.security.application-groups": ["group.com.grabdocs.mobile"],
+                },
+              },
+              {
+                targetName: "GrabDocsShare",
+                bundleIdentifier: "com.grabdocs.mobile.share-extension",
                 entitlements: {
                   "com.apple.security.application-groups": ["group.com.grabdocs.mobile"],
                 },
@@ -281,7 +355,7 @@ const config = {
     // IMPORTANT: bump this string ONLY when you change the native layer (new native deps, SDK
     // upgrades, permissions, plugins) and ship a new binary, so JS updates never land on an
     // incompatible binary.
-    runtimeVersion: "1.0.0",
+    runtimeVersion: "1.1.0",
     updates: {
       url: "https://u.expo.dev/341d1cdf-5759-41ef-8ae3-36e4cf7fab00",
     },

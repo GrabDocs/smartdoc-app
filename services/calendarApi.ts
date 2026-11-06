@@ -182,6 +182,15 @@ export async function calendarCreateEvent(body: Record<string, unknown>): Promis
   return data.event;
 }
 
+/** Create or update a GrabDocs event from an imported invite. Same UID updates the existing event. */
+export async function calendarImportIcsEvent(body: Record<string, unknown>): Promise<{ event: CalendarEvent; updated: boolean }> {
+  const { data } = await client().post<{ event: CalendarEvent; updated?: boolean }>(
+    '/api/v1/calendar/events',
+    body
+  );
+  return { event: data.event, updated: Boolean(data.updated) };
+}
+
 export async function calendarUpdateEvent(id: number, body: Record<string, unknown>): Promise<CalendarEvent> {
   const { data } = await client().put<{ event: CalendarEvent }>(`/api/v1/calendar/events/${id}`, body);
   return data.event;

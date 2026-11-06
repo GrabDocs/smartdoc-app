@@ -1858,6 +1858,12 @@ class ApiService {
     return response.data;
   }
 
+  /** Search-index status for one file the signed-in user owns. */
+  async getFileIndexStatus(fileId: number): Promise<{ index_status?: string | null; processing_status?: string | null }> {
+    const response = await this.client.get(`/api/v1/mobile/files/${fileId}/index-status`);
+    return response.data || {};
+  }
+
   // ==================== DRAFT API (web endpoints, Bearer auth) ====================
 
   /**
