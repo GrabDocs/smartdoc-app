@@ -14,6 +14,14 @@ module.exports = {
     version: versions.version,
     scheme: "grabdocs",
     plugins: [],
+    ios: {
+      bundleIdentifier: "com.grabdocs.mobile",
+      buildNumber: versions.ios?.buildNumber ?? "1",
+    },
+    android: {
+      package: "com.grabdocs.mobile",
+      versionCode: versions.android?.versionCode ?? 1,
+    },
     extra: {
       eas: {
         projectId: "341d1cdf-5759-41ef-8ae3-36e4cf7fab00",
