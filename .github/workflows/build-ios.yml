@@ -607,6 +607,11 @@ jobs:
             echo "::error::Do NOT retry submit-only; run a FULL new build with incremented ios_build_number."
             exit 1
           fi
+          if ! unzip -Z1 "$IPA" | grep -qE 'Payload/[^/]+\.app/PlugIns/GrabDocsShare\.appex/MainInterface\.storyboardc/'; then
+            echo "::error::GrabDocsShare.appex has no compiled MainInterface.storyboardc — Apple rejects this (ITMS-90357)."
+            unzip -Z1 "$IPA" | grep 'GrabDocsShare.appex/' | head -30 || true
+            exit 1
+          fi
           echo "✅ IPA version verified: $GOT_V ($GOT_B) — safe to submit."
           echo "NOTE: If Apple still rejects 'already submitted', Apple received a binary with this CFBundleVersion"
           echo "      from a previous failed/cancelled run. Increment ios_build_number and run a full NEW build."

@@ -278,6 +278,20 @@ function forceSwiftFileTypeForSampleHandler(pbx) {
 }
 
 /**
+ * The xcode npm lib has no mapping for .storyboard, so expo-share-intent's MainInterface.storyboard
+ * gets lastKnownFileType = unknown. Xcode then copies it raw instead of compiling MainInterface.storyboardc,
+ * and App Store Connect rejects the share extension (ITMS-90357, NSExtensionMainStoryboard).
+ */
+function fixStoryboardFileTypes(pbx) {
+  const next = pbx.replace(/isa = PBXFileReference;[^}]*?\.storyboard"?;[^}]*\}/g, (entry) =>
+    entry
+      .replace(/explicitFileType = [^;]+;\s*/g, '')
+      .replace(/lastKnownFileType = [^;]+;/g, 'lastKnownFileType = file.storyboard;')
+  );
+  return { pbx: next, changed: next !== pbx };
+}
+
+/**
  * Remove "Install Extension Profile (Main)" phase from main app target so the phase never runs
  * (profile is already installed by custom build step; the phase can fail and break the build).
  */
@@ -590,6 +604,13 @@ if (swiftTypeResult.changed) {
   pbx = swiftTypeResult.pbx;
   changed = true;
   console.log('[ensure-pbxproj-embed-phase] ✅ Forced SampleHandler.swift to sourcecode.swift (line-by-line fix)');
+}
+
+const storyboardResult = fixStoryboardFileTypes(pbx);
+if (storyboardResult.changed) {
+  pbx = storyboardResult.pbx;
+  changed = true;
+  console.log('[ensure-pbxproj-embed-phase] ✅ Set .storyboard file refs to file.storyboard (share extension compiles MainInterface.storyboardc)');
 }
 
 const removePhaseResult = removeInstallExtensionProfileMainPhase(pbx);
