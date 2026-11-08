@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Dimensions,
   Keyboard,
-  Modal,
   Platform,
   StyleSheet,
   Text,
@@ -25,6 +24,10 @@ const KEYBOARD_EXTRA_INSET = 0;
 /**
  * Global ChatGD overlay — mounted once at app root (same pattern as AI FM).
  * When minimized, touches pass through to the screen underneath.
+ *
+ * Do not wrap this in a React Native Modal: a transparent Modal is still a
+ * separate window and swallows taps on Home/Apps even when the sheet is only a
+ * minimized peek (pointerEvents on children cannot reach the app behind it).
  */
 export default function ChatGDBottomSheetHost({
   nested = false,
@@ -92,14 +95,6 @@ export default function ChatGDBottomSheetHost({
   if (!visible) return null;
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="fade"
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      onRequestClose={closeChatGD}
-    >
     <View style={styles.host} pointerEvents="box-none">
       <MinimizableBottomSheet
         visible={visible}
@@ -146,7 +141,6 @@ export default function ChatGDBottomSheetHost({
         </ChatGDSheetHostParamsContext.Provider>
       </MinimizableBottomSheet>
     </View>
-    </Modal>
   );
 }
 
@@ -154,6 +148,7 @@ const styles = StyleSheet.create({
   host: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 200,
+    elevation: 200,
   },
   header: {
     flexDirection: 'row',

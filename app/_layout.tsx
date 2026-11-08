@@ -670,6 +670,9 @@ function RootLayoutNav() {
         </SafeAreaView>
       )}
       <ChatGDSheetProvider>
+      {/* flex:1 wrapper so ChatGD's absolute overlay (no Modal) covers the shell and
+          minimized peeks still let Home/Apps taps pass through. */}
+      <View style={styles.chatGdShell}>
       <View ref={mainContentRef} style={[styles.mainContainer, { backgroundColor: isDark ? '#151718' : '#fff' }]} accessibilityLabel="Main content">
         <HeaderVisibilityProvider>
         <Stack screenOptions={{ headerShown: false }}>
@@ -692,6 +695,7 @@ function RootLayoutNav() {
           <Stack.Screen name="upload-links" options={{ headerShown: false }} />
           <Stack.Screen name="intake" options={{ headerShown: false }} />
           <Stack.Screen name="clients" options={{ headerShown: false }} />
+          <Stack.Screen name="assist" options={{ headerShown: false }} />
           <Stack.Screen name="email-sync" options={{ headerShown: false }} />
           <Stack.Screen name="email-oauth" options={{ headerShown: false }} />
           <Stack.Screen name="signatures" options={{ headerShown: false }} />
@@ -710,6 +714,7 @@ function RootLayoutNav() {
         </View>
       </View>
       <ChatGDBottomSheetHost />
+      </View>
       </ChatGDSheetProvider>
       <ActionMenuModal
         visible={appLockReminderVisible}
@@ -968,6 +973,9 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   mainContainer: {
+    flex: 1,
+  },
+  chatGdShell: {
     flex: 1,
   },
   networkIndicatorContainer: {
