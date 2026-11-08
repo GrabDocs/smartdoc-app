@@ -40,6 +40,7 @@ import {
   hasOnlyDefaultAppsOn,
   QUICK_ACTION_APP_KEY_SET,
 } from '../../utils/visibleApps';
+import { REACH_CURRENT_MEETING_KEY } from '../../constants/reachMeeting';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
@@ -93,6 +94,120 @@ const reachLiveDotStyles = StyleSheet.create({
   },
 });
 
+type HomeCardStyles = {
+  statCard: object;
+  statCardRow: object;
+  statTextBlock: object;
+  statTitle: object;
+  statSubtitle: object;
+  badge: object;
+  badgeText: object;
+  quickActionCard: object;
+  quickActionIcon: object;
+  quickActionContent: object;
+  quickActionTitle: object;
+  quickActionSubtitle: object;
+  newBadge: object;
+  newBadgeText: object;
+};
+
+/**
+ * Stable module-level cards. Defining these inside DashboardScreen remounted them on
+ * every parent re-render and cancelled in-progress presses — Quick actions / Apps needed
+ * many taps, while Recently used (plain TouchableOpacity in JSX) opened on one tap.
+ */
+function StatCard({
+  title,
+  icon,
+  color,
+  onPress,
+  badge,
+  subtitle,
+  styles: s,
+}: {
+  title: string;
+  icon: string;
+  color: string;
+  onPress?: () => void;
+  badge?: number;
+  subtitle?: string;
+  styles: HomeCardStyles;
+}) {
+  return (
+    <TouchableOpacity
+      style={[s.statCard, { borderLeftColor: color }]}
+      onPress={onPress}
+      delayPressIn={0}
+      accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
+      accessibilityRole="button"
+    >
+      <View style={s.statCardRow}>
+        <View style={{ position: 'relative' }}>
+          <Ionicons name={icon as any} size={26} color={color} />
+          {badge != null && badge > 0 ? (
+            <View style={s.badge}>
+              <Text style={s.badgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
+            </View>
+          ) : null}
+        </View>
+        <View style={s.statTextBlock}>
+          <Text style={s.statTitle}>{title}</Text>
+          {subtitle ? <Text style={s.statSubtitle}>{subtitle}</Text> : null}
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function QuickActionCard({
+  title,
+  subtitle,
+  icon,
+  iconElement,
+  color,
+  onPress,
+  isNew,
+  showLiveMeetingIndicator,
+  styles: s,
+}: {
+  title: string;
+  subtitle: string;
+  icon?: string;
+  iconElement?: React.ReactNode;
+  color: string;
+  onPress: () => void;
+  isNew?: boolean;
+  showLiveMeetingIndicator?: boolean;
+  styles: HomeCardStyles;
+}) {
+  return (
+    <TouchableOpacity
+      style={s.quickActionCard}
+      onPress={onPress}
+      delayPressIn={0}
+      accessibilityLabel={
+        showLiveMeetingIndicator ? `${title}: ${subtitle}. In a meeting.` : `${title}: ${subtitle}`
+      }
+      accessibilityRole="button"
+    >
+      <View style={[s.quickActionIcon, { backgroundColor: color }]}>
+        {iconElement ?? <Ionicons name={icon as any} size={22} color="#fff" />}
+        {showLiveMeetingIndicator ? <ReachLiveMeetingDot /> : null}
+        {isNew ? (
+          <View style={s.newBadge}>
+            <Text style={s.newBadgeText}>NEW</Text>
+          </View>
+        ) : null}
+      </View>
+      <View style={s.quickActionContent}>
+        <Text style={s.quickActionTitle}>{title}</Text>
+        <Text style={s.quickActionSubtitle}>{subtitle}</Text>
+      </View>
+      <Ionicons name="chevron-forward" size={16} color="#ccc" />
+    </TouchableOpacity>
+  );
+}
+
 function DashboardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -125,7 +240,7 @@ function DashboardScreen() {
   const uploadSheet = useMinimizableSheet();
   const notificationsSheet = useMinimizableSheet();
   const [isUploading, setIsUploading] = useState(false);
-  const [uploadTimeout, setUploadTimeout] = useState<number | null>(null);
+  const [uploadTimeout, setUploadTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [isOpeningPicker, setIsOpeningPicker] = useState(false);
   const [reachInMeeting, setReachInMeeting] = useState(false);
   const [clientsCount, setClientsCount] = useState(0);
@@ -473,75 +588,6 @@ function DashboardScreen() {
       }
     };
   }, [uploadTimeout]);
-
-  const StatCard = ({
-    title,
-    icon,
-    color,
-    onPress,
-    badge,
-    subtitle,
-  }: {
-    title: string;
-    icon: string;
-    color: string;
-    onPress?: () => void;
-    badge?: number;
-    subtitle?: string;
-  }) => (
-    <TouchableOpacity
-      style={[dynamicStyles.statCard, { borderLeftColor: color }]}
-      onPress={onPress}
-      accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
-      accessibilityRole="button"
-    >
-      <View style={dynamicStyles.statCardRow}>
-        <View style={{ position: 'relative' }}>
-          <Ionicons name={icon as any} size={26} color={color} />
-          {badge != null && badge > 0 ? (
-            <View style={dynamicStyles.badge}>
-              <Text style={dynamicStyles.badgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
-            </View>
-          ) : null}
-        </View>
-        <View style={dynamicStyles.statTextBlock}>
-          <Text style={dynamicStyles.statTitle}>{title}</Text>
-          {subtitle ? <Text style={dynamicStyles.statSubtitle}>{subtitle}</Text> : null}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const QuickActionCard = ({ title, subtitle, icon, iconElement, color, onPress, isNew, showLiveMeetingIndicator }: {
-    title: string;
-    subtitle: string;
-    icon?: string;
-    iconElement?: React.ReactNode;
-    color: string;
-    onPress: () => void;
-    isNew?: boolean;
-    showLiveMeetingIndicator?: boolean;
-  }) => (
-    <TouchableOpacity
-      style={dynamicStyles.quickActionCard}
-      onPress={onPress}
-      accessibilityLabel={
-        showLiveMeetingIndicator ? `${title}: ${subtitle}. In a meeting.` : `${title}: ${subtitle}`
-      }
-      accessibilityRole="button"
-    >
-      <View style={[dynamicStyles.quickActionIcon, { backgroundColor: color }]}>
-        {iconElement ?? <Ionicons name={icon as any} size={22} color="#fff" />}
-        {showLiveMeetingIndicator ? <ReachLiveMeetingDot /> : null}
-        {isNew ? <View style={dynamicStyles.newBadge}><Text style={dynamicStyles.newBadgeText}>NEW</Text></View> : null}
-      </View>
-      <View style={dynamicStyles.quickActionContent}>
-        <Text style={dynamicStyles.quickActionTitle}>{title}</Text>
-        <Text style={dynamicStyles.quickActionSubtitle}>{subtitle}</Text>
-      </View>
-      <Ionicons name="chevron-forward" size={16} color="#ccc" />
-    </TouchableOpacity>
-  );
 
   const handleUploadFromFiles = async () => {
     if (isUploading) {
@@ -1057,6 +1103,7 @@ function DashboardScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
@@ -1206,6 +1253,7 @@ function DashboardScreen() {
               color="#34C759"
               subtitle="Add documents"
               onPress={() => handleQuickAction('upload')}
+              styles={dynamicStyles}
             />
             <StatCard
               key="stat-chats"
@@ -1214,6 +1262,7 @@ function DashboardScreen() {
               color="#AF52DE"
               subtitle="Ask a question"
               onPress={() => handleQuickAction('chatgd')}
+              styles={dynamicStyles}
             />
           </View>
           <View style={[dynamicStyles.statsRow, { marginBottom: 0 }]}>
@@ -1224,6 +1273,7 @@ function DashboardScreen() {
               color="#0EA5E9"
               subtitle="Browse documents"
               onPress={() => handleQuickAction('files')}
+              styles={dynamicStyles}
             />
             <StatCard
               key="stat-reach"
@@ -1232,6 +1282,7 @@ function DashboardScreen() {
               color="#007AFF"
               subtitle="Start a meeting"
               onPress={() => handleQuickAction('meeting-call')}
+              styles={dynamicStyles}
             />
           </View>
         </View>
@@ -1298,6 +1349,7 @@ function DashboardScreen() {
                 color={app.color}
                 onPress={() => handleQuickAction(app.action)}
                 showLiveMeetingIndicator={app.showLive}
+                styles={dynamicStyles}
               />
             ))}
             {showMoreAppsTile ? (
@@ -1308,6 +1360,7 @@ function DashboardScreen() {
                 icon="apps-outline"
                 color="#6B7280"
                 onPress={() => router.push('/(tabs)/settings?chooseApps=1' as any)}
+                styles={dynamicStyles}
               />
             ) : null}
           </View>
