@@ -94,62 +94,58 @@ export default function ChatGDBottomSheetHost({
   if (!nested && nestedHostCount > 0) return null;
   if (!visible) return null;
 
+  // No absoluteFill host wrapper — MinimizableBottomSheet positions itself, and a
+  // full-screen sibling above Home still interferes with Quick actions / Apps taps
+  // even with pointerEvents="box-none".
   return (
-    <View style={styles.host} pointerEvents="box-none">
-      <MinimizableBottomSheet
-        visible={visible}
-        onClose={closeChatGD}
-        heightRatio={0.8}
-        expandNonce={expandNonce}
-        paddingBottom={keyboardInset}
-        renderHeader={({ minimized, onExpand, onClose }) => (
-          <View style={styles.header}>
-            <View style={styles.headerLeft}>
-              <Ionicons name="chatbubbles" size={20} color="#007AFF" />
-              <View style={styles.headerTitles}>
-                <AppHeaderTitle fill={false}>ChatGD</AppHeaderTitle>
-                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-                  {minimized ? 'Tap to continue' : 'Ask anything about your files'}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.headerActions}>
-              {!minimized ? (
-                <TouchableOpacity
-                  onPress={openFullChatGD}
-                  hitSlop={12}
-                  style={styles.headerIconBtn}
-                  accessibilityLabel="Open full ChatGD"
-                >
-                  <Ionicons name="expand-outline" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
-              ) : null}
-              {minimized ? (
-                <TouchableOpacity onPress={onExpand} hitSlop={12} accessibilityLabel="Expand">
-                  <Ionicons name="chevron-up" size={26} color={colors.textSecondary} />
-                </TouchableOpacity>
-              ) : null}
-              <TouchableOpacity onPress={onClose} hitSlop={12} accessibilityLabel="Close">
-                <Ionicons name="close" size={26} color={colors.textSecondary} />
-              </TouchableOpacity>
+    <MinimizableBottomSheet
+      visible={visible}
+      onClose={closeChatGD}
+      heightRatio={0.8}
+      expandNonce={expandNonce}
+      paddingBottom={keyboardInset}
+      renderHeader={({ minimized, onExpand, onClose }) => (
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Ionicons name="chatbubbles" size={20} color="#007AFF" />
+            <View style={styles.headerTitles}>
+              <AppHeaderTitle fill={false}>ChatGD</AppHeaderTitle>
+              <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                {minimized ? 'Tap to continue' : 'Ask anything about your files'}
+              </Text>
             </View>
           </View>
-        )}
-      >
-        <ChatGDSheetHostParamsContext.Provider value={params}>
-          <ChatsScreen key={expandNonce} />
-        </ChatGDSheetHostParamsContext.Provider>
-      </MinimizableBottomSheet>
-    </View>
+          <View style={styles.headerActions}>
+            {!minimized ? (
+              <TouchableOpacity
+                onPress={openFullChatGD}
+                hitSlop={12}
+                style={styles.headerIconBtn}
+                accessibilityLabel="Open full ChatGD"
+              >
+                <Ionicons name="expand-outline" size={24} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+            {minimized ? (
+              <TouchableOpacity onPress={onExpand} hitSlop={12} accessibilityLabel="Expand">
+                <Ionicons name="chevron-up" size={26} color={colors.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity onPress={onClose} hitSlop={12} accessibilityLabel="Close">
+              <Ionicons name="close" size={26} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    >
+      <ChatGDSheetHostParamsContext.Provider value={params}>
+        <ChatsScreen key={expandNonce} />
+      </ChatGDSheetHostParamsContext.Provider>
+    </MinimizableBottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  host: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 200,
-    elevation: 200,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',

@@ -312,22 +312,44 @@ export default function MinimizableBottomSheet({
     </>
   );
 
+  // Minimized: mount only the bottom peek for hit-testing. A translated full-height
+  // sheet (even with pointerEvents="none") still steals Home Quick actions / Apps
+  // taps on some devices; Recently-used survives via its nested horizontal scroller.
+  // Keep children mounted in a zero-size host so ChatGD / sheet state is preserved.
+  if (minimized) {
+    return (
+      <View style={styles.peekRoot} pointerEvents="box-none">
+        <View
+          pointerEvents="auto"
+          style={[
+            styles.sheet,
+            styles.peek,
+            {
+              minHeight: minimizedPeek + paddingBottom,
+              backgroundColor: colors.card,
+              paddingBottom,
+            },
+          ]}
+        >
+          {chrome}
+        </View>
+        <View style={styles.preservedBody} pointerEvents="none" accessibilityElementsHidden>
+          {children}
+        </View>
+      </View>
+    );
+  }
+
   return (
-    // pointerEvents="box-none" lets touches pass through the transparent area
-    // above the minimized strip so users can interact with the background screen.
     <View style={styles.root} pointerEvents="box-none">
-      {!minimized ? (
-        <Pressable
-          style={styles.backdrop}
-          onPress={minimizable ? minimizeSheet : handleClose}
-          accessibilityRole="button"
-          accessibilityLabel={minimizable ? 'Minimize' : 'Close'}
-        />
-      ) : null}
+      <Pressable
+        style={styles.backdrop}
+        onPress={minimizable ? minimizeSheet : handleClose}
+        accessibilityRole="button"
+        accessibilityLabel={minimizable ? 'Minimize' : 'Close'}
+      />
       <Animated.View
-        // A translated full-height sheet keeps its original hit box. While minimized,
-        // ignore every touch on it so Home buttons underneath still receive taps.
-        pointerEvents={minimized ? 'none' : 'auto'}
+        pointerEvents="auto"
         style={[
           styles.sheet,
           {
@@ -350,36 +372,15 @@ export default function MinimizableBottomSheet({
               : undefined
           }
         >
-          {minimized ? null : <View>{chrome}</View>}
-          <View
-            style={fitContent ? undefined : styles.body}
-            pointerEvents={minimized ? 'none' : 'auto'}
-          >
-            {children}
-          </View>
+          <View>{chrome}</View>
+          <View style={fitContent ? undefined : styles.body}>{children}</View>
         </View>
-        {overlay && !minimized ? (
+        {overlay ? (
           <View style={styles.overlay} pointerEvents="box-none">
             {overlay}
           </View>
         ) : null}
       </Animated.View>
-      {minimized ? (
-        <View
-          pointerEvents="auto"
-          style={[
-            styles.sheet,
-            styles.peek,
-            {
-              minHeight: minimizedPeek + paddingBottom,
-              backgroundColor: colors.card,
-              paddingBottom,
-            },
-          ]}
-        >
-          {chrome}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -387,6 +388,15 @@ export default function MinimizableBottomSheet({
 const styles = StyleSheet.create({
   // Above PersistentBottomNavigation (zIndex 100) so sheet content is not covered by the tab bar.
   root: { ...StyleSheet.absoluteFillObject, zIndex: 200, elevation: 200 },
+  // Bottom-only host while minimized — must not use absoluteFill or empty space steals taps.
+  peekRoot: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 200,
+    elevation: 200,
+  },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
   sheet: {
     position: 'absolute',
@@ -399,6 +409,13 @@ const styles = StyleSheet.create({
   },
   peek: {
     zIndex: 2,
+  },
+  preservedBody: {
+    position: 'absolute',
+    width: 0,
+    height: 0,
+    opacity: 0,
+    overflow: 'hidden',
   },
   handleRow: { alignItems: 'center', paddingTop: 8, paddingBottom: 2 },
   /** Invisible pan target when the visual handle is hidden (still needs a drag affordance). */
