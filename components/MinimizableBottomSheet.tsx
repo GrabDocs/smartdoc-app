@@ -305,6 +305,13 @@ export default function MinimizableBottomSheet({
     </View>
   ) : null;
 
+  const chrome = (
+    <>
+      {dragChrome}
+      {showHeader ? (renderHeader ? renderHeader(headerCtx) : defaultHeader) : null}
+    </>
+  );
+
   return (
     // pointerEvents="box-none" lets touches pass through the transparent area
     // above the minimized strip so users can interact with the background screen.
@@ -318,7 +325,9 @@ export default function MinimizableBottomSheet({
         />
       ) : null}
       <Animated.View
-        pointerEvents={minimized ? 'box-none' : 'auto'}
+        // A translated full-height sheet keeps its original hit box. While minimized,
+        // ignore every touch on it so Home buttons underneath still receive taps.
+        pointerEvents={minimized ? 'none' : 'auto'}
         style={[
           styles.sheet,
           {
@@ -341,10 +350,7 @@ export default function MinimizableBottomSheet({
               : undefined
           }
         >
-          <View pointerEvents={minimized ? 'auto' : undefined}>
-            {dragChrome}
-            {showHeader ? (renderHeader ? renderHeader(headerCtx) : defaultHeader) : null}
-          </View>
+          {minimized ? null : <View>{chrome}</View>}
           <View
             style={fitContent ? undefined : styles.body}
             pointerEvents={minimized ? 'none' : 'auto'}
@@ -358,6 +364,22 @@ export default function MinimizableBottomSheet({
           </View>
         ) : null}
       </Animated.View>
+      {minimized ? (
+        <View
+          pointerEvents="auto"
+          style={[
+            styles.sheet,
+            styles.peek,
+            {
+              minHeight: minimizedPeek + paddingBottom,
+              backgroundColor: colors.card,
+              paddingBottom,
+            },
+          ]}
+        >
+          {chrome}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -374,6 +396,9 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     overflow: 'hidden',
+  },
+  peek: {
+    zIndex: 2,
   },
   handleRow: { alignItems: 'center', paddingTop: 8, paddingBottom: 2 },
   /** Invisible pan target when the visual handle is hidden (still needs a drag affordance). */

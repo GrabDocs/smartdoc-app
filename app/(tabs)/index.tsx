@@ -8,14 +8,13 @@ import {
     Animated,
     Image,
     RefreshControl,
-    ScrollView,
     StyleSheet,
     Text,
     TextInput,
-    TouchableOpacity,
     useWindowDimensions,
     View
 } from 'react-native';
+import { ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppHeaderIcon from '../../components/AppHeaderIcon';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
