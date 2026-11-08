@@ -12,12 +12,10 @@ import {
     StyleSheet,
     Text,
     TextInput,
+    TouchableOpacity,
     useWindowDimensions,
     View
 } from 'react-native';
-// Gesture-handler pressables win against parent scroll / leftover sheet hit targets.
-// Keep ScrollView from react-native — RNGH ScrollView was dropping taps on Quick actions / Apps.
-import { TouchableOpacity } from 'react-native-gesture-handler';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppHeaderIcon from '../../components/AppHeaderIcon';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
@@ -491,30 +489,27 @@ function DashboardScreen() {
     badge?: number;
     subtitle?: string;
   }) => (
-    // flex:1 on a wrapper View — RNGH TouchableOpacity + flex:1 collapses title/subtitle.
-    <View style={{ flex: 1 }}>
-      <TouchableOpacity
-        style={[dynamicStyles.statCard, { borderLeftColor: color }]}
-        onPress={onPress}
-        accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
-        accessibilityRole="button"
-      >
-        <View style={dynamicStyles.statCardRow}>
-          <View style={{ position: 'relative' }}>
-            <Ionicons name={icon as any} size={26} color={color} />
-            {badge != null && badge > 0 ? (
-              <View style={dynamicStyles.badge}>
-                <Text style={dynamicStyles.badgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
-              </View>
-            ) : null}
-          </View>
-          <View style={dynamicStyles.statTextBlock}>
-            <Text style={dynamicStyles.statTitle}>{title}</Text>
-            {subtitle ? <Text style={dynamicStyles.statSubtitle}>{subtitle}</Text> : null}
-          </View>
+    <TouchableOpacity
+      style={[dynamicStyles.statCard, { borderLeftColor: color }]}
+      onPress={onPress}
+      accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
+      accessibilityRole="button"
+    >
+      <View style={dynamicStyles.statCardRow}>
+        <View style={{ position: 'relative' }}>
+          <Ionicons name={icon as any} size={26} color={color} />
+          {badge != null && badge > 0 ? (
+            <View style={dynamicStyles.badge}>
+              <Text style={dynamicStyles.badgeText}>{badge > 99 ? '99+' : String(badge)}</Text>
+            </View>
+          ) : null}
         </View>
-      </TouchableOpacity>
-    </View>
+        <View style={dynamicStyles.statTextBlock}>
+          <Text style={dynamicStyles.statTitle}>{title}</Text>
+          {subtitle ? <Text style={dynamicStyles.statSubtitle}>{subtitle}</Text> : null}
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 
   const QuickActionCard = ({ title, subtitle, icon, iconElement, color, onPress, isNew, showLiveMeetingIndicator }: {
@@ -874,7 +869,8 @@ function DashboardScreen() {
     gap: 8,
   },
   statCard: {
-    backgroundColor: colors.card,
+    flex: 1,
+      backgroundColor: colors.card,
     borderRadius: 9,
     padding: 14,
     borderLeftWidth: 3,
