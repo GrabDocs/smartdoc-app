@@ -24,9 +24,9 @@ export default function SigningOrderStrip({ position, total, isMyTurn }: Props) 
 
 const styles = StyleSheet.create({
   strip: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderBottomWidth: 1,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  text: { fontSize: 13, fontWeight: '600', textAlign: 'center' },
+  text: { fontSize: 12, fontWeight: '600', textAlign: 'center' },
 });

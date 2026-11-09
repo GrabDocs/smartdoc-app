@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import type { RuntimeDocument } from '../../types/signature';
 import { hasFieldSignature, isDateFieldType, isFieldEditable, isSignFieldType, dateFieldDisplayText } from '../../utils/signatureRuntime';
+import { isLockedIdentityField } from '../../utils/signerGuide';
 
 interface Props {
   document: RuntimeDocument;
   fieldValues: Record<string, unknown>;
   editableKeys: ReadonlySet<string>;
+  focusFieldKey?: string | null;
   onFieldPress: (fieldKey: string, fieldType: string) => void;
   onTextChange: (fieldKey: string, text: string) => void;
   onCheckboxToggle: (fieldKey: string, checked: boolean) => void;
@@ -17,20 +19,46 @@ export default function FormFieldRenderer({
   document,
   fieldValues,
   editableKeys,
+  focusFieldKey = null,
   onFieldPress,
   onTextChange,
   onCheckboxToggle,
 }: Props) {
   const colors = useThemeColors();
+  const scrollRef = useRef<ScrollView>(null);
+  const rowYRef = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!focusFieldKey) return;
+    const y = rowYRef.current[focusFieldKey];
+    if (y == null || !scrollRef.current) return;
+    scrollRef.current.scrollTo({ y: Math.max(0, y - 24), animated: true });
+  }, [focusFieldKey]);
 
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+    <ScrollView ref={scrollRef} style={styles.scroll} contentContainerStyle={styles.content}>
       <Text style={[styles.docTitle, { color: colors.text }]}>{document.title}</Text>
       {document.fields.map((f) => {
         const editable = isFieldEditable(editableKeys, f.key);
+        if (isLockedIdentityField(f, editable)) return null;
         const val = fieldValues[f.key];
+        const focused = focusFieldKey === f.key;
         return (
-          <View key={f.key} style={[styles.fieldRow, { borderColor: colors.border }]}>
+          <View
+            key={f.key}
+            style={[
+              styles.fieldRow,
+              {
+                borderColor: focused ? colors.primary : colors.border,
+                borderWidth: focused ? 2 : StyleSheet.hairlineWidth,
+                borderRadius: focused ? 8 : 0,
+                padding: focused ? 8 : 0,
+              },
+            ]}
+            onLayout={(e) => {
+              rowYRef.current[f.key] = e.nativeEvent.layout.y;
+            }}
+          >
             <Text style={[styles.label, { color: colors.text }]}>
               {f.label}
               {f.required ? ' *' : ''}
@@ -81,10 +109,10 @@ export default function FormFieldRenderer({
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  content: { padding: 14, paddingBottom: 40 },
-  docTitle: { fontSize: 18, fontWeight: '600', marginBottom: 16 },
-  fieldRow: { marginBottom: 16, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 8 },
+  content: { padding: 12, paddingBottom: 32 },
+  docTitle: { fontSize: 16, fontWeight: '600', marginBottom: 12 },
+  fieldRow: { marginBottom: 12, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth },
+  label: { fontSize: 14, fontWeight: '500', marginBottom: 6 },
   input: { borderWidth: 1, borderRadius: 8, padding: 10, fontSize: 16 },
   dateValue: { fontSize: 16, paddingVertical: 8 },
 });

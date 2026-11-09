@@ -9,12 +9,13 @@
  * never rely on Image resizeMode="contain" intrinsic layout for field positioning.
  */
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
   Image,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,11 +29,11 @@ import type { RuntimeDocument } from '../../types/signature';
 import { fieldImageUri, isFieldEditable, dateFieldDisplayText } from '../../utils/signatureRuntime';
 import {
   buildAlignmentOverlays,
-  computeFitScale,
   computeRenderedSize,
   FIELD_OVERLAY_BACKGROUND,
   fieldToPixelRect,
   isDebugAlignmentEnabled,
+  MAX_FIT_SCALE,
 } from '../../utils/fillable';
 
 interface Props {
@@ -41,10 +42,28 @@ interface Props {
   editableKeys: ReadonlySet<string>;
   activePage: number;
   onPageChange: (page: number) => void;
+  focusFieldKey?: string | null;
   onFieldPress: (fieldKey: string, fieldType: string) => void;
   onTextChange: (fieldKey: string, text: string) => void;
   onCheckboxToggle: (fieldKey: string, checked: boolean) => void;
   pageCaptureRef?: React.RefObject<View | null>;
+}
+
+/** Fill the page area width edge-to-edge (no side gutters). Height may scroll. */
+function computeSignerFitScale(
+  pageW: number,
+  pageH: number,
+  viewW: number,
+  viewH: number,
+): number {
+  if (!pageW || !viewW) return 1;
+  const byWidth = Math.max(1, Math.floor(viewW)) / pageW;
+  const byHeight = pageH > 0 && viewH > 0 ? Math.max(1, Math.floor(viewH)) / pageH : byWidth;
+  // Prefer width fill; if the page already fits both ways, contain so we don't upscale past the viewport.
+  if (byWidth * pageH <= viewH + 0.5) {
+    return Math.max(0.05, Math.min(byWidth, byHeight, MAX_FIT_SCALE));
+  }
+  return Math.max(0.05, Math.min(byWidth, MAX_FIT_SCALE));
 }
 
 export default function PdfFieldRenderer({
@@ -53,6 +72,7 @@ export default function PdfFieldRenderer({
   editableKeys,
   activePage,
   onPageChange,
+  focusFieldKey = null,
   onFieldPress,
   onTextChange,
   onCheckboxToggle,
@@ -61,6 +81,7 @@ export default function PdfFieldRenderer({
   const colors = useThemeColors();
   const localRef = useRef<View>(null);
   const ref = pageCaptureRef ?? localRef;
+  const scrollRef = useRef<ScrollView>(null);
 
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
 
@@ -76,9 +97,10 @@ export default function PdfFieldRenderer({
 
   const fitScale = useMemo(
     () =>
-      pageDim && viewportSize.w && viewportSize.h
-        ? computeFitScale(
-            { width: pageDim.width, height: pageDim.height },
+      pageDim && viewportSize.w
+        ? computeSignerFitScale(
+            pageDim.width,
+            pageDim.height,
             viewportSize.w,
             viewportSize.h,
           )
@@ -90,6 +112,19 @@ export default function PdfFieldRenderer({
   const { renderedW, renderedH } = hasValidDimensions && fitScale
     ? computeRenderedSize({ width: pageDim!.width, height: pageDim!.height }, fitScale, zoomLevel)
     : { renderedW: 0, renderedH: 0 };
+
+  useEffect(() => {
+    if (!focusFieldKey || !hasValidDimensions || !scrollRef.current) return;
+    const field = document.fields.find((f) => f.key === focusFieldKey && f.rect?.page === activePage);
+    if (!field?.rect) return;
+    const pixelRect = fieldToPixelRect(
+      { x: field.rect.x, y: field.rect.y, w: field.rect.w, h: field.rect.h },
+      renderedW,
+      renderedH,
+    );
+    const targetY = Math.max(0, pixelRect.top - Math.max(24, viewportSize.h * 0.2));
+    scrollRef.current.scrollTo({ y: targetY, animated: true });
+  }, [focusFieldKey, activePage, hasValidDimensions, renderedW, renderedH, document.fields, viewportSize.h]);
 
   const showDebug = isDebugAlignmentEnabled();
 
@@ -169,13 +204,20 @@ export default function PdfFieldRenderer({
         style={styles.tabs}
       />
 
-      {/* Viewport — same fitScale inputs as prepare (viewportW × viewportH) */}
+      {/* Viewport — width-first fit so the page uses the available area without side gutters */}
       <View style={styles.pageArea} onLayout={handleViewportLayout}>
         {!hasViewport ? (
           <View style={[styles.skeleton, { backgroundColor: colors.background }]}>
             <ActivityIndicator color={colors.primary} />
           </View>
         ) : (
+          <ScrollView
+            ref={scrollRef}
+            style={styles.pageScroll}
+            contentContainerStyle={styles.pageScrollContent}
+            showsVerticalScrollIndicator={renderedH > viewportSize.h + 1}
+            bounces={renderedH > viewportSize.h + 1}
+          >
           <View
             ref={ref}
             collapsable={false}
@@ -212,6 +254,7 @@ export default function PdfFieldRenderer({
               if (!f.rect) return null;
               const editable = isFieldEditable(editableKeys, f.key);
               const val = fieldValues[f.key];
+              const focused = focusFieldKey === f.key;
 
               const pixelRect = fieldToPixelRect(
                 { x: f.rect.x, y: f.rect.y, w: f.rect.w, h: f.rect.h },
@@ -232,11 +275,15 @@ export default function PdfFieldRenderer({
                         top: pixelRect.top,
                         width: pixelRect.width,
                         height: pixelRect.height,
-                        borderColor: checked ? colors.tint : (colors.isDark ? colors.border : '#b8bec4'),
+                        borderColor: focused
+                          ? '#2563eb'
+                          : checked
+                            ? colors.tint
+                            : (colors.isDark ? colors.border : '#b8bec4'),
                         backgroundColor: checked
                           ? (colors.isDark ? 'rgba(59,130,246,0.24)' : colors.primaryLight)
                           : '#ffffff',
-                        borderWidth: 2,
+                        borderWidth: focused ? 3 : 2,
                       },
                     ]}
                     disabled={!editable}
@@ -276,7 +323,8 @@ export default function PdfFieldRenderer({
                         width: pixelRect.width,
                         height: pixelRect.height,
                         color: colors.text,
-                        borderColor: colors.primary,
+                        borderColor: focused ? '#2563eb' : colors.primary,
+                        borderWidth: focused ? 3 : 1.5,
                       },
                     ]}
                     editable={editable}
@@ -337,7 +385,8 @@ export default function PdfFieldRenderer({
                       top: pixelRect.top,
                       width: pixelRect.width,
                       height: pixelRect.height,
-                      borderColor: editable ? colors.primary : `${colors.primary}55`,
+                      borderColor: focused ? '#2563eb' : editable ? colors.primary : `${colors.primary}55`,
+                      borderWidth: focused ? 3 : 1.5,
                       backgroundColor: FIELD_OVERLAY_BACKGROUND,
                     },
                   ]}
@@ -370,6 +419,7 @@ export default function PdfFieldRenderer({
               <AlignmentDebugOverlay overlays={debugOverlays} />
             )}
           </View>
+          </ScrollView>
         )}
       </View>
     </View>
@@ -377,16 +427,18 @@ export default function PdfFieldRenderer({
 }
 
 const styles = StyleSheet.create({
-  wrap: { flex: 1, paddingHorizontal: 14 },
+  wrap: { flex: 1, paddingHorizontal: 0 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  tabs: { maxHeight: 40, marginBottom: 8 },
-  tab: { paddingHorizontal: 12, paddingVertical: 8, marginRight: 4 },
+  tabs: { maxHeight: 32, marginBottom: 2 },
+  tab: { paddingHorizontal: 10, paddingVertical: 6, marginRight: 2 },
   pageArea: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'flex-start',
-    paddingVertical: 8,
+    paddingVertical: 0,
   },
+  pageScroll: { flex: 1 },
+  pageScrollContent: { flexGrow: 1, alignItems: 'center' },
   skeleton: {
     flex: 1,
     alignSelf: 'stretch',
@@ -407,11 +459,6 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
   },
   fieldBox: {
     position: 'absolute',
