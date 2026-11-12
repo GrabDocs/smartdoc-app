@@ -365,8 +365,11 @@ export default function CalendarSchedulingScreen() {
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [accessTypeId, setAccessTypeId] = useState<number | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
-  const [message, setMessage] = useState('');
   const [savingHours, setSavingHours] = useState(false);
+  /** Popup so feedback is visible even when the form is scrolled past the top. */
+  const notify = useCallback((title: string, body?: string) => {
+    Alert.alert(title, body);
+  }, []);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [slotHealth, setSlotHealth] = useState<AvailabilityConflict[]>([]);
   const [slotHealthLoading, setSlotHealthLoading] = useState(false);
@@ -444,8 +447,8 @@ export default function CalendarSchedulingScreen() {
   }, [refreshSlotHealth]);
 
   React.useEffect(() => {
-    load().catch(() => setMessage('Could not load scheduling.'));
-  }, [load]);
+    load().catch(() => notify('Scheduling', 'Could not load scheduling.'));
+  }, [load, notify]);
 
   const revealFocusedField = useCallback(() => {
     const delay = kbInsetRef.current > 0 ? 40 : 280;
@@ -587,7 +590,6 @@ export default function CalendarSchedulingScreen() {
 
   const formTitle = forms.find((form) => form.id === formId)?.title || 'No form';
   const slugInvalid = !!slug && !SLUG_RE.test(slug);
-  const messageIsError = /could not/i.test(message);
 
   const todayIso = hostTodayIso(timezone);
   const openDateCount = Object.values(dateHours).filter((rows) => Array.isArray(rows) && rows.length > 0).length;
@@ -685,9 +687,8 @@ export default function CalendarSchedulingScreen() {
   const saveHours = async () => {
     const blocking = availabilityConflicts.find((c) => c.blocking);
     if (blocking) {
-      // Show conflict at top on Save only (do not copy into success `message`).
+      // Show conflict at top on Save only (kept inline so it stays while editing hours).
       setSaveTimeConflicts(snapshotHoursConflicts());
-      setMessage('');
       return;
     }
     const zeroTimes = availabilityConflicts.filter(losesGuestTimes);
@@ -787,33 +788,36 @@ export default function CalendarSchedulingScreen() {
       }
       setSavedAvailabilityStartDate(availabilityStartDate);
       setSavedAvailabilityEndDate(availabilityEndDate);
+      const savedParts: string[] = [];
       if (res?.window_adjusted) {
-        setMessage(
-          `Schedule saved. Booking window set to ${saved?.booking_window_days} days so it reaches your availability dates.`,
+        savedParts.push(
+          `Booking window set to ${saved?.booking_window_days} days so it reaches your availability dates.`,
         );
-      } else {
-        setMessage('Schedule saved.');
       }
+      let postSaveConflicts: AvailabilityConflict[] = [];
       try {
         const health = await bookingSlotHealth();
         const healthConflicts = Array.isArray(health?.conflicts) ? health.conflicts : [];
         setSlotHealth(healthConflicts);
         setSlotHealthInfo(health || null);
-        setSaveTimeConflicts(
-          snapshotHoursConflicts(
-            healthConflicts.map((c) => ({
-              ...c,
-              message: `${c.message} (Checked against your saved schedule; save to recheck.)`,
-            })),
-          ),
+        postSaveConflicts = snapshotHoursConflicts(
+          healthConflicts.map((c) => ({
+            ...c,
+            message: `${c.message} (Checked against your saved schedule; save to recheck.)`,
+          })),
         );
+        setSaveTimeConflicts(postSaveConflicts);
       } catch {
         setSlotHealth([]);
         setSlotHealthInfo(null);
-        setSaveTimeConflicts(snapshotHoursConflicts());
+        postSaveConflicts = snapshotHoursConflicts();
+        setSaveTimeConflicts(postSaveConflicts);
       }
+      const topConflict = postSaveConflicts.find((c) => c.blocking) || postSaveConflicts[0];
+      if (topConflict?.message) savedParts.push(topConflict.message);
+      notify('Schedule saved', savedParts.length ? savedParts.join('\n\n') : undefined);
     } catch (err: any) {
-      setMessage(err?.response?.data?.error || 'Could not save hours.');
+      notify('Could not save schedule', err?.response?.data?.error || 'Could not save hours.');
     } finally {
       setSavingHours(false);
     }
@@ -840,7 +844,7 @@ export default function CalendarSchedulingScreen() {
       const added: PendingFile[] = [];
       for (const asset of assets.slice(0, room)) {
         if (asset.size && asset.size > 10 * 1024 * 1024) {
-          setMessage('Each file must be 10 MB or smaller.');
+          notify('Upload', 'Each file must be 10 MB or smaller.');
           continue;
         }
         let file: LocalAsset = {
@@ -862,14 +866,14 @@ export default function CalendarSchedulingScreen() {
         const response = await apiService.uploadFileWithProgressPolling(form, undefined, { filename: file.name });
         const fileId = (response as { file?: { id?: number } }).file?.id;
         if (!fileId) {
-          setMessage('Upload finished without a file.');
+          notify('Upload', 'Upload finished without a file.');
           continue;
         }
         added.push({ fileId, name: file.name });
       }
       if (added.length) addDraftFiles(added);
     } catch (err: any) {
-      setMessage(err?.response?.data?.error || err?.message || 'Could not upload that file.');
+      notify('Upload', err?.response?.data?.error || err?.message || 'Could not upload that file.');
     } finally {
       setUploadingFiles(false);
     }
@@ -890,7 +894,7 @@ export default function CalendarSchedulingScreen() {
           const assets = await work();
           if (assets?.length) await uploadLocalAssets(assets);
         } catch (err: any) {
-          setMessage(err?.message || 'Could not upload that file.');
+          notify('Upload', err?.message || 'Could not upload that file.');
         } finally {
           setFilesOpen(true);
         }
@@ -962,7 +966,10 @@ export default function CalendarSchedulingScreen() {
 
   const createType = async () => {
     if (!addReach && !meetingLink.trim()) {
-      setMessage('Could not create this event type. Enter a meeting link, or leave Reach on.');
+      notify(
+        'Could not create event type',
+        'Enter a meeting link, or leave Reach on.',
+      );
       return;
     }
     setCreating(true);
@@ -994,14 +1001,16 @@ export default function CalendarSchedulingScreen() {
       setAddReach(true);
       setMeetingLink('');
       setDraftFiles([]);
-      setMessage(
-        failedNames.length
-          ? `Event type created. Could not attach: ${failedNames.join(', ')}.`
-          : 'Event type created.',
+      notify(
+        'Event type created',
+        failedNames.length ? `Could not attach: ${failedNames.join(', ')}.` : undefined,
       );
       await load();
     } catch (err: any) {
-      setMessage(err?.response?.data?.error || 'Could not create this event type.');
+      notify(
+        'Could not create event type',
+        err?.response?.data?.error || 'Could not create this event type.',
+      );
     } finally {
       setCreating(false);
     }
@@ -1010,6 +1019,39 @@ export default function CalendarSchedulingScreen() {
   const selected = types.find((item) => item.id === selectedType) || null;
   const showTabs = eventsView === 'list';
   const title = eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
+  // Active types first; deactivated stay visible at the bottom for Activate.
+  const listedTypes = useMemo(
+    () =>
+      [...types].sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      }),
+    [types],
+  );
+
+  const toggleEventActive = useCallback(
+    (item: EventType, opts?: { leaveDetail?: boolean }) => {
+      const nextActive = !item.active;
+      const request = nextActive
+        ? bookingUpdateEventType(item.id, { ...item, active: true })
+        : bookingDeactivateEventType(item.id);
+      void request
+        .then(async () => {
+          await load();
+          if (!nextActive && opts?.leaveDetail) setEventsView('list');
+        })
+        .catch((err: any) =>
+          Alert.alert(
+            'Scheduling',
+            err?.response?.data?.error ||
+              (nextActive
+                ? 'Could not activate this event type.'
+                : 'Could not deactivate this event type.'),
+          ),
+        );
+    },
+    [load],
+  );
 
   const openDetail = (item: EventType) => {
     setSelectedType(item.id);
@@ -1069,9 +1111,7 @@ export default function CalendarSchedulingScreen() {
           scrollYRef.current = event.nativeEvent.contentOffset.y;
         }}
       >
-        {message && messageIsError ? (
-          <Text style={[styles.banner, styles.bannerError]}>{message}</Text>
-        ) : primaryConflict ? (
+        {primaryConflict ? (
           <View style={[styles.conflictBanner, primaryConflict.blocking && styles.conflictBannerBlocking, styles.topConflictBanner]}>
             <Text style={[styles.conflictText, primaryConflict.blocking && styles.conflictTextBlocking]}>
               {primaryConflict.message}
@@ -1086,8 +1126,6 @@ export default function CalendarSchedulingScreen() {
               </Text>
             ) : null}
           </View>
-        ) : message ? (
-          <Text style={[styles.banner, styles.bannerOk]}>{message}</Text>
         ) : null}
 
         {tab === 'hours' && eventsView === 'list' ? (
@@ -1561,10 +1599,10 @@ export default function CalendarSchedulingScreen() {
           </TouchableOpacity>
         </View>
         <Text style={styles.listTitle}>Event types</Text>
-        {types.length === 0 ? (
+        {listedTypes.length === 0 ? (
           <Text style={styles.empty}>No event types yet. Create one above to get a booking link.</Text>
         ) : (
-          types.map((item) => {
+          listedTypes.map((item) => {
             return (
               <View key={item.id} style={styles.card}>
                 <View style={styles.typeHead}>
@@ -1583,7 +1621,7 @@ export default function CalendarSchedulingScreen() {
                     onPress={async () => {
                       const base = FRONTEND_URL.replace(/\/$/, '');
                       await Clipboard.setStringAsync(`${base}${item.public_path}`);
-                      setMessage('Link copied.');
+                      notify('Copied', 'Booking link copied.');
                     }}
                   >
                     <Text style={styles.actionText}>Copy</Text>
@@ -1593,6 +1631,11 @@ export default function CalendarSchedulingScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.action} onPress={() => openDetail(item)}>
                     <Text style={styles.actionText}>Signups</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.action} onPress={() => toggleEventActive(item)}>
+                    <Text style={item.active ? styles.actionDanger : styles.actionSuccess}>
+                      {item.active ? 'Deactivate' : 'Activate'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1616,7 +1659,7 @@ export default function CalendarSchedulingScreen() {
                 onPress={async () => {
                   const base = FRONTEND_URL.replace(/\/$/, '');
                   await Clipboard.setStringAsync(`${base}${selected.public_path}`);
-                  setMessage('Link copied.');
+                  notify('Copied', 'Booking link copied.');
                 }}
               >
                 <Text style={styles.actionText}>Copy link</Text>
@@ -1626,26 +1669,7 @@ export default function CalendarSchedulingScreen() {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.action}
-                onPress={() => {
-                  const nextActive = !selected.active;
-                  const request = nextActive
-                    ? bookingUpdateEventType(selected.id, { ...selected, active: true })
-                    : bookingDeactivateEventType(selected.id);
-                  void request
-                    .then(async () => {
-                      await load();
-                      if (!nextActive) setEventsView('list');
-                    })
-                    .catch((err: any) =>
-                      Alert.alert(
-                        'Scheduling',
-                        err?.response?.data?.error ||
-                          (nextActive
-                            ? 'Could not activate this event type.'
-                            : 'Could not deactivate this event type.'),
-                      ),
-                    );
-                }}
+                onPress={() => toggleEventActive(selected, { leaveDetail: true })}
               >
                 <Text style={selected.active ? styles.actionDanger : styles.actionSuccess}>
                   {selected.active ? 'Deactivate' : 'Activate'}
@@ -1942,9 +1966,6 @@ function createStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     tabText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
     tabTextOn: { color: colors.text, fontWeight: '700' },
-    banner: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13 },
-    bannerOk: { backgroundColor: colors.isDark ? '#064e3b' : '#ecfdf5', color: colors.isDark ? '#a7f3d0' : '#065f46' },
-    bannerError: { backgroundColor: colors.isDark ? '#450a0a' : '#fef2f2', color: colors.isDark ? '#fecaca' : '#991b1b' },
     card: {
       borderRadius: 12,
       borderWidth: StyleSheet.hairlineWidth,

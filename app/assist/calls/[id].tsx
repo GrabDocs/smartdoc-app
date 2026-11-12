@@ -71,15 +71,18 @@ export default function AssistCallDetailScreen() {
     };
   }, [audioUrl, call?.id]);
 
+  const otherParty =
+    (call?.direction || '') === 'outbound' ? call?.to_number || '' : call?.from_number || '';
+
   const hero: MeetingRecapHero | undefined = useMemo(() => {
     if (!call) return undefined;
     return {
-      title: call.headline || call.from_number || 'Call',
+      title: call.headline || otherParty || 'Call',
       dateLabel: formatCallDate(call.started_at),
       durationLabel: formatMeetingDurationLabel(call.started_at, call.ended_at, call.duration_seconds),
-      attendees: call.from_number ? [call.from_number] : undefined,
+      attendees: otherParty ? [otherParty] : undefined,
     };
-  }, [call]);
+  }, [call, otherParty]);
 
   const enrichment: MeetingRecapEnrichment | null = call?.recap_v2 || null;
   const summaryContent =
@@ -107,11 +110,11 @@ export default function AssistCallDetailScreen() {
       ) : call.transcript_status === 'unavailable' && !transcriptContent && !summaryContent ? (
         <View style={{ padding: 16 }}>
           <Text style={[styles.h1, { color: colors.text }]}>
-            {call.headline || call.from_number || 'Call'}
+            {call.headline || otherParty || 'Call'}
           </Text>
           <Text style={{ color: colors.textSecondary, marginTop: 8 }}>
             {hero?.dateLabel ? `${hero.dateLabel} · ` : ''}
-            {call.from_number || ''}
+            {otherParty || ''}
           </Text>
           <Text style={{ color: colors.textSecondary, marginTop: 12 }}>
             Transcript unavailable

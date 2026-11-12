@@ -36,6 +36,7 @@ export type EmailInboxAlias = {
   allowed_senders?: string[];
   target_folder_id?: number | null;
   is_active?: boolean;
+  purpose?: 'import' | 'scheduling';
 };
 
 export type EmailImportEvent = {

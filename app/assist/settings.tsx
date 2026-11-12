@@ -17,8 +17,10 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   cancelAssistArchive,
   getArchiveProgress,
+  getAssistScheduleSettings,
   getAssistStatus,
   resumeAssistArchive,
+  saveAssistScheduleSettings,
   setupAssistCalls,
   startAssistTestCall,
 } from '../../services/assistApi';
@@ -99,13 +101,13 @@ function CallsSetupGuide({ captureNumber }: { captureNumber: string | null }) {
 
       <View style={[styles.card, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
         <Text style={{ color: '#1E3A8A', fontWeight: '700', fontSize: 13, marginBottom: 6 }}>
-          Get an eSIM ring number
+          Ring number = verified phone
         </Text>
         {[
-          'Add a second mobile line from your carrier as an eSIM.',
-          'Install that eSIM on the same phone as your personal line.',
-          'Confirm the eSIM number rings when dialed.',
-          'Enter that eSIM number in the ring field below, then Save.',
+          'Assist rings your account verified phone (managed in Settings).',
+          'If you use an eSIM as that line, confirm it rings when dialed.',
+          'Change the number only in Settings → Profile → Phone.',
+          'Then return here to finish forwarding and Save Calls setup.',
         ].map((step, i) => (
           <Text key={i} style={{ color: '#1E40AF', fontSize: 12, marginBottom: 4 }}>
             {i + 1}. {step}
@@ -157,15 +159,40 @@ export default function AssistSettingsScreen() {
   const colors = useThemeColors();
   const [status, setStatus] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
-  const [ring, setRing] = useState('');
+
+  const [schedulePolicy, setSchedulePolicy] = useState<'auto_when_complete' | 'confirm_always'>(
+    'auto_when_complete',
+  );
+  const [scheduleSms, setScheduleSms] = useState(true);
+  const [scheduleEmail, setScheduleEmail] = useState(true);
+  const [scheduleCapture, setScheduleCapture] = useState<string | null>(null);
+  const [scheduleOwnerPhone, setScheduleOwnerPhone] = useState<string | null>(null);
+  const [schedulePhoneVerified, setSchedulePhoneVerified] = useState(false);
+  const [schedulePhoneDraft, setSchedulePhoneDraft] = useState('');
 
   useEffect(() => {
     void (async () => {
       try {
-        const [st, prog] = await Promise.all([getAssistStatus(), getArchiveProgress()]);
+        const [st, prog, schedule] = await Promise.all([
+          getAssistStatus(),
+          getArchiveProgress(),
+          getAssistScheduleSettings().catch(() => null),
+        ]);
         setStatus(st);
         setProgress(prog);
-        if (st?.settings?.ring_number) setRing(String(st.settings.ring_number));
+        if (schedule?.settings) {
+          setSchedulePolicy(
+            (schedule.settings.schedule_write_policy as 'auto_when_complete' | 'confirm_always') ||
+              'auto_when_complete',
+          );
+          setScheduleSms(schedule.settings.schedule_sms_enabled !== false);
+          setScheduleEmail(schedule.settings.schedule_email_enabled !== false);
+          setScheduleCapture(schedule.capture_number || st?.capture_number || null);
+          setScheduleOwnerPhone(schedule.settings.schedule_owner_phone || null);
+          setSchedulePhoneVerified(Boolean(schedule.settings.schedule_owner_phone_verified_at));
+        } else {
+          setScheduleCapture(st?.capture_number || null);
+        }
       } catch {
         /* ignore */
       }
@@ -174,16 +201,22 @@ export default function AssistSettingsScreen() {
 
   const saveCalls = async () => {
     try {
-      await setupAssistCalls({ ring_number: ring, forwarding_configured: true });
+      await setupAssistCalls({ forwarding_configured: true });
       Alert.alert(
         'Calls setup saved',
         'Forward your personal number to the GrabDocs capture number, then place a test call. Call 911 from your normal dialer — Assist is not an emergency service.',
       );
       setStatus(await getAssistStatus());
     } catch (e: any) {
-      Alert.alert('Calls setup failed', e?.response?.data?.error || 'Failed');
+      Alert.alert(
+        'Calls setup failed',
+        e?.response?.data?.message || e?.response?.data?.error || 'Failed',
+      );
     }
   };
+
+  const ringDisplay = status?.verified_phone || status?.settings?.ring_number || null;
+  const hasVerifiedPhone = Boolean(status?.has_verified_phone && ringDisplay);
 
   const captureNumber = status?.capture_number || null;
 
@@ -237,33 +270,194 @@ export default function AssistSettingsScreen() {
           </>
         ) : null}
 
+        <Text style={[styles.h, { color: colors.text }]}>Schedule by text / email</Text>
+        {scheduleCapture ? (
+          <Text style={{ color: colors.textSecondary, marginBottom: 8 }}>
+            Text {scheduleCapture} to schedule. Forward appointments to a scheduling email alias.
+          </Text>
+        ) : (
+          <Text style={{ color: '#B45309', marginBottom: 8 }}>
+            Capture number required for SMS scheduling.
+          </Text>
+        )}
+        <Text style={{ color: colors.textSecondary, marginBottom: 8 }}>
+          Schedule phone:{' '}
+          {scheduleOwnerPhone && schedulePhoneVerified
+            ? scheduleOwnerPhone
+            : 'Uses your verified account phone from Settings.'}
+        </Text>
+        <TextInput
+          value={schedulePhoneDraft}
+          onChangeText={setSchedulePhoneDraft}
+          placeholder="+1 415 555 0100"
+          placeholderTextColor={colors.textSecondary}
+          keyboardType="phone-pad"
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 8,
+            padding: 10,
+            color: colors.text,
+            marginBottom: 8,
+          }}
+        />
+        <TouchableOpacity
+          style={[styles.btn, { backgroundColor: '#0F766E', marginBottom: 8 }]}
+          onPress={() =>
+            void saveAssistScheduleSettings({ schedule_owner_phone: schedulePhoneDraft.trim() })
+              .then((res: any) => {
+                const saved = res?.settings || {};
+                setScheduleOwnerPhone(saved.schedule_owner_phone || null);
+                setSchedulePhoneVerified(Boolean(saved.schedule_owner_phone_verified_at));
+                setScheduleSms(saved.schedule_sms_enabled !== false);
+                setSchedulePhoneDraft('');
+                Alert.alert('Schedule phone', 'Saved.');
+              })
+              .catch((e: any) =>
+                Alert.alert(
+                  'Schedule phone',
+                  e?.response?.data?.message ||
+                    e?.response?.data?.error ||
+                    'Verify that number with a code first',
+                ),
+              )
+          }
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>Save schedule phone</Text>
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: '#64748B', paddingVertical: 8, paddingHorizontal: 12 }]}
+            onPress={() =>
+              void saveAssistScheduleSettings({ schedule_owner_phone: '' })
+                .then((res: any) => {
+                  const saved = res?.settings || {};
+                  setScheduleOwnerPhone(saved.schedule_owner_phone || null);
+                  setSchedulePhoneVerified(Boolean(saved.schedule_owner_phone_verified_at));
+                  setScheduleSms(saved.schedule_sms_enabled !== false);
+                  Alert.alert('Schedule phone', 'Cleared. SMS scheduling turned off.');
+                })
+                .catch((e: any) =>
+                  Alert.alert(
+                    'Clear failed',
+                    e?.response?.data?.message || e?.response?.data?.error || 'Failed',
+                  ),
+                )
+            }
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Clear schedule phone</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.btn, { backgroundColor: '#0369A1', paddingVertical: 8, paddingHorizontal: 12 }]}
+            onPress={() =>
+              void saveAssistScheduleSettings({ schedule_sms_enabled: true })
+                .then((res: any) => {
+                  const saved = res?.settings || {};
+                  setScheduleOwnerPhone(saved.schedule_owner_phone || null);
+                  setSchedulePhoneVerified(Boolean(saved.schedule_owner_phone_verified_at));
+                  setScheduleSms(saved.schedule_sms_enabled !== false);
+                  Alert.alert('Schedule phone', 'Restored verified account phone for SMS.');
+                })
+                .catch((e: any) =>
+                  Alert.alert(
+                    'Restore failed',
+                    e?.response?.data?.message ||
+                      e?.response?.data?.error ||
+                      'Verify your account phone in Settings first',
+                  ),
+                )
+            }
+          >
+            <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>Use verified account phone</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          onPress={() => setScheduleSms((v) => !v)}
+          style={{ marginBottom: 6 }}
+        >
+          <Text style={{ color: colors.text }}>
+            SMS scheduling: {scheduleSms ? 'On' : 'Off'} (tap to toggle)
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setScheduleEmail((v) => !v)}
+          style={{ marginBottom: 6 }}
+        >
+          <Text style={{ color: colors.text }}>
+            Email scheduling: {scheduleEmail ? 'On' : 'Off'} (tap to toggle)
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() =>
+            setSchedulePolicy((p) =>
+              p === 'auto_when_complete' ? 'confirm_always' : 'auto_when_complete',
+            )
+          }
+          style={{ marginBottom: 8 }}
+        >
+          <Text style={{ color: colors.text }}>
+            Write policy:{' '}
+            {schedulePolicy === 'auto_when_complete' ? 'Create when complete' : 'Always confirm'}{' '}
+            (tap to switch)
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btn, { backgroundColor: '#0369A1', marginBottom: 16 }]}
+          onPress={() =>
+            void saveAssistScheduleSettings({
+              schedule_write_policy: schedulePolicy,
+              schedule_sms_enabled: scheduleSms,
+              schedule_email_enabled: scheduleEmail,
+            })
+              .then(() => Alert.alert('Saved', 'Schedule settings updated.'))
+              .catch((e: any) =>
+                Alert.alert(
+                  'Save failed',
+                  e?.response?.data?.message || e?.response?.data?.error || 'Failed',
+                ),
+              )
+          }
+        >
+          <Text style={{ color: '#fff', fontWeight: '700' }}>Save schedule settings</Text>
+        </TouchableOpacity>
+
         {status?.calls_enabled ? (
           <>
             <Text style={[styles.h, { color: colors.text }]}>Calls setup</Text>
             <CallsSetupGuide captureNumber={captureNumber} />
             {captureNumber ? (
               <>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 }}>
-                  <View style={{ flexShrink: 1, maxWidth: 140 }}>
-                    <Text style={[styles.h, { color: colors.text, marginTop: 0, marginBottom: 2 }]}>
-                      eSIM ring number
+                <View style={{ marginTop: 12, marginBottom: 8 }}>
+                  <Text style={[styles.h, { color: colors.text, marginTop: 0, marginBottom: 2 }]}>
+                    Ring number
+                  </Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: 11, marginBottom: 6 }}>
+                    Uses your verified phone from Settings
+                  </Text>
+                  {hasVerifiedPhone ? (
+                    <Text style={{ color: colors.text, fontFamily: 'monospace', fontSize: 14 }}>
+                      {ringDisplay}
                     </Text>
-                    <Text style={{ color: colors.textSecondary, fontSize: 11 }}>
-                      Second line that rings — not the capture number above.
-                    </Text>
-                  </View>
-                  <TextInput
-                    value={ring}
-                    onChangeText={setRing}
-                    placeholder="+1…"
-                    placeholderTextColor={colors.textSecondary}
-                    style={[
-                      styles.input,
-                      { color: colors.text, borderColor: colors.border, flex: 1, marginBottom: 0 },
-                    ]}
-                  />
+                  ) : (
+                    <Text style={{ color: '#B45309', fontSize: 13 }}>No verified phone yet.</Text>
+                  )}
+                  <TouchableOpacity
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(tabs)/settings',
+                        params: { openPhone: '1', section: 'profile' },
+                      } as any)
+                    }
+                    style={{ marginTop: 8 }}
+                  >
+                    <Text style={{ color: '#0284C7', fontWeight: '700' }}>Change in Settings →</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity style={styles.btn} onPress={() => void saveCalls()}>
+                <TouchableOpacity
+                  style={[styles.btn, !hasVerifiedPhone ? { opacity: 0.5 } : null]}
+                  disabled={!hasVerifiedPhone}
+                  onPress={() => void saveCalls()}
+                >
                   <Text style={{ color: '#fff', fontWeight: '700' }}>Save Calls setup</Text>
                 </TouchableOpacity>
                 <TouchableOpacity

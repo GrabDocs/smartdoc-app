@@ -123,6 +123,16 @@ export async function getAssistCall(callId: number, ownerUserId?: number) {
   return res.data;
 }
 
+export async function getAssistScheduleSettings() {
+  const res = await client().get(`${BASE}/schedule/settings`);
+  return res.data;
+}
+
+export async function saveAssistScheduleSettings(body: Record<string, unknown>) {
+  const res = await client().post(`${BASE}/schedule/settings`, body);
+  return res.data;
+}
+
 export async function setupAssistCalls(body: Record<string, unknown>) {
   const res = await client().post(`${BASE}/calls/setup`, body);
   return res.data;
@@ -130,6 +140,11 @@ export async function setupAssistCalls(body: Record<string, unknown>) {
 
 export async function startAssistTestCall() {
   const res = await client().post(`${BASE}/calls/test`);
+  return res.data;
+}
+
+export async function startAssistOutboundCall(to: string) {
+  const res = await client().post(`${BASE}/calls/outbound`, { to });
   return res.data;
 }
 

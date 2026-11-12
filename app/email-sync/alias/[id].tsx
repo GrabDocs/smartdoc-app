@@ -51,12 +51,14 @@ export default function AliasDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [ws, setWs] = useState<number | null>(null);
   const [viewer, setViewer] = useState<{ fileId: number; fileName: string } | null>(null);
+  const [purpose, setPurpose] = useState<'import' | 'scheduling'>('import');
 
   const load = useCallback(async () => {
     const a = await getInboxAlias(aliasId);
     setAlias(a);
     setName(a.display_name || '');
     setSenders(a.allowed_senders || []);
+    setPurpose(a.purpose === 'scheduling' ? 'scheduling' : 'import');
     setFolderId(a.target_folder_id ?? null);
     if (a.target_folder_id) {
       try {
@@ -121,7 +123,9 @@ export default function AliasDetailScreen() {
       <ScrollView style={{ backgroundColor: colors.background }}>
         <Text style={{ color: colors.text, paddingHorizontal: 12 }}>{alias.alias_address}</Text>
         <Text style={{ color: colors.textSecondary, paddingHorizontal: 12, marginTop: 8, fontSize: 13 }}>
-          Forward from Gmail, Outlook, or Apple Mail to this address. Attachments are imported; this is not used for Replies.
+          {purpose === 'scheduling'
+            ? 'Forward appointment emails here for Assist schedule. Body-only mail is allowed; attachments are not imported.'
+            : 'Forward from Gmail, Outlook, or Apple Mail to this address. Attachments are imported; this is not used for Replies.'}
         </Text>
         <TouchableOpacity
           style={styles.btn}
@@ -133,29 +137,52 @@ export default function AliasDetailScreen() {
           <Text style={styles.btnTxt}>Copy address</Text>
         </TouchableOpacity>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Display name" placeholderTextColor={colors.textSecondary} />
+        <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, marginTop: 12, fontSize: 13 }}>
+          Alias purpose
+        </Text>
+        <TouchableOpacity
+          style={styles.input}
+          onPress={() =>
+            setPurpose((p) => (p === 'import' ? 'scheduling' : 'import'))
+          }
+        >
+          <Text style={{ color: colors.text }}>
+            {purpose === 'scheduling' ? 'Assist scheduling (tap to switch)' : 'Document import (tap to switch)'}
+          </Text>
+        </TouchableOpacity>
         <CollapsibleChipList
           title="Allowed senders"
-          hint="Only import attachments from these addresses or domains. Blank = all. Expand to view or edit."
+          hint={
+            purpose === 'scheduling'
+              ? 'Scheduling still requires the verified owner email. Extra allowlist entries are ignored for auth.'
+              : 'Only import attachments from these addresses or domains. Blank = all. Expand to view or edit.'
+          }
           value={senders}
           onChange={setSenders}
           placeholder="email@example.com or @domain.com"
           emptyLabel="All senders"
         />
-        <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, marginTop: 12, fontSize: 13 }}>
-          Save attachments to folder
-        </Text>
-        <TouchableOpacity style={styles.input} onPress={() => setFolderPickOpen(true)}>
-          <Text style={{ color: colors.text }}>{folderName}</Text>
-        </TouchableOpacity>
+        {purpose === 'import' ? (
+          <>
+            <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, marginTop: 12, fontSize: 13 }}>
+              Save attachments to folder
+            </Text>
+            <TouchableOpacity style={styles.input} onPress={() => setFolderPickOpen(true)}>
+              <Text style={{ color: colors.text }}>{folderName}</Text>
+            </TouchableOpacity>
+          </>
+        ) : null}
         <TouchableOpacity
           style={styles.btn}
           onPress={async () => {
             await patchInboxAlias(aliasId, {
               display_name: name,
               allowed_senders: senders,
-              target_folder_id: folderId,
+              purpose,
+              target_folder_id: purpose === 'scheduling' ? null : folderId,
             });
             Alert.alert('Saved');
+            await load();
           }}
         >
           <Text style={styles.btnTxt}>Save</Text>
@@ -178,8 +205,14 @@ export default function AliasDetailScreen() {
         >
           <Text style={styles.btnTxt}>Delete</Text>
         </TouchableOpacity>
-        <Text style={{ color: colors.text, fontWeight: '700', padding: 12 }}>Imports</Text>
-        {imports.map((ev) => (
+        {purpose === 'import' ? (
+          <Text style={{ color: colors.text, fontWeight: '700', padding: 12 }}>Imports</Text>
+        ) : (
+          <Text style={{ color: colors.textSecondary, padding: 12 }}>
+            Scheduling aliases do not import attachments.
+          </Text>
+        )}
+        {purpose === 'import' ? imports.map((ev) => (
           <View key={ev.id} style={[styles.row, { flexDirection: 'row', alignItems: 'center' }]}>
             <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
               <Text style={{ color: colors.text }} numberOfLines={1}>
@@ -251,7 +284,7 @@ export default function AliasDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        ))}
+        )) : null}
       </ScrollView>
       {viewer ? (
         <DocumentViewer

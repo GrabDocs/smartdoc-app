@@ -166,6 +166,7 @@ export default function IntakeScheduleDetailScreen() {
       if (res.success && res.schedule) {
         setSchedule(res.schedule as IntakeScheduleDetail);
         setEditing(false);
+        Alert.alert('Saved', 'Schedule cadence was updated.');
       } else {
         Alert.alert('Error', res.message || 'Could not save cadence');
       }
