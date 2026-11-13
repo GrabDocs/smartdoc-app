@@ -15,7 +15,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { useThemeColors } from '../../hooks/useThemeColors';
@@ -45,11 +44,6 @@ interface ChecklistItemForm {
   label: string;
   description: string;
   required: boolean;
-}
-
-interface FolderOption {
-  id: number;
-  name: string;
 }
 
 type StartMode = 'now' | 'later';
@@ -85,7 +79,6 @@ export default function CreateIntakeScreen() {
 
   const [templates, setTemplates] = useState<IntakeTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
-  const [folders, setFolders] = useState<FolderOption[]>([]);
 
   const [title, setTitle] = useState('');
   const [clientName, setClientName] = useState('');
@@ -117,10 +110,6 @@ export default function CreateIntakeScreen() {
   const isScheduling = startMode === 'later' || repeatMode !== 'none';
   const showRecurrenceFields = repeatMode !== 'none';
 
-  const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState('');
-  const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<DatePickerTarget>('due');
   const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false);
@@ -181,52 +170,7 @@ export default function CreateIntakeScreen() {
         console.error('Load intake templates error:', error);
       }
     })();
-    (async () => {
-      try {
-        const response = await apiService.listFolders({ limit: 500 });
-        if (response.success) {
-          setFolders((response.folders || []).map((f: any) => ({ id: f.id, name: f.name })));
-        }
-      } catch (error) {
-        console.error('Load folders error:', error);
-      }
-    })();
   }, []);
-
-  const handleCreateDestinationFolder = async () => {
-    const name = newFolderName.trim();
-    if (!name || creatingFolderBusy) return;
-    setCreatingFolderBusy(true);
-    try {
-      const ws = await apiService.resolveEffectiveWorkspaceId();
-      if (ws == null) {
-        Alert.alert('Could not create folder', 'No workspace available.');
-        return;
-      }
-      const res = await apiService.createFolder({
-        name,
-        workspace_id: ws,
-        parent_folder_id: null,
-      });
-      const created = res?.folder;
-      if (created?.id) {
-        setFolders((prev) => [{ id: created.id, name: created.name }, ...prev]);
-        setDestinationFolderId(created.id);
-        setShowFolderPicker(false);
-        setCreatingFolder(false);
-        setNewFolderName('');
-      } else {
-        Alert.alert('Could not create folder', res?.error || 'Try again.');
-      }
-    } catch (error: any) {
-      Alert.alert(
-        'Could not create folder',
-        error?.response?.data?.error || error?.message || 'Try again.',
-      );
-    } finally {
-      setCreatingFolderBusy(false);
-    }
-  };
 
   const applyTemplate = (templateId: number | null, sourceTemplates?: IntakeTemplate[]) => {
     setSelectedTemplateId(templateId);
@@ -622,14 +566,6 @@ export default function CreateIntakeScreen() {
       borderBottomColor: colors.border,
     },
     modalTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
-    modalOption: {
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    modalOptionText: { fontSize: 15, color: colors.text },
-    modalOptionSelected: { color: '#007AFF', fontWeight: '600' },
     saveTemplateModalContainer: {
       flex: 1,
       backgroundColor: colors.background,
@@ -1174,72 +1110,6 @@ export default function CreateIntakeScreen() {
           </Text>
         </FeedbackTouchable>
       </View>
-
-      {/* Destination folder picker */}
-      <AdaptiveListPickerModal
-        visible={showFolderPicker}
-        onClose={() => {
-          setShowFolderPicker(false);
-          setCreatingFolder(false);
-          setNewFolderName('');
-        }}
-        title="Destination folder"
-        itemCount={folders.length + 2}
-      >
-        <TouchableOpacity
-          style={dynamicStyles.modalOption}
-          onPress={() => setCreatingFolder((v) => !v)}
-        >
-          <Text style={[dynamicStyles.modalOptionText, { color: '#007AFF' }]}>Create new folder</Text>
-        </TouchableOpacity>
-        {creatingFolder ? (
-          <View style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-            <TextInput
-              style={dynamicStyles.input}
-              value={newFolderName}
-              onChangeText={setNewFolderName}
-              placeholder="Folder name"
-              placeholderTextColor={colors.textLight}
-              autoFocus
-              onSubmitEditing={() => void handleCreateDestinationFolder()}
-            />
-            <TouchableOpacity
-              style={[dynamicStyles.createButton, { marginTop: 8 }, (creatingFolderBusy || !newFolderName.trim()) && dynamicStyles.disabledButton]}
-              onPress={() => void handleCreateDestinationFolder()}
-              disabled={creatingFolderBusy || !newFolderName.trim()}
-            >
-              <Text style={dynamicStyles.createButtonText}>
-                {creatingFolderBusy ? 'Creating…' : 'Create and select'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-        <TouchableOpacity
-          style={dynamicStyles.modalOption}
-          onPress={() => {
-            setDestinationFolderId(null);
-            setShowFolderPicker(false);
-          }}
-        >
-          <Text style={[dynamicStyles.modalOptionText, destinationFolderId === null && dynamicStyles.modalOptionSelected]}>
-            Leave files where they land
-          </Text>
-        </TouchableOpacity>
-        {folders.map((f) => (
-          <TouchableOpacity
-            key={f.id}
-            style={dynamicStyles.modalOption}
-            onPress={() => {
-              setDestinationFolderId(f.id);
-              setShowFolderPicker(false);
-            }}
-          >
-            <Text style={[dynamicStyles.modalOptionText, destinationFolderId === f.id && dynamicStyles.modalOptionSelected]}>
-              {f.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </AdaptiveListPickerModal>
 
       {/* iOS date picker */}
       <Modal visible={showDatePicker} animationType="fade" transparent statusBarTranslucent onRequestClose={() => setShowDatePicker(false)}>

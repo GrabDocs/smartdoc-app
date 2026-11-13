@@ -9,14 +9,17 @@ import {
   Alert,
   Linking,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FRONTEND_URL } from '../constants/Config';
 import { useThemeColors } from '../hooks/useThemeColors';
+import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../utils/dialogSurfaceStyles';
 import { apiService } from '../services/api';
 import FolderMovePicker from './folders/FolderMovePicker';
 
@@ -108,6 +111,7 @@ export default function SaveToDestinationPicker({
   getFormDraft?: () => unknown;
 }) {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const [connections, setConnections] = useState<DriveConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [destPickOpen, setDestPickOpen] = useState(false);
@@ -143,7 +147,22 @@ export default function SaveToDestinationPicker({
           marginBottom: 8,
         },
         pickerText: { color: colors.text, fontSize: 14 },
-        modalSafe: { flex: 1, backgroundColor: colors.background },
+        popupScrim: {
+          ...modalScrimOverlayStyle(colors.isDark),
+          justifyContent: 'center',
+          paddingHorizontal: 28,
+        },
+        popupCard: {
+          ...floatingDialogSurfaceStyle(colors, colors.isDark, { borderRadius: 14 }),
+          overflow: 'hidden',
+          maxHeight: '50%',
+        },
+        modalSafe: {
+          flex: 1,
+          backgroundColor: colors.background,
+          paddingTop: insets.top,
+          paddingBottom: insets.bottom,
+        },
         modalHeader: {
           flexDirection: 'row',
           alignItems: 'center',
@@ -163,7 +182,7 @@ export default function SaveToDestinationPicker({
         },
         itemText: { color: colors.text, fontSize: 15, flex: 1 },
       }),
-    [colors],
+    [colors, insets.top, insets.bottom],
   );
 
   const loadConnections = useCallback(async () => {
@@ -324,60 +343,67 @@ export default function SaveToDestinationPicker({
         </>
       )}
 
-      <Modal visible={destPickOpen} animationType="slide" onRequestClose={() => setDestPickOpen(false)}>
-        <View style={styles.modalSafe}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setDestPickOpen(false)}>
-              <Text style={styles.link}>Close</Text>
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Save to</Text>
-            <View style={{ width: 48 }} />
-          </View>
-          <ScrollView>
-            <TouchableOpacity
-              style={styles.itemRow}
-              onPress={() => {
-                onChange({
-                  ...value,
-                  save_to_type: 'grabdocs',
-                  save_to_connection_id: null,
-                  save_to_external_folder_id: null,
-                  save_to_external_folder_path: null,
-                });
-                setDestPickOpen(false);
-              }}
-            >
-              <Text style={styles.itemText}>GrabDocs</Text>
-              {value.save_to_type === 'grabdocs' ? (
-                <Text style={styles.link}>Selected</Text>
-              ) : null}
-            </TouchableOpacity>
-            {connections.map((c) => (
+      <Modal
+        visible={destPickOpen}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setDestPickOpen(false)}
+      >
+        <Pressable style={styles.popupScrim} onPress={() => setDestPickOpen(false)}>
+          <Pressable style={styles.popupCard} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Save to</Text>
+              <TouchableOpacity onPress={() => setDestPickOpen(false)} hitSlop={8}>
+                <Text style={[styles.link, { marginBottom: 0 }]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView bounces={false}>
               <TouchableOpacity
-                key={c.id}
                 style={styles.itemRow}
                 onPress={() => {
                   onChange({
                     ...value,
-                    save_to_type: 'external',
-                    save_to_connection_id: c.id,
+                    save_to_type: 'grabdocs',
+                    save_to_connection_id: null,
                     save_to_external_folder_id: null,
                     save_to_external_folder_path: null,
                   });
                   setDestPickOpen(false);
                 }}
               >
-                <Text style={styles.itemText}>
-                  {PROVIDER_LABEL[c.platform] || c.platform}
-                  {c.account_name ? ` — ${c.account_name}` : ''}
-                </Text>
-                {value.save_to_connection_id === c.id ? (
-                  <Text style={styles.link}>Selected</Text>
+                <Text style={styles.itemText}>GrabDocs</Text>
+                {value.save_to_type === 'grabdocs' ? (
+                  <Text style={[styles.link, { marginBottom: 0 }]}>Selected</Text>
                 ) : null}
               </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+              {connections.map((c) => (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.itemRow}
+                  onPress={() => {
+                    onChange({
+                      ...value,
+                      save_to_type: 'external',
+                      save_to_connection_id: c.id,
+                      save_to_external_folder_id: null,
+                      save_to_external_folder_path: null,
+                    });
+                    setDestPickOpen(false);
+                  }}
+                >
+                  <Text style={styles.itemText}>
+                    {PROVIDER_LABEL[c.platform] || c.platform}
+                    {c.account_name ? ` — ${c.account_name}` : ''}
+                  </Text>
+                  {value.save_to_connection_id === c.id ? (
+                    <Text style={[styles.link, { marginBottom: 0 }]}>Selected</Text>
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <FolderMovePicker
