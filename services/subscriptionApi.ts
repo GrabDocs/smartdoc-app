@@ -67,6 +67,9 @@ export type SettingsUsageStatsResponse = {
   billing_status_message?: string | null;
   is_billing_admin?: boolean;
   can_manage_billing?: boolean;
+  is_enterprise?: boolean;
+  enterprise_access_until?: string | null;
+  enterprise_status?: string | null;
   extra_ai_credits?: ExtraAiCreditsInfo | null;
   billing_cycle?: PlanChangeCycle;
   can_undo_cancel?: boolean;

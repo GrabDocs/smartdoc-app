@@ -488,6 +488,7 @@ export const NOTIFICATION_TYPES = [
   'file_invite',
   'calendar_invite',
   'calendar_reminder',
+  'booking_confirmed',
   'file_share_viewed',
   'join_request',
   'join_request_approved',
@@ -672,7 +673,8 @@ export function getNotificationScreen(data: Record<string, any>): string {
     case 'draft_edited':
       return data?.file_id != null ? `/drafts/edit/${data.file_id}` : '/(tabs)/documents';
     case 'calendar_invite':
-    case 'calendar_reminder': {
+    case 'calendar_reminder':
+    case 'booking_confirmed': {
       const eid = data?.event_id ?? data?.calendar_event_id ?? data?.eventId;
       if (eid != null) return `/calendar/${eid}`;
       const fromNav = pathFromScreenOrNav(data);

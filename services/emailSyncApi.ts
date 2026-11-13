@@ -120,6 +120,7 @@ export type EmailDraft = {
   reply_mode?: string;
   tone?: string | null;
   expects_reply?: boolean;
+  gen_seq?: number;
   attachments?: { id: number; filename?: string; size_bytes?: number; source_type?: string; file_id?: number | null }[];
 };
 

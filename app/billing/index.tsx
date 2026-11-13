@@ -59,6 +59,9 @@ type TransformedUsage = {
   isCompanyUsage: boolean;
   canManageBilling: boolean;
   isBillingAdmin: boolean;
+  isEnterprise: boolean;
+  enterpriseAccessUntil?: string | null;
+  enterpriseStatus?: string | null;
   billingStatus?: string | null;
   billingAdminEmail?: string | null;
   billingStatusMessage?: string | null;
@@ -102,6 +105,9 @@ function transformStats(data: SettingsUsageStatsResponse): TransformedUsage {
     isCompanyUsage: !!data.is_company_usage,
     canManageBilling: data.can_manage_billing !== false,
     isBillingAdmin: !!data.is_billing_admin,
+    isEnterprise: !!data.is_enterprise,
+    enterpriseAccessUntil: data.enterprise_access_until || null,
+    enterpriseStatus: data.enterprise_status || null,
     billingStatus: data.billing_status,
     billingAdminEmail: data.billing_admin_email,
     billingStatusMessage: data.billing_status_message,
@@ -527,6 +533,10 @@ export default function BillingScreen() {
           padding: 14,
           marginBottom: 12,
         },
+        enterpriseBanner: {
+          borderColor: '#14B8A6',
+          backgroundColor: colors.isDark ? 'rgba(20,184,166,0.15)' : '#F0FDFA',
+        },
         title: { fontSize: 18, fontWeight: '600', color: colors.text, marginBottom: 4 },
         subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: 8 },
         rowBetween: {
@@ -762,7 +772,9 @@ export default function BillingScreen() {
     }
 
     const canManage = usage?.canManageBilling !== false;
+    const isEnterprise = !!usage?.isEnterprise;
     const planName = usage?.planName || 'free';
+    const canManageSelfServe = canManage && !isEnterprise;
 
     return (
       <>
@@ -786,7 +798,19 @@ export default function BillingScreen() {
           </View>
         ) : null}
 
-        {canManage ? (
+        {canManage && isEnterprise ? (
+          <View style={[styles.banner, styles.enterpriseBanner]}>
+            <Text style={{ color: colors.text, fontSize: 14 }}>
+              Enterprise company: subscription and team seats are invoiced manually outside GrabDocs.
+              {usage?.enterpriseAccessUntil
+                ? ` Access until ${new Date(usage.enterpriseAccessUntil).toLocaleDateString()}.`
+                : ''}{' '}
+              Extra AI credits can still be purchased below.
+            </Text>
+          </View>
+        ) : null}
+
+        {canManageSelfServe ? (
           <View style={{ marginBottom: 12 }}>
             <PlanChangePicker
               intro={
@@ -805,7 +829,7 @@ export default function BillingScreen() {
           </View>
         ) : null}
 
-        {canManage ? (
+        {canManageSelfServe ? (
           <View style={styles.card}>
             <TouchableOpacity style={styles.linkBtn} onPress={handlePortal} disabled={portalLoading}>
               <Text style={styles.linkText}>
@@ -849,8 +873,9 @@ export default function BillingScreen() {
           <View style={styles.card}>
             <Text style={styles.title}>Add credits</Text>
             <Text style={styles.subtitle}>
-              Buy extra AI credits. Available on paid plans only; top-up credits expire if your subscription
-              expires without a renewal in place.
+              {isEnterprise
+                ? 'Buy extra AI credits for the company pool. Checkout opens on grabdocs.com. Negotiated subscription and seats are invoiced separately.'
+                : 'Buy extra AI credits. Available on paid plans only; top-up credits expire if your subscription expires without a renewal in place.'}
             </Text>
             {packsLoading ? (
               <ActivityIndicator color="#2563EB" />

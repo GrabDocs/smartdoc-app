@@ -789,6 +789,7 @@ export default function EmailThreadScreen() {
       bcc: emailsFromAddressText(bcc),
       subject,
       body_text: body,
+      gen_seq: draft.gen_seq ?? 0,
       expects_reply: expectsReply,
     });
   };

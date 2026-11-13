@@ -1347,6 +1347,8 @@ export default function QuickFilesScreen() {
               if (doc.is_deleted === true) return false;
               const ls = (doc.lifecycle_state || '').toLowerCase();
               if (ls === 'deleted') return false;
+              const recordingName = (doc.original_filename || doc.filename || '').toLowerCase();
+              if (recordingName.startsWith('assist-call-') && recordingName.endsWith('.wav')) return false;
               return true;
             })
             .map((doc: ApiDocument) => {
