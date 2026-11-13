@@ -24,6 +24,12 @@ import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import ClientsButton from '../../components/clients/ClientsButton';
 import DocumentViewer from '../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import SaveToDestinationPicker, {
+  emptySaveTo,
+  ExportSyncStatus,
+  saveToFromRecord,
+  type SaveToValue,
+} from '../../components/SaveToDestinationPicker';
 import {
   pickDocumentsLikeFilesScreen,
   pickGalleryImagesLikeFilesScreen,
@@ -158,6 +164,7 @@ export default function IntakeDetailScreen() {
   const [editClientIds, setEditClientIds] = useState<number[]>([]);
   const [editDueAt, setEditDueAt] = useState('');
   const [editFolderId, setEditFolderId] = useState<number | null>(null);
+  const [editSaveTo, setEditSaveTo] = useState<SaveToValue>(emptySaveTo());
   const [editReminderPreset, setEditReminderPreset] = useState<ReminderPreset>('standard');
   const [editCustomReminder, setEditCustomReminder] = useState({ first: 48, repeat: 72, max: 4 });
   const [editReminderEnabled, setEditReminderEnabled] = useState(true);
@@ -768,6 +775,7 @@ export default function IntakeDetailScreen() {
     setEditClientName(intake.client_name || '');
     setEditDueAt(intake.due_at ? intake.due_at.slice(0, 10) : '');
     setEditFolderId(intake.destination_folder_id || null);
+    setEditSaveTo(saveToFromRecord(intake));
     const preset = (intake.reminder_preset || 'standard') as ReminderPreset;
     setEditReminderPreset(preset === 'gentle' || preset === 'standard' || preset === 'urgent' || preset === 'custom' ? preset : 'custom');
     setEditCustomReminder({
@@ -893,7 +901,11 @@ export default function IntakeDetailScreen() {
         client_primary_email: primaryEmailFromSenders(validEditSenders),
         authorized_senders: validEditSenders,
         due_at: editDueAt || null,
-        destination_folder_id: editFolderId,
+        destination_folder_id: editSaveTo.destination_folder_id,
+        save_to_type: editSaveTo.save_to_type,
+        save_to_connection_id: editSaveTo.save_to_connection_id,
+        save_to_external_folder_id: editSaveTo.save_to_external_folder_id,
+        save_to_external_folder_path: editSaveTo.save_to_external_folder_path,
         reminder_enabled: editReminderEnabled,
         auto_verify_high_confidence: editAutoVerify,
         ...reminderFields,
@@ -1297,6 +1309,12 @@ export default function IntakeDetailScreen() {
           <ClientsButton itemType="intake" itemId={intake.id} compact allowCreate />
         </View>
         {intake.client_name && <Text style={dynamicStyles.clientText}>{intake.client_name}</Text>}
+        <Text style={dynamicStyles.clientText}>
+          Save to:{' '}
+          {intake.save_to_type === 'external'
+            ? intake.save_to_external_folder_path || intake.save_to_external_folder_id || 'External drive'
+            : 'GrabDocs'}
+        </Text>
 
         <View style={dynamicStyles.actionsRow}>
           {intake.status !== 'archived' && (
@@ -1607,6 +1625,14 @@ export default function IntakeDetailScreen() {
                   <Text style={dynamicStyles.historyMetaText}>
                     {INTAKE_SOURCE_LABELS[f.source] || f.source} &middot; {f.match_status.replace(/_/g, ' ')}
                   </Text>
+                  <ExportSyncStatus
+                    fileId={f.file_id}
+                    statusLabel={f.export_status_label}
+                    canRetry={f.export_can_retry}
+                    sourceKind="intake"
+                    sourceId={intake?.id}
+                    onRetried={() => reloadAfterMutation()}
+                  />
                 </View>
                 <Text style={dynamicStyles.historyMetaText}>{formatDate(f.created_at)}</Text>
               </View>
@@ -1828,15 +1854,16 @@ export default function IntakeDetailScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Destination folder</Text>
-              <TouchableOpacity style={dynamicStyles.pickerButton} onPress={() => setShowFolderPicker(true)}>
-                <Text style={dynamicStyles.pickerButtonText}>
-                  {editFolderId ? (folders.find((f) => f.id === editFolderId)?.name || 'Selected folder') : 'Leave files where they land'}
-                </Text>
-                <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
+            <SaveToDestinationPicker
+              value={editSaveTo}
+              onChange={(next) => {
+                setEditSaveTo(next);
+                setEditFolderId(next.destination_folder_id);
+              }}
+              workspaceId={intake?.workspace_id}
+              storageKey={`save_to_draft:intake_edit_${intake?.id || 'new'}`}
+              getFormDraft={() => ({ editSaveTo, editTitle, editClientName })}
+            />
 
             <View style={dynamicStyles.inputGroup}>
               <Text style={dynamicStyles.label}>Reminder cadence</Text>

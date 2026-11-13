@@ -59,6 +59,8 @@ export interface IntakeFileRow {
   match_confidence: number | null;
   match_status: IntakeFileMatchStatus;
   created_at: string | null;
+  export_status_label?: string | null;
+  export_can_retry?: boolean;
 }
 
 export interface IntakeUploadLink {
@@ -82,6 +84,10 @@ export interface Intake {
   due_badge?: IntakeDueBadge | null;
   upload_link_id: number | null;
   destination_folder_id: number | null;
+  save_to_type?: 'grabdocs' | 'external' | string | null;
+  save_to_connection_id?: number | null;
+  save_to_external_folder_id?: string | null;
+  save_to_external_folder_path?: string | null;
   template_id: number | null;
   auto_verify_high_confidence: boolean;
   reminder_enabled: boolean;
@@ -125,6 +131,11 @@ export interface IntakeTemplate {
   name: string;
   industry_tag: string | null;
   created_at: string | null;
+  destination_folder_id?: number | null;
+  save_to_type?: 'grabdocs' | 'external' | string | null;
+  save_to_connection_id?: number | null;
+  save_to_external_folder_id?: string | null;
+  save_to_external_folder_path?: string | null;
   items: IntakeTemplateItem[];
 }
 
@@ -218,6 +229,10 @@ export interface IntakeScheduleDetail {
   client_primary_email?: string | null;
   authorized_senders?: IntakeAuthorizedSender[];
   destination_folder_id?: number | null;
+  save_to_type?: 'grabdocs' | 'external' | string | null;
+  save_to_connection_id?: number | null;
+  save_to_external_folder_id?: string | null;
+  save_to_external_folder_path?: string | null;
   template_id?: number | null;
   auto_verify_high_confidence?: boolean;
   frequency: string;

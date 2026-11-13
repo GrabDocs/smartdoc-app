@@ -17,6 +17,11 @@ import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderIcon, { appHeaderButtonStyle } from '../../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
+import SaveToDestinationPicker, {
+  emptySaveTo,
+  saveToFromRecord,
+  type SaveToValue,
+} from '../../../components/SaveToDestinationPicker';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { apiService } from '../../../services/api';
 import {
@@ -70,6 +75,7 @@ export default function IntakeScheduleDetailScreen() {
   const [editDueAfter, setEditDueAfter] = useState(14);
   const [editReminderMax, setEditReminderMax] = useState(30);
   const [editTimezone, setEditTimezone] = useState('UTC');
+  const [saveTo, setSaveTo] = useState<SaveToValue>(emptySaveTo());
 
   const load = useCallback(async (soft = false) => {
     if (!Number.isFinite(scheduleId) || scheduleId <= 0) {
@@ -90,6 +96,7 @@ export default function IntakeScheduleDetailScreen() {
         setEditDueAfter(s.due_after_days ?? 14);
         setEditReminderMax(s.reminder_max_days ?? 30);
         setEditTimezone(s.timezone || 'UTC');
+        setSaveTo(saveToFromRecord(s));
       } else if (!soft) {
         Alert.alert('Error', res.message || 'Schedule not found');
       }
@@ -144,6 +151,11 @@ export default function IntakeScheduleDetailScreen() {
         due_after_days: Math.max(1, editDueAfter),
         reminder_max_days: Math.max(1, editReminderMax),
         timezone: editTimezone.trim() || 'UTC',
+        destination_folder_id: saveTo.destination_folder_id,
+        save_to_type: saveTo.save_to_type,
+        save_to_connection_id: saveTo.save_to_connection_id,
+        save_to_external_folder_id: saveTo.save_to_external_folder_id,
+        save_to_external_folder_path: saveTo.save_to_external_folder_path,
       };
       if (editFreq === 'weekly') {
         payload.by_weekday = editByWeekday;
@@ -381,6 +393,14 @@ export default function IntakeScheduleDetailScreen() {
               </Text>
             </View>
             <View>
+              <Text style={styles.metaLabel}>Save to</Text>
+              <Text style={styles.metaValue}>
+                {schedule.save_to_type === 'external'
+                  ? schedule.save_to_external_folder_path || schedule.save_to_external_folder_id || 'External drive'
+                  : 'GrabDocs'}
+              </Text>
+            </View>
+            <View>
               <Text style={styles.metaLabel}>Client</Text>
               <Text style={styles.metaValue}>
                 {schedule.client_name || schedule.client_primary_email || '—'}
@@ -438,6 +458,13 @@ export default function IntakeScheduleDetailScreen() {
         {editing ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Edit cadence</Text>
+            <SaveToDestinationPicker
+              value={saveTo}
+              onChange={setSaveTo}
+              workspaceId={schedule.workspace_id}
+              storageKey={`save_to_draft:schedule_${schedule.id}`}
+              getFormDraft={() => ({ saveTo, editFreq, editDueAfter })}
+            />
             <Text style={styles.label}>Frequency</Text>
             <View style={styles.chipRow}>
               {FREQ_OPTIONS.map((o) => (

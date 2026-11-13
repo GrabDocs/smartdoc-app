@@ -20,7 +20,11 @@ import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMen
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import { GoogleLogo } from '../../components/GoogleLogo';
 import { MicrosoftLogo } from '../../components/MicrosoftLogo';
-import FolderMovePicker from '../../components/folders/FolderMovePicker';
+import SaveToDestinationPicker, {
+  emptySaveTo,
+  saveToFromRecord,
+  type SaveToValue,
+} from '../../components/SaveToDestinationPicker';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiService } from '../../services/api';
 import {
@@ -126,11 +130,10 @@ export function EmailSetupPane({
   const [rulesSenders, setRulesSenders] = useState<string[]>([]);
   const [rulesKeywords, setRulesKeywords] = useState<string[]>([]);
   const [rulesTypes, setRulesTypes] = useState<string[]>([]);
-  const [rulesFolderId, setRulesFolderId] = useState<number | null>(null);
+  const [rulesSaveTo, setRulesSaveTo] = useState<SaveToValue>(emptySaveTo());
   const [rulesFolderName, setRulesFolderName] = useState('My Files (root)');
   const [rulesSyncAt, setRulesSyncAt] = useState(new Date());
   const [showSyncPicker, setShowSyncPicker] = useState(false);
-  const [folderPickOpen, setFolderPickOpen] = useState(false);
   const [rulesBusy, setRulesBusy] = useState(false);
 
   const load = useCallback(async (ws: number) => {
@@ -320,7 +323,13 @@ export function EmailSetupPane({
       setRulesSenders(r.allowed_senders || []);
       setRulesKeywords(r.subject_keywords || []);
       setRulesTypes(r.allowed_file_types || []);
-      setRulesFolderId(r.target_folder_id ?? null);
+      setRulesSaveTo(saveToFromRecord({
+        save_to_type: r.save_to_type as SaveToValue['save_to_type'],
+        destination_folder_id: r.target_folder_id ?? null,
+        save_to_connection_id: r.save_to_connection_id ?? null,
+        save_to_external_folder_id: r.save_to_external_folder_id ?? null,
+        save_to_external_folder_path: r.save_to_external_folder_path ?? null,
+      }));
       if (r.sync_start_date) {
         const d = parseAsUTC(r.sync_start_date);
         setRulesSyncAt(Number.isNaN(d.getTime()) ? new Date() : d);
@@ -789,34 +798,10 @@ export function EmailSetupPane({
         visible={!!rulesConn}
         animationType="slide"
         onRequestClose={() => {
-          setFolderPickOpen(false);
           setRulesConn(null);
         }}
       >
         <View style={styles.modalSafe}>
-          {folderPickOpen ? (
-            <FolderMovePicker
-              embedded
-              visible
-              title="Save attachments to"
-              workspaceId={workspaceId ?? undefined}
-              onClose={() => setFolderPickOpen(false)}
-              onSelect={async (folderId) => {
-                setRulesFolderId(folderId);
-                if (folderId == null) {
-                  setRulesFolderName('My Files (root)');
-                  return;
-                }
-                try {
-                  const f = await apiService.getFolderDetail(folderId);
-                  setRulesFolderName(f.folder?.name || `Folder ${folderId}`);
-                } catch {
-                  setRulesFolderName(`Folder ${folderId}`);
-                }
-              }}
-            />
-          ) : (
-            <>
           <View style={styles.header}>
             <FeedbackTouchable onPress={() => setRulesConn(null)} style={{ padding: 10 }}>
               <Ionicons name="close" size={28} color={colors.text} />
@@ -865,10 +850,23 @@ export function EmailSetupPane({
                   );
                 })}
               </View>
-              <Text style={styles.section}>Save attachments to folder</Text>
-              <TouchableOpacity style={styles.input} onPress={() => setFolderPickOpen(true)}>
-                <Text style={{ color: colors.text }}>{rulesFolderName}</Text>
-              </TouchableOpacity>
+              <View style={{ paddingHorizontal: 12, marginTop: 8 }}>
+                <SaveToDestinationPicker
+                  value={rulesSaveTo}
+                  onChange={setRulesSaveTo}
+                  workspaceId={workspaceId}
+                  grabdocsFolderName={rulesFolderName}
+                  onGrabdocsFolderName={setRulesFolderName}
+                  storageKey={rulesConn ? `save_to_draft:mailbox_rules_${rulesConn.id}` : undefined}
+                  getFormDraft={() => ({
+                    rulesSenders,
+                    rulesKeywords,
+                    rulesTypes,
+                    rulesSaveTo,
+                    rulesFolderName,
+                  })}
+                />
+              </View>
               <Text style={styles.section}>Sync from date & time</Text>
               <TouchableOpacity style={styles.input} onPress={() => setShowSyncPicker(true)}>
                 <Text style={{ color: colors.text }}>
@@ -910,7 +908,11 @@ export function EmailSetupPane({
                       allowed_senders: rulesSenders,
                       subject_keywords: rulesKeywords,
                       allowed_file_types: rulesTypes,
-                      target_folder_id: rulesFolderId,
+                      target_folder_id: rulesSaveTo.destination_folder_id,
+                      save_to_type: rulesSaveTo.save_to_type,
+                      save_to_connection_id: rulesSaveTo.save_to_connection_id,
+                      save_to_external_folder_id: rulesSaveTo.save_to_external_folder_id,
+                      save_to_external_folder_path: rulesSaveTo.save_to_external_folder_path,
                       sync_start_date: rulesSyncAt.toISOString(),
                     });
                     setRulesConn(null);
@@ -925,8 +927,6 @@ export function EmailSetupPane({
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Save rules</Text>
               </TouchableOpacity>
             </ScrollView>
-          )}
-            </>
           )}
         </View>
       </Modal>

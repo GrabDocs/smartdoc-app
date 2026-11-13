@@ -35,6 +35,10 @@ export type EmailInboxAlias = {
   display_name?: string;
   allowed_senders?: string[];
   target_folder_id?: number | null;
+  save_to_type?: 'grabdocs' | 'external' | null;
+  save_to_connection_id?: number | null;
+  save_to_external_folder_id?: string | null;
+  save_to_external_folder_path?: string | null;
   is_active?: boolean;
   purpose?: 'import' | 'scheduling';
 };
@@ -49,6 +53,10 @@ export type EmailImportEvent = {
   failure_category?: string | null;
   file_id?: number | null;
   created_at?: string | null;
+  export_status_label?: string | null;
+  export_can_retry?: boolean;
+  export_source_kind?: string | null;
+  export_source_id?: number | null;
 };
 
 const RETRIABLE_FAILURES = new Set(['pipeline_error', 'storage_error']);
@@ -167,6 +175,10 @@ export type ConnectionRules = {
   subject_keywords: string[];
   allowed_file_types: string[];
   target_folder_id?: number | null;
+  save_to_type?: 'grabdocs' | 'external' | null;
+  save_to_connection_id?: number | null;
+  save_to_external_folder_id?: string | null;
+  save_to_external_folder_path?: string | null;
   sync_start_date?: string | null;
 };
 

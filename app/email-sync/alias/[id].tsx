@@ -15,7 +15,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DocumentViewer from '../../../components/DocumentViewer';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
-import FolderMovePicker from '../../../components/folders/FolderMovePicker';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { apiService } from '../../../services/api';
 import {
@@ -35,6 +34,12 @@ import { CollapsibleChipList } from '../_components/CollapsibleChipList';
 import { getFileTypeFromFilename } from '../_components/emailFormat';
 import AppBackButton from '../../../components/AppBackButton';
 import AppHeaderTitle from '../../../components/AppHeaderTitle';
+import SaveToDestinationPicker, {
+  emptySaveTo,
+  ExportSyncStatus,
+  saveToFromRecord,
+  type SaveToValue,
+} from '../../../components/SaveToDestinationPicker';
 
 export default function AliasDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -45,9 +50,8 @@ export default function AliasDetailScreen() {
   const [imports, setImports] = useState<EmailImportEvent[]>([]);
   const [senders, setSenders] = useState<string[]>([]);
   const [name, setName] = useState('');
-  const [folderId, setFolderId] = useState<number | null>(null);
-  const [folderName, setFolderName] = useState('My Files (root)');
-  const [folderPickOpen, setFolderPickOpen] = useState(false);
+  const [saveTo, setSaveTo] = useState<SaveToValue>(emptySaveTo());
+  const [grabdocsFolderName, setGrabdocsFolderName] = useState('My Files (root)');
   const [loading, setLoading] = useState(true);
   const [ws, setWs] = useState<number | null>(null);
   const [viewer, setViewer] = useState<{ fileId: number; fileName: string } | null>(null);
@@ -59,16 +63,22 @@ export default function AliasDetailScreen() {
     setName(a.display_name || '');
     setSenders(a.allowed_senders || []);
     setPurpose(a.purpose === 'scheduling' ? 'scheduling' : 'import');
-    setFolderId(a.target_folder_id ?? null);
+    setSaveTo(saveToFromRecord({
+      save_to_type: a.save_to_type as SaveToValue['save_to_type'],
+      destination_folder_id: a.target_folder_id ?? null,
+      save_to_connection_id: a.save_to_connection_id ?? null,
+      save_to_external_folder_id: a.save_to_external_folder_id ?? null,
+      save_to_external_folder_path: a.save_to_external_folder_path ?? null,
+    }));
     if (a.target_folder_id) {
       try {
         const f = await apiService.getFolderDetail(a.target_folder_id);
-        setFolderName(f.folder?.name || `Folder ${a.target_folder_id}`);
+        setGrabdocsFolderName(f.folder?.name || `Folder ${a.target_folder_id}`);
       } catch {
-        setFolderName(`Folder ${a.target_folder_id}`);
+        setGrabdocsFolderName(`Folder ${a.target_folder_id}`);
       }
     } else {
-      setFolderName('My Files (root)');
+      setGrabdocsFolderName('My Files (root)');
     }
     const page = await listAliasImports(aliasId);
     setImports(page.imports || []);
@@ -163,14 +173,17 @@ export default function AliasDetailScreen() {
           emptyLabel="All senders"
         />
         {purpose === 'import' ? (
-          <>
-            <Text style={{ color: colors.textSecondary, paddingHorizontal: 16, marginTop: 12, fontSize: 13 }}>
-              Save attachments to folder
-            </Text>
-            <TouchableOpacity style={styles.input} onPress={() => setFolderPickOpen(true)}>
-              <Text style={{ color: colors.text }}>{folderName}</Text>
-            </TouchableOpacity>
-          </>
+          <View style={{ paddingHorizontal: 12, marginTop: 8 }}>
+            <SaveToDestinationPicker
+              value={saveTo}
+              onChange={setSaveTo}
+              workspaceId={ws}
+              grabdocsFolderName={grabdocsFolderName}
+              onGrabdocsFolderName={setGrabdocsFolderName}
+              storageKey={`save_to_draft:email_alias_${aliasId}`}
+              getFormDraft={() => ({ name, senders, saveTo, grabdocsFolderName })}
+            />
+          </View>
         ) : null}
         <TouchableOpacity
           style={styles.btn}
@@ -179,7 +192,11 @@ export default function AliasDetailScreen() {
               display_name: name,
               allowed_senders: senders,
               purpose,
-              target_folder_id: purpose === 'scheduling' ? null : folderId,
+              target_folder_id: purpose === 'scheduling' ? null : saveTo.destination_folder_id,
+              save_to_type: purpose === 'scheduling' ? 'grabdocs' : saveTo.save_to_type,
+              save_to_connection_id: purpose === 'scheduling' ? null : saveTo.save_to_connection_id,
+              save_to_external_folder_id: purpose === 'scheduling' ? null : saveTo.save_to_external_folder_id,
+              save_to_external_folder_path: purpose === 'scheduling' ? null : saveTo.save_to_external_folder_path,
             });
             Alert.alert('Saved');
             await load();
@@ -219,6 +236,16 @@ export default function AliasDetailScreen() {
                 {ev.attachment_filename || ev.email_subject || `#${ev.id}`}
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{ev.status}</Text>
+              {ev.file_id ? (
+                <ExportSyncStatus
+                  fileId={ev.file_id}
+                  statusLabel={ev.export_status_label}
+                  canRetry={ev.export_can_retry}
+                  sourceKind={ev.export_source_kind || undefined}
+                  sourceId={ev.export_source_id || undefined}
+                  onRetried={() => void load()}
+                />
+              ) : null}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {importCanView(ev) ? (
@@ -295,24 +322,6 @@ export default function AliasDetailScreen() {
           onClose={() => setViewer(null)}
         />
       ) : null}
-      <FolderMovePicker
-        visible={folderPickOpen}
-        title="Save attachments to"
-        onClose={() => setFolderPickOpen(false)}
-        onSelect={async (id) => {
-          setFolderId(id);
-          if (id == null) {
-            setFolderName('My Files (root)');
-            return;
-          }
-          try {
-            const f = await apiService.getFolderDetail(id);
-            setFolderName(f.folder?.name || `Folder ${id}`);
-          } catch {
-            setFolderName(`Folder ${id}`);
-          }
-        }}
-      />
     </SafeAreaView>
   );
 }

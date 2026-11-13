@@ -4,7 +4,9 @@ import React, { useCallback, useEffect, useImperativeHandle, useMemo, useState }
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import ActionMenuModal, { type ActionMenuItem } from '../../components/ActionMenuModal';
 import DocumentViewer from '../../components/DocumentViewer';
+import { ExportSyncStatus } from '../../components/SaveToDestinationPicker';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { apiService } from '../../services/api';
 import {
   hideImport,
   importCanRetry,
@@ -25,12 +27,14 @@ function ImportRow({
   onView,
   onRetry,
   onRemove,
+  onExportRetried,
 }: {
   item: EmailImportEvent;
   workspaceId: number;
   onView: () => void;
   onRetry: () => void;
   onRemove: () => void;
+  onExportRetried?: () => void;
 }) {
   const colors = useThemeColors();
   const router = useRouter();
@@ -76,7 +80,28 @@ function ImportRow({
       next.push({ id: 'view', label: 'View', icon: 'eye-outline', iconColor: '#007AFF', onPress: onView });
     }
     if (importCanRetry(item)) {
-      next.push({ id: 'retry', label: 'Retry', icon: 'refresh', iconColor: '#007AFF', onPress: onRetry });
+      next.push({ id: 'retry', label: 'Retry import', icon: 'refresh', iconColor: '#007AFF', onPress: onRetry });
+    }
+    if (item.file_id && item.export_can_retry) {
+      next.push({
+        id: 'retry-sync',
+        label: 'Retry sync',
+        icon: 'cloud-upload-outline',
+        iconColor: '#007AFF',
+        onPress: () => {
+          void (async () => {
+            try {
+              await apiService.retryFileExportSync(item.file_id as number, {
+                source_kind: item.export_source_kind || undefined,
+                source_id: item.export_source_id || undefined,
+              });
+              onExportRetried?.();
+            } catch (e: any) {
+              Alert.alert('Sync', e?.message || 'Retry failed');
+            }
+          })();
+        },
+      });
     }
     next.push({
       id: 'remove',
@@ -86,7 +111,7 @@ function ImportRow({
       onPress: onRemove,
     });
     return next;
-  }, [item, onRemove, onRetry, onView, onViewEmail, viewingEmail]);
+  }, [item, onExportRetried, onRemove, onRetry, onView, onViewEmail, viewingEmail]);
 
   return (
     <>
@@ -117,6 +142,16 @@ function ImportRow({
               </Text>
             ) : null}
           </View>
+          {item.file_id ? (
+            <ExportSyncStatus
+              fileId={item.file_id}
+              statusLabel={item.export_status_label}
+              canRetry={item.export_can_retry}
+              sourceKind={item.export_source_kind || undefined}
+              sourceId={item.export_source_id || undefined}
+              onRetried={onExportRetried}
+            />
+          ) : null}
         </View>
         <TouchableOpacity
           style={styles.kebab}
@@ -288,6 +323,7 @@ export function EmailImportsPane({
                 }
               }}
               onRemove={() => removeFromHistory(item)}
+              onExportRetried={() => void load(false)}
             />
           )}
         />

@@ -26,6 +26,12 @@ import { useAuth } from '../context/auth';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import SaveToDestinationPicker, {
+  clearSaveToDraft,
+  emptySaveTo,
+  loadSaveToDraft,
+  type SaveToValue,
+} from '../../components/SaveToDestinationPicker';
 
 function toLocalDateString(d: Date): string {
   const y = d.getFullYear();
@@ -69,6 +75,9 @@ export default function CreateUploadLinkScreen() {
   const [maxUploads, setMaxUploads] = useState('');
   const [loading, setLoading] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
+  const [saveTo, setSaveTo] = useState<SaveToValue>(emptySaveTo());
+  const [grabdocsFolderName, setGrabdocsFolderName] = useState('My Files (root)');
+  const SAVE_TO_DRAFT_KEY = 'save_to_draft:upload_link_create';
 
   useEffect(() => {
     const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
@@ -77,6 +86,23 @@ export default function CreateUploadLinkScreen() {
       setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     }
   }, [clientIdParam]);
+
+  useEffect(() => {
+    void (async () => {
+      const draft = await loadSaveToDraft<{
+        name?: string;
+        description?: string;
+        saveTo?: SaveToValue;
+        grabdocsFolderName?: string;
+      }>(SAVE_TO_DRAFT_KEY);
+      if (!draft) return;
+      if (draft.name) setName(draft.name);
+      if (draft.description) setDescription(draft.description);
+      if (draft.saveTo) setSaveTo(draft.saveTo);
+      if (draft.grabdocsFolderName) setGrabdocsFolderName(draft.grabdocsFolderName);
+      await clearSaveToDraft(SAVE_TO_DRAFT_KEY);
+    })();
+  }, []);
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -89,6 +115,11 @@ export default function CreateUploadLinkScreen() {
       const data: any = {
         name: name.trim(),
         description: description.trim() || undefined,
+        destination_folder_id: saveTo.destination_folder_id,
+        save_to_type: saveTo.save_to_type,
+        save_to_connection_id: saveTo.save_to_connection_id,
+        save_to_external_folder_id: saveTo.save_to_external_folder_id,
+        save_to_external_folder_path: saveTo.save_to_external_folder_path,
       };
 
       if (expiresOn) {
@@ -114,6 +145,7 @@ export default function CreateUploadLinkScreen() {
       const response = await apiService.createUploadLink(data);
       
       if (response.success) {
+        await clearSaveToDraft(SAVE_TO_DRAFT_KEY);
         const resAny = response as any;
         const newLink = resAny.upload_link ?? resAny.link;
         const newLinkId = newLink?.id as number | undefined;
@@ -364,6 +396,18 @@ export default function CreateUploadLinkScreen() {
         </View>
 
         <View style={dynamicStyles.section}>
+          <Text style={dynamicStyles.sectionTitle}>Save to</Text>
+          <View style={dynamicStyles.inputGroup}>
+            <SaveToDestinationPicker
+              value={saveTo}
+              onChange={setSaveTo}
+              grabdocsFolderName={grabdocsFolderName}
+              onGrabdocsFolderName={setGrabdocsFolderName}
+              storageKey={SAVE_TO_DRAFT_KEY}
+              getFormDraft={() => ({ name, description, saveTo, grabdocsFolderName })}
+            />
+          </View>
+
           <Text style={dynamicStyles.sectionTitle}>Limits</Text>
 
           <View style={[dynamicStyles.row, dynamicStyles.inputGroup, { marginBottom: 0 }]}>

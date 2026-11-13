@@ -25,6 +25,12 @@ import { INTAKE_REMINDER_PRESETS, INTAKE_WEEKDAY_OPTIONS, type IntakeTemplate, t
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import SaveToDestinationPicker, {
+  clearSaveToDraft,
+  emptySaveTo,
+  loadSaveToDraft,
+  type SaveToValue,
+} from '../../components/SaveToDestinationPicker';
 import { invalidEmailsMessage } from '../../utils/emailValidation';
 import {
   filterValidSenders,
@@ -86,7 +92,9 @@ export default function CreateIntakeScreen() {
   const [authorizedSenders, setAuthorizedSenders] = useState<IntakeSenderForm[]>([{ name: '', email: '' }]);
   const [items, setItems] = useState<ChecklistItemForm[]>([{ label: '', description: '', required: true }]);
   const [dueAt, setDueAt] = useState('');
-  const [destinationFolderId, setDestinationFolderId] = useState<number | null>(null);
+  const [saveTo, setSaveTo] = useState<SaveToValue>(emptySaveTo());
+  const [grabdocsFolderName, setGrabdocsFolderName] = useState('My Files (root)');
+  const SAVE_TO_DRAFT_KEY = 'save_to_draft:intake_create';
   const [reminderPreset, setReminderPreset] = useState<ReminderPreset>('standard');
   const [customReminder, setCustomReminder] = useState({ first: 48, repeat: 72, max: 4 });
   const [autoVerify, setAutoVerify] = useState(false);
@@ -127,6 +135,23 @@ export default function CreateIntakeScreen() {
       setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     }
   }, [clientIdParam]);
+
+  useEffect(() => {
+    void (async () => {
+      const draft = await loadSaveToDraft<{
+        title?: string;
+        clientName?: string;
+        saveTo?: SaveToValue;
+        grabdocsFolderName?: string;
+      }>(SAVE_TO_DRAFT_KEY);
+      if (!draft) return;
+      if (draft.title) setTitle(draft.title);
+      if (draft.clientName) setClientName(draft.clientName);
+      if (draft.saveTo) setSaveTo(draft.saveTo);
+      if (draft.grabdocsFolderName) setGrabdocsFolderName(draft.grabdocsFolderName);
+      await clearSaveToDraft(SAVE_TO_DRAFT_KEY);
+    })();
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -268,6 +293,11 @@ export default function CreateIntakeScreen() {
         name: templateNameForSave.trim(),
         industry_tag: templateIndustryForSave.trim() || null,
         items: validItems,
+        destination_folder_id: saveTo.destination_folder_id,
+        save_to_type: saveTo.save_to_type,
+        save_to_connection_id: saveTo.save_to_connection_id,
+        save_to_external_folder_id: saveTo.save_to_external_folder_id,
+        save_to_external_folder_path: saveTo.save_to_external_folder_path,
       });
       if (response.success) {
         setShowSaveTemplateModal(false);
@@ -353,7 +383,11 @@ export default function CreateIntakeScreen() {
           required: i.required,
         })),
         due_at: !isScheduling ? dueAt || null : null,
-        destination_folder_id: destinationFolderId,
+        destination_folder_id: saveTo.destination_folder_id,
+        save_to_type: saveTo.save_to_type,
+        save_to_connection_id: saveTo.save_to_connection_id,
+        save_to_external_folder_id: saveTo.save_to_external_folder_id,
+        save_to_external_folder_path: saveTo.save_to_external_folder_path,
         template_id: selectedTemplateId,
         auto_verify_high_confidence: autoVerify,
         client_ids: selectedClientIds.length ? selectedClientIds : undefined,
@@ -401,6 +435,7 @@ export default function CreateIntakeScreen() {
 
       const response = await apiService.createIntake(payload);
       if (response.success) {
+        await clearSaveToDraft(SAVE_TO_DRAFT_KEY);
         const schedule = (response as any).schedule;
         const intake = (response as any).intake;
         const intakeId = intake?.id as number | undefined;
@@ -1033,14 +1068,19 @@ export default function CreateIntakeScreen() {
         <View style={dynamicStyles.section}>
           <Text style={dynamicStyles.sectionTitle}>Automation</Text>
           <View style={dynamicStyles.inputGroup}>
-            <Text style={dynamicStyles.label}>Destination folder (optional)</Text>
-            <TouchableOpacity style={dynamicStyles.pickerButton} onPress={() => setShowFolderPicker(true)}>
-              <Text style={dynamicStyles.pickerButtonText}>
-                {destinationFolderId ? (folders.find((f) => f.id === destinationFolderId)?.name || 'Selected folder') : 'Leave files where they land'}
-              </Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-            </TouchableOpacity>
-            <Text style={dynamicStyles.hint}>Matched documents are automatically filed here.</Text>
+            <SaveToDestinationPicker
+              value={saveTo}
+              onChange={setSaveTo}
+              grabdocsFolderName={grabdocsFolderName}
+              onGrabdocsFolderName={setGrabdocsFolderName}
+              storageKey={SAVE_TO_DRAFT_KEY}
+              getFormDraft={() => ({
+                title,
+                clientName,
+                saveTo,
+                grabdocsFolderName,
+              })}
+            />
           </View>
 
           <View style={dynamicStyles.inputGroup}>

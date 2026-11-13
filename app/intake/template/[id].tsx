@@ -14,6 +14,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FeedbackTouchable } from '../../../components/FeedbackTouchable';
+import SaveToDestinationPicker, {
+  emptySaveTo,
+  saveToFromRecord,
+  type SaveToValue,
+} from '../../../components/SaveToDestinationPicker';
 import { useThemeColors } from '../../../hooks/useThemeColors';
 import { apiService } from '../../../services/api';
 import type { IntakeTemplate, IntakeTemplateItem } from '../../../types/intake';
@@ -38,6 +43,7 @@ export default function EditIntakeTemplateScreen() {
   const [name, setName] = useState('');
   const [industryTag, setIndustryTag] = useState('');
   const [items, setItems] = useState<ChecklistItemForm[]>([{ label: '', description: '', required: true }]);
+  const [saveTo, setSaveTo] = useState<SaveToValue>(emptySaveTo());
 
   const loadTemplate = useCallback(async () => {
     if (!templateId) return;
@@ -48,6 +54,7 @@ export default function EditIntakeTemplateScreen() {
         const t: IntakeTemplate = response.template;
         setName(t.name || '');
         setIndustryTag(t.industry_tag || '');
+        setSaveTo(saveToFromRecord(t));
         setItems(
           t.items?.length
             ? t.items.map((i: IntakeTemplateItem) => ({
@@ -104,6 +111,11 @@ export default function EditIntakeTemplateScreen() {
           description: i.description.trim() || null,
           required: i.required,
         })),
+        destination_folder_id: saveTo.destination_folder_id,
+        save_to_type: saveTo.save_to_type,
+        save_to_connection_id: saveTo.save_to_connection_id,
+        save_to_external_folder_id: saveTo.save_to_external_folder_id,
+        save_to_external_folder_path: saveTo.save_to_external_folder_path,
       });
       if (response.success) {
         if (response.unchanged || response.already_exists) {
@@ -265,6 +277,11 @@ export default function EditIntakeTemplateScreen() {
             <Ionicons name="add-circle-outline" size={18} color="#007AFF" />
             <Text style={dynamicStyles.addBtnText}>Add item</Text>
           </TouchableOpacity>
+        </View>
+
+        <View style={dynamicStyles.section}>
+          <Text style={dynamicStyles.sectionTitle}>Automation defaults</Text>
+          <SaveToDestinationPicker value={saveTo} onChange={setSaveTo} />
         </View>
       </ScrollView>
     </SafeAreaView>

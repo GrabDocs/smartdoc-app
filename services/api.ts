@@ -5874,6 +5874,11 @@ class ApiService {
     expires_in_days?: number;
     expires_at?: string;
     max_uploads?: number;
+    destination_folder_id?: number | null;
+    save_to_type?: 'grabdocs' | 'external';
+    save_to_connection_id?: number | null;
+    save_to_external_folder_id?: string | null;
+    save_to_external_folder_path?: string | null;
   }): Promise<ApiResponse> {
     try {
       let expires_at: string | undefined = data.expires_at;
@@ -5887,6 +5892,11 @@ class ApiService {
         description: data.description?.trim() || undefined,
         expires_at,
         max_uploads: data.max_uploads,
+        destination_folder_id: data.destination_folder_id ?? null,
+        save_to_type: data.save_to_type || 'grabdocs',
+        save_to_connection_id: data.save_to_connection_id ?? null,
+        save_to_external_folder_id: data.save_to_external_folder_id ?? null,
+        save_to_external_folder_path: data.save_to_external_folder_path ?? null,
       };
       const response = await this.client.post(MOBILE_ENDPOINTS.WEB_UPLOAD_LINKS, payload);
       const res = response.data;
@@ -6030,6 +6040,10 @@ class ApiService {
     items: { label: string; description?: string | null; required?: boolean }[];
     due_at?: string | null;
     destination_folder_id?: number | null;
+    save_to_type?: 'grabdocs' | 'external';
+    save_to_connection_id?: number | null;
+    save_to_external_folder_id?: string | null;
+    save_to_external_folder_path?: string | null;
     template_id?: number | null;
     auto_verify_high_confidence?: boolean;
     reminder_preset?: 'gentle' | 'standard' | 'urgent' | 'custom';
@@ -6278,6 +6292,18 @@ class ApiService {
     name: string;
     industry_tag?: string | null;
     items: { label: string; description?: string | null; required?: boolean }[];
+    destination_folder_id?: number | null;
+    save_to_type?: string | null;
+    save_to_connection_id?: number | null;
+    save_to_external_folder_id?: string | null;
+    save_to_external_folder_path?: string | null;
+    auto_verify_high_confidence?: boolean;
+    reminder_preset?: string | null;
+    reminder_first_after_hours?: number;
+    reminder_repeat_every_hours?: number;
+    reminder_max_count?: number;
+    due_after_days?: number;
+    reminder_max_days?: number;
   }): Promise<ApiResponse> {
     try {
       const response = await this.client.post(MOBILE_ENDPOINTS.INTAKE_TEMPLATES, data);
@@ -6294,6 +6320,18 @@ class ApiService {
       name: string;
       industry_tag?: string | null;
       items: { label: string; description?: string | null; required?: boolean }[];
+      destination_folder_id?: number | null;
+      save_to_type?: string | null;
+      save_to_connection_id?: number | null;
+      save_to_external_folder_id?: string | null;
+      save_to_external_folder_path?: string | null;
+      auto_verify_high_confidence?: boolean;
+      reminder_preset?: string | null;
+      reminder_first_after_hours?: number;
+      reminder_repeat_every_hours?: number;
+      reminder_max_count?: number;
+      due_after_days?: number;
+      reminder_max_days?: number;
     },
   ): Promise<ApiResponse> {
     try {
@@ -6302,6 +6340,19 @@ class ApiService {
     } catch (error: any) {
       console.error('Update intake template error:', error);
       throw new Error(error.response?.data?.message || 'Failed to update template');
+    }
+  }
+
+  async retryFileExportSync(
+    fileId: number,
+    opts?: { source_kind?: string; source_id?: number },
+  ): Promise<ApiResponse> {
+    try {
+      const response = await this.client.post(`/api/v1/web/files/${fileId}/export-sync/retry`, opts || {});
+      return response.data;
+    } catch (error: any) {
+      console.error('Retry export sync error:', error);
+      throw new Error(error.response?.data?.message || 'Failed to retry sync');
     }
   }
 
