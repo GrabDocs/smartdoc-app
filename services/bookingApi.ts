@@ -72,3 +72,20 @@ export async function bookingDeactivateEventType(typeId: number) {
   const response = await client().delete(`/api/v1/booking/event-types/${typeId}`);
   return response.data;
 }
+
+export async function bookingRequestReschedule(
+  typeId: number,
+  bookingId: number,
+  reason: string,
+) {
+  const response = await client().post(
+    `/api/v1/booking/event-types/${typeId}/bookings/${bookingId}/request-reschedule`,
+    { reason },
+  );
+  return response.data;
+}
+
+export async function bookingListForCalendarEvent(eventId: number) {
+  const response = await client().get(`/api/v1/booking/calendar-events/${eventId}/bookings`);
+  return response.data;
+}

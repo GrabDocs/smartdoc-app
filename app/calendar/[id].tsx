@@ -7,6 +7,7 @@ import {
     Alert,
     Keyboard,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     RefreshControl,
     ScrollView,
@@ -55,6 +56,7 @@ import {
 import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { navigateJoinMeeting } from '../../utils/calendarReachJoin';
 import { calendarDisplayLocation, formatEventWhen, formatUtcIsoForDevice } from '../../utils/calendarTime';
+import { bookingRequestReschedule } from '../../services/bookingApi';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
@@ -155,7 +157,10 @@ export default function CalendarEventDetailScreen() {
   const [newNoteBody, setNewNoteBody] = useState('');
   const [editingNote, setEditingNote] = useState<any | null>(null);
   const [rsvpComment, setRsvpComment] = useState('');
-  const [actionBusy, setActionBusy] = useState<'cancel' | 'remove' | null>(null);
+  const [actionBusy, setActionBusy] = useState<'cancel' | 'remove' | 'request' | null>(null);
+  const [requestRescheduleOpen, setRequestRescheduleOpen] = useState(false);
+  const [requestRescheduleBookingId, setRequestRescheduleBookingId] = useState<number | null>(null);
+  const [requestRescheduleReason, setRequestRescheduleReason] = useState('');
   const [noteBusy, setNoteBusy] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
   const [kbInset, setKbInset] = useState(0);
@@ -862,6 +867,27 @@ export default function CalendarEventDetailScreen() {
             <TouchableOpacity style={styles.btn} onPress={handleEdit} accessibilityLabel="Edit event">
               <Text style={styles.btnText}>Edit event</Text>
             </TouchableOpacity>
+            {(() => {
+              const requestable = (event.confirmed_bookings || []).filter((row) => {
+                const raw = row.start_time || event.start_time;
+                const at = raw ? Date.parse(raw) : NaN;
+                return !Number.isNaN(at) && at > Date.now();
+              });
+              if (requestable.length === 0) return null;
+              return (
+                <TouchableOpacity
+                  style={styles.btn}
+                  accessibilityLabel="Request another time"
+                  onPress={() => {
+                    setRequestRescheduleBookingId(requestable[0]?.id ?? null);
+                    setRequestRescheduleReason('');
+                    setRequestRescheduleOpen(true);
+                  }}
+                >
+                  <Text style={styles.btnText}>Request another time</Text>
+                </TouchableOpacity>
+              );
+            })()}
             <FeedbackTouchable
               style={[styles.btn, styles.btnDanger]}
               onPress={handleCancelEvent}
@@ -1020,6 +1046,109 @@ export default function CalendarEventDetailScreen() {
           </ScrollView>
         </KeyboardAvoidingView>
       </MinimizableBottomSheet>
+
+      <Modal
+        visible={requestRescheduleOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (actionBusy !== 'request') setRequestRescheduleOpen(false);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: colors.card || '#fff', borderRadius: 12, padding: 16 }}>
+            <Text style={{ fontSize: 17, fontWeight: '600', color: colors.text, marginBottom: 8 }}>
+              Request another time
+            </Text>
+            <Text style={{ color: colors.textSecondary, marginBottom: 12 }}>
+              The appointment stays reserved until the guest picks a new time.
+            </Text>
+            {(() => {
+              const requestable = (event.confirmed_bookings || []).filter((row) => {
+                const raw = row.start_time || event.start_time;
+                const at = raw ? Date.parse(raw) : NaN;
+                return !Number.isNaN(at) && at > Date.now();
+              });
+              if (requestable.length <= 1) return null;
+              return (
+                <View style={{ marginBottom: 12, gap: 8 }}>
+                  {requestable.map((row) => (
+                    <TouchableOpacity
+                      key={row.id}
+                      onPress={() => setRequestRescheduleBookingId(row.id)}
+                      style={{
+                        padding: 10,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor:
+                          requestRescheduleBookingId === row.id ? '#2563eb' : colors.border || '#ddd',
+                      }}
+                    >
+                      <Text style={{ color: colors.text }}>{row.guest_name}</Text>
+                      <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{row.guest_email}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              );
+            })()}
+            <TextInput
+              style={[styles.input, { minHeight: 96, textAlignVertical: 'top' }]}
+              multiline
+              value={requestRescheduleReason}
+              onChangeText={setRequestRescheduleReason}
+              placeholder="Reason for the guest"
+              placeholderTextColor={colors.textSecondary}
+              maxLength={2000}
+              editable={actionBusy !== 'request'}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 16, marginTop: 16 }}>
+              <TouchableOpacity
+                disabled={actionBusy === 'request'}
+                onPress={() => setRequestRescheduleOpen(false)}
+              >
+                <Text style={{ color: '#007AFF' }}>Cancel</Text>
+              </TouchableOpacity>
+              <FeedbackTouchable
+                disabled={actionBusy === 'request' || !requestRescheduleReason.trim() || !requestRescheduleBookingId}
+                loading={actionBusy === 'request'}
+                spinnerColor="#007AFF"
+                onPress={async () => {
+                  const bookings = event.confirmed_bookings || [];
+                  const booking = bookings.find((row) => row.id === requestRescheduleBookingId);
+                  if (!booking || !requestRescheduleReason.trim()) return;
+                  const startRaw = booking.start_time || event.start_time;
+                  const startAt = startRaw ? Date.parse(startRaw) : NaN;
+                  if (Number.isNaN(startAt) || startAt <= Date.now()) {
+                    Alert.alert('Could not send', 'This booking can no longer be changed.');
+                    return;
+                  }
+                  setActionBusy('request');
+                  try {
+                    await bookingRequestReschedule(
+                      booking.event_type_id,
+                      booking.id,
+                      requestRescheduleReason.trim(),
+                    );
+                    setRequestRescheduleOpen(false);
+                    setRequestRescheduleReason('');
+                    await loadEvent();
+                    Alert.alert('Request sent', 'The guest will get an email to choose another time.');
+                  } catch (e: any) {
+                    Alert.alert(
+                      'Could not send',
+                      e?.response?.data?.error || 'Could not send the reschedule request.',
+                    );
+                  } finally {
+                    setActionBusy(null);
+                  }
+                }}
+              >
+                <Text style={{ color: '#007AFF' }}>Send request</Text>
+              </FeedbackTouchable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

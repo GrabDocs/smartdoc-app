@@ -41,6 +41,15 @@ export type CalendarEvent = {
     is_organizer?: boolean;
     type?: string;
   }[];
+  confirmed_bookings?: Array<{
+    id: number;
+    event_type_id: number;
+    guest_name: string;
+    guest_email: string;
+    start_time?: string;
+    host_reschedule_request_reason?: string | null;
+    host_reschedule_requested_at?: string | null;
+  }>;
   linked_category_id?: number | null;
   linked_category_record_id?: number | null;
   [key: string]: unknown;

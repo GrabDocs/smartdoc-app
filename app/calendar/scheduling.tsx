@@ -42,6 +42,7 @@ import {
     bookingListEventTypes,
     bookingListForms,
     bookingListSignups,
+    bookingRequestReschedule,
     bookingPeriodImpact,
     bookingSlotHealth,
     bookingUpdateEventType,
@@ -274,6 +275,8 @@ type Signup = {
   form_response?: Record<string, unknown> | null;
   calendar_event_id?: number | null;
   guest_change_reason?: string | null;
+  host_reschedule_request_reason?: string | null;
+  host_reschedule_requested_at?: string | null;
 };
 
 function slugFromName(name: string) {
@@ -365,6 +368,13 @@ export default function CalendarSchedulingScreen() {
   const [selectedType, setSelectedType] = useState<number | null>(null);
   const [accessTypeId, setAccessTypeId] = useState<number | null>(null);
   const [signups, setSignups] = useState<Signup[]>([]);
+  const [requestRescheduleTarget, setRequestRescheduleTarget] = useState<{
+    typeId: number;
+    bookingId: number;
+    guestName: string;
+  } | null>(null);
+  const [requestRescheduleReason, setRequestRescheduleReason] = useState('');
+  const [requestRescheduleLoading, setRequestRescheduleLoading] = useState(false);
   const [savingHours, setSavingHours] = useState(false);
   /** Popup so feedback is visible even when the form is scrolled past the top. */
   const notify = useCallback((title: string, body?: string) => {
@@ -1699,10 +1709,34 @@ export default function CalendarSchedulingScreen() {
                     </View>
                     <Text style={styles.signupMeta} numberOfLines={1}>{row.guest_email}</Text>
                     <Text style={styles.signupMeta}>{new Date(row.start_time).toLocaleString()}</Text>
+                    {row.host_reschedule_request_reason ? (
+                      <Text style={styles.signupMeta} numberOfLines={6}>
+                        Another time requested
+                        {row.host_reschedule_requested_at
+                          ? `\nRequest sent: ${new Date(row.host_reschedule_requested_at).toLocaleString()}`
+                          : ''}
+                        {`\nReason: ${row.host_reschedule_request_reason}`}
+                      </Text>
+                    ) : null}
                     {row.guest_change_reason ? (
                       <Text style={styles.signupMeta} numberOfLines={4}>
-                        Reason: {row.guest_change_reason}
+                        {row.host_reschedule_request_reason ? 'Guest: ' : 'Reason: '}
+                        {row.guest_change_reason}
                       </Text>
+                    ) : null}
+                    {row.status === 'confirmed' && selected && Date.parse(row.start_time) > Date.now() ? (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setRequestRescheduleTarget({
+                            typeId: selected.id,
+                            bookingId: row.id,
+                            guestName: row.guest_name,
+                          });
+                          setRequestRescheduleReason('');
+                        }}
+                      >
+                        <Text style={styles.link}>Request another time</Text>
+                      </TouchableOpacity>
                     ) : null}
                     {answers.map((answer) => (
                       <Text key={answer.key} style={styles.signupMeta} numberOfLines={2}>
@@ -1921,6 +1955,71 @@ export default function CalendarSchedulingScreen() {
         adapter={accessTypeId != null ? createBookingShareAdapter(accessTypeId) : null}
         onClose={() => setAccessTypeId(null)}
       />
+
+      <Modal
+        visible={requestRescheduleTarget != null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!requestRescheduleLoading) setRequestRescheduleTarget(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 20 }}>
+          <View style={[styles.card, { padding: 16 }]}>
+            <Text style={styles.sectionTitle}>Request another time</Text>
+            <Text style={styles.signupMeta}>
+              Ask {requestRescheduleTarget?.guestName || 'the guest'} to pick a new slot. Their current time stays reserved.
+            </Text>
+            <TextInput
+              style={[styles.input, { minHeight: 96, textAlignVertical: 'top', marginTop: 12 }]}
+              multiline
+              value={requestRescheduleReason}
+              onChangeText={setRequestRescheduleReason}
+              placeholder="Reason for the guest"
+              maxLength={2000}
+              editable={!requestRescheduleLoading}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity
+                disabled={requestRescheduleLoading}
+                onPress={() => setRequestRescheduleTarget(null)}
+              >
+                <Text style={styles.link}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={requestRescheduleLoading || !requestRescheduleReason.trim()}
+                onPress={async () => {
+                  if (!requestRescheduleTarget || requestRescheduleLoading) return;
+                  setRequestRescheduleLoading(true);
+                  try {
+                    await bookingRequestReschedule(
+                      requestRescheduleTarget.typeId,
+                      requestRescheduleTarget.bookingId,
+                      requestRescheduleReason.trim(),
+                    );
+                    const data = await bookingListSignups(requestRescheduleTarget.typeId);
+                    setSignups(data.signups || []);
+                    setRequestRescheduleTarget(null);
+                    setRequestRescheduleReason('');
+                    notify('Request sent', 'The guest will get an email to choose another time.');
+                  } catch (error: any) {
+                    notify(
+                      'Could not send',
+                      error?.response?.data?.error || 'Could not send the reschedule request.',
+                    );
+                  } finally {
+                    setRequestRescheduleLoading(false);
+                  }
+                }}
+              >
+                <Text style={styles.link}>
+                  {requestRescheduleLoading ? 'Sending…' : 'Send request'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
