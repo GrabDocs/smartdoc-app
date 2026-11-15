@@ -60,6 +60,8 @@ interface Meeting {
   description?: string;
   duration?: number;
   createdAt?: string;
+  /** Real schedule only. Instant Create has a list start time (created_at) but no scheduledAt. */
+  scheduledAt?: string;
   /** Video_calls.creator user id — used with current user for owner vs participant actions */
   creatorId?: number | string;
   /** From API current_host_id — may differ from creator after host transfer */
@@ -276,6 +278,35 @@ function meetingNewestFirstSortMs(m: Meeting): number {
   return times.length > 0 ? Math.max(...times) : 0;
 }
 
+function meetingScheduledIso(meeting: Meeting): string {
+  return (meeting.scheduledAt || '').trim();
+}
+
+/** Upcoming: future schedule, or an instant Create that has not started or ended. */
+function isUpcomingMeeting(meeting: Meeting, now: Date): boolean {
+  if (meeting.status === 'active' || meeting.status === 'ended') return false;
+  const scheduled = meetingScheduledIso(meeting);
+  if (!scheduled) {
+    return meeting.status === 'created' || meeting.status === 'scheduled';
+  }
+  const startTime = new Date(scheduled);
+  if (isNaN(startTime.getTime())) {
+    return meeting.status === 'created' || meeting.status === 'scheduled';
+  }
+  return startTime > now;
+}
+
+/** Recent: ended, or a scheduled meeting whose start time has passed and is not live. */
+function isRecentMeeting(meeting: Meeting, now: Date): boolean {
+  if (meeting.status === 'ended') return true;
+  if (meeting.status === 'active') return false;
+  const scheduled = meetingScheduledIso(meeting);
+  if (!scheduled) return false;
+  const startTime = new Date(scheduled);
+  if (isNaN(startTime.getTime())) return false;
+  return startTime <= now;
+}
+
 function sortMeetingsNewestFirst(meetings: Meeting[]): Meeting[] {
   return [...meetings].sort((a, b) => {
     const diff = meetingNewestFirstSortMs(b) - meetingNewestFirstSortMs(a);
@@ -304,14 +335,24 @@ function mapRawToMeetingListRow(m: any, source: MeetingSource): MeetingListRow |
       ? titleRaw.trim()
       : 'Untitled Meeting';
 
+  const scheduledRaw =
+    raw.scheduled_at ||
+    raw.scheduledAt ||
+    raw.scheduled_start_time ||
+    raw.scheduled_time ||
+    '';
+  const scheduledAt =
+    typeof scheduledRaw === 'string'
+      ? scheduledRaw
+      : scheduledRaw != null
+        ? String(scheduledRaw)
+        : '';
   const startTime =
     raw.startTime ||
     raw.start_time ||
     raw.start_at ||
     raw.started_at ||
-    raw.scheduled_start_time ||
-    raw.scheduled_time ||
-    raw.scheduled_at ||
+    scheduledAt ||
     '';
   const scheduledStart = raw.scheduled_start_time || raw.scheduled_at;
   const createdRaw = raw.createdAt || raw.created_at || raw.created;
@@ -344,6 +385,7 @@ function mapRawToMeetingListRow(m: any, source: MeetingSource): MeetingListRow |
     host: extractReachHostDisplayName(raw),
     participants: raw.participants || raw.participant_count || 0,
     startTime: typeof startTime === 'string' ? startTime : String(startTime || ''),
+    scheduledAt: scheduledAt || undefined,
     endTime: raw.endTime || raw.end_time || raw.end_at || '',
     status: statusRaw as Meeting['status'],
     passcode: raw.passcode || raw.password || undefined,
@@ -578,27 +620,7 @@ export default function MeetingCallScreen() {
       setMeetings(sortMeetingsNewestFirst(uniqueMeetings));
 
       const now = new Date();
-      const upcoming = uniqueMeetings.filter((m: Meeting) => {
-        // Live meetings belong in Ongoing, ended in Recent.
-        if (m.status === 'active' || m.status === 'ended') return false;
-
-        const hasNoStartTime =
-          !m.startTime ||
-          (typeof m.startTime === 'string' && m.startTime.trim() === '');
-
-        // Instant Create (no schedule) stays in Upcoming until joined/ended.
-        if (hasNoStartTime) {
-          return m.status === 'created' || m.status === 'scheduled';
-        }
-
-        const startTime = new Date(m.startTime);
-        if (isNaN(startTime.getTime())) {
-          return m.status === 'created' || m.status === 'scheduled';
-        }
-
-        // Future calendar/booking/schedule → Upcoming; past ones → Recent.
-        return startTime > now;
-      });
+      const upcoming = uniqueMeetings.filter((m: Meeting) => isUpcomingMeeting(m, now));
 
       let ongoing = uniqueMeetings.filter((m: Meeting) => m.status === 'active');
       const currentIdRaw = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
@@ -647,18 +669,7 @@ export default function MeetingCallScreen() {
         setAssetPresenceMap({});
       }
 
-      const recentCount = uniqueMeetings.filter((m) => {
-        if (m.status === 'ended') return true;
-        if (m.status === 'active') return false;
-        const hasNoStartTime =
-          !m.startTime ||
-          (typeof m.startTime === 'string' && m.startTime.trim() === '');
-        // Instant creates stay in Upcoming; past scheduled/booking belong in Recent.
-        if (hasNoStartTime) return false;
-        const startTime = new Date(m.startTime);
-        if (isNaN(startTime.getTime())) return false;
-        return startTime <= now;
-      }).length;
+      const recentCount = uniqueMeetings.filter((m) => isRecentMeeting(m, now)).length;
 
       console.log(`📱 Loaded ${uniqueMeetings.length} meetings in ${loadTime}ms:`, {
         total: uniqueMeetings.length,
@@ -1125,7 +1136,15 @@ export default function MeetingCallScreen() {
     try {
       const response = await apiClient.copyMeetingInvite(meeting.meetingId);
       if (response.success && response.data?.invite_message) {
-        setInviteMessage(stripClipboardEmojis(String(response.data.invite_message)));
+        const link =
+          response.data && typeof response.data === 'object' && 'invite_link' in response.data
+            ? String((response.data as { invite_link?: string }).invite_link ?? '').trim()
+            : '';
+        setInviteMessage(
+          stripClipboardEmojis(
+            withJoinLink(String(response.data.invite_message), link || meeting.roomUrl || fallbackJoinUrl(meeting))
+          )
+        );
       }
     } catch {
       // keep local prefill
@@ -1196,10 +1215,32 @@ export default function MeetingCallScreen() {
     return out.replace(/ {2,}/g, ' ').trim();
   };
 
+  const stripCopiedScheduleLines = (text: string) =>
+    text
+      .split('\n')
+      .filter((line) => !/^\s*(date\s*&?\s*time|date|time|start time)\s*:/i.test(line))
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+  const fallbackJoinUrl = (meeting: Meeting) => {
+    const id = (meeting.meetingId || '').trim();
+    if (!id) return '';
+    return `https://grabdocs.com/join-meeting?meeting_id=${encodeURIComponent(id)}`;
+  };
+
+  const withJoinLink = (text: string, link?: string) => {
+    const url = (link || '').trim();
+    const body = stripCopiedScheduleLines(text);
+    if (!url || body.includes(url) || /https?:\/\//i.test(body)) return body;
+    const block = `Join Meeting:\n${url}`;
+    return body ? `${body}\n\n${block}` : block;
+  };
+
   const buildLocalInviteText = (meeting: Meeting, inviteLink?: string) => {
     let details = `GrabDocs Meeting Invitation\n\n`;
     details += `Meeting: ${stripClipboardEmojis(meeting.title)}\n\n`;
-    const link = (inviteLink || meeting.roomUrl || '').trim();
+    const link = (inviteLink || meeting.roomUrl || fallbackJoinUrl(meeting)).trim();
     if (link) details += `Join Meeting:\n${link}\n\n`;
     details += `Dial-in:\n+1 415 993-7779\n`;
     details += `Meeting ID: ${meeting.meetingId}\n`;
@@ -1218,17 +1259,21 @@ export default function MeetingCallScreen() {
       // Use the same backend endpoint as web to get the properly formatted invitation text
       const response = await apiClient.copyMeetingInvite(meeting.meetingId);
       
-      if (response.success && response.data?.invite_message) {
-        await Clipboard.setStringAsync(stripClipboardEmojis(response.data.invite_message));
-        Alert.alert('Copied', 'Meeting invitation copied to clipboard');
-        return;
-      }
-
       const link =
         response.data && typeof response.data === 'object' && 'invite_link' in response.data
           ? String((response.data as { invite_link?: string }).invite_link ?? '').trim()
           : '';
-      await Clipboard.setStringAsync(buildLocalInviteText(meeting, link));
+      const joinLink = link || meeting.roomUrl || fallbackJoinUrl(meeting);
+
+      if (response.success && response.data?.invite_message) {
+        await Clipboard.setStringAsync(
+          stripClipboardEmojis(withJoinLink(String(response.data.invite_message), joinLink))
+        );
+        Alert.alert('Copied', 'Meeting invitation copied to clipboard');
+        return;
+      }
+
+      await Clipboard.setStringAsync(buildLocalInviteText(meeting, joinLink));
       Alert.alert('Copied', 'Meeting details copied to clipboard');
     } catch (error) {
       console.error('Copy error:', error);
@@ -1905,21 +1950,7 @@ export default function MeetingCallScreen() {
 
   const filteredRecentMeetings = useMemo(() => {
     const now = new Date();
-    const recent = sortMeetingsNewestFirst(
-      meetings.filter((m) => {
-        if (m.status === 'ended') return true;
-        if (m.status === 'active') return false;
-        const hasNoStartTime =
-          !m.startTime ||
-          (typeof m.startTime === 'string' && m.startTime.trim() === '');
-        // Instant Create (no schedule) stays under Upcoming until ended.
-        if (hasNoStartTime) return false;
-        const startTime = new Date(m.startTime);
-        if (isNaN(startTime.getTime())) return false;
-        // Past calendar/booking/schedule (including never-started) → Recent.
-        return startTime <= now;
-      })
-    );
+    const recent = sortMeetingsNewestFirst(meetings.filter((m) => isRecentMeeting(m, now)));
     return recent.filter((m) => meetingMatchesSearch(m, searchQuery));
   }, [meetings, searchQuery]);
 

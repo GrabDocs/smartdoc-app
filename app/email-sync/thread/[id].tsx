@@ -27,6 +27,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView } from 'react-native-webview';
 import ActionMenuModal, { type ActionMenuItem } from '../../../components/ActionMenuModal';
 import { ACCEPTED_DOCUMENT_MIME_TYPES } from '../../../components/signatures/DocumentSourcePicker';
+import { resolveComposerBody, type RegenViewLock } from '../../../utils/emailRegenView';
 import { validateFileAgainstUploadSettings } from '../../../utils/userPreferences';
 import AdaptiveListPickerModal from '../../../components/AdaptiveListPickerModal';
 import ClientContextStrip from '../../../components/clients/ClientContextStrip';
@@ -354,6 +355,10 @@ export default function EmailThreadScreen() {
   const [bodyKey, setBodyKey] = useState(0);
   /** Body that regenerate just cleared. A later save must not put it back. */
   const replacedBodyRef = useRef<string | null>(null);
+  /** New letter that must stay on screen until the user edits it. */
+  const regenLockRef = useRef<RegenViewLock | null>(null);
+  const bodyRef = useRef(body);
+  bodyRef.current = body;
   const [expectsReply, setExpectsReply] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -435,6 +440,15 @@ export default function EmailThreadScreen() {
   }, []);
 
   useEffect(() => {
+    const lock = regenLockRef.current;
+    if (!lock) return;
+    if (body === lock.replaced && body !== lock.body) {
+      setBody(lock.body);
+      setBodyKey((k) => k + 1);
+    }
+  }, [body, bodyKey]);
+
+  useEffect(() => {
     setFullscreenMessage(null);
     setComposeFullscreen(false);
     setThreadStackExpanded(false);
@@ -482,25 +496,50 @@ export default function EmailThreadScreen() {
     })();
   }, [clientIdParam, threadId]);
 
-  const applyDraft = (d: EmailDraft | null, openComposer = true, maximizeComposer = false) => {
-    setDraft(d);
-    if (!d) return;
-    setTo((d.to || []).join(', '));
-    setCc((d.cc || []).join(', '));
-    setBcc((d.bcc || []).join(', '));
-    const hasCc = (d.cc || []).some((a) => a.trim());
-    const hasBcc = (d.bcc || []).some((a) => a.trim());
+  const applyDraft = (
+    d: EmailDraft | null,
+    openComposer = true,
+    maximizeComposer = false,
+    source: 'load' | 'generate' = 'load',
+  ) => {
+    if (source !== 'generate' && generateInFlightRef.current) return;
+    let next = d;
+    if (next && source !== 'generate') {
+      const decision = resolveComposerBody({
+        current: bodyRef.current,
+        incoming: next.body_text,
+        incomingGenSeq: next.gen_seq,
+        lock: regenLockRef.current,
+        inFlight: false,
+        source: 'reload',
+      });
+      if (!decision.accept) next = { ...next, body_text: decision.body };
+    }
+    if (source === 'generate' && next) {
+      regenLockRef.current = {
+        gen: next.gen_seq ?? generateGenRef.current,
+        body: next.body_text || '',
+        replaced: replacedBodyRef.current,
+      };
+    }
+    setDraft(next);
+    if (!next) return;
+    setTo((next.to || []).join(', '));
+    setCc((next.cc || []).join(', '));
+    setBcc((next.bcc || []).join(', '));
+    const hasCc = (next.cc || []).some((a) => a.trim());
+    const hasBcc = (next.bcc || []).some((a) => a.trim());
     setCcOpen(hasCc || hasBcc);
     setBccOpen(hasBcc);
-    setSubject(d.subject || '');
-    setBody(d.body_text || '');
-    setExpectsReply(!!d.expects_reply);
-    if (d.tone) setReplyTone(restoreTone(d.tone));
-    setReplyAll(d.reply_mode === 'reply_all');
+    setSubject(next.subject || '');
+    setBody(next.body_text || '');
+    setExpectsReply(!!next.expects_reply);
+    if (next.tone) setReplyTone(restoreTone(next.tone));
+    setReplyAll(next.reply_mode === 'reply_all');
     if (openComposer) {
       const starting = !composingRef.current;
       setComposing(true);
-      if (starting && maximizeComposer && Platform.OS !== 'web' && d.reply_mode === 'new') {
+      if (starting && maximizeComposer && Platform.OS !== 'web' && next.reply_mode === 'new') {
         setComposeFullscreen(true);
       }
     }
@@ -569,6 +608,8 @@ export default function EmailThreadScreen() {
       autoSuggestCancelledRef.current = false;
       userHasTypedRef.current = false;
       generateInFlightRef.current = false;
+      regenLockRef.current = null;
+      replacedBodyRef.current = null;
       generateGenRef.current += 1;
       setGeneratingMessage(null);
       analyzedForRef.current = null;
@@ -784,18 +825,27 @@ export default function EmailThreadScreen() {
   // While the keyboard is up it already covers the nav/home-indicator area.
   const restAboveNav = keyboardOpen ? 0 : systemBottomPad;
 
-  const persistDraft = async (bodyOverride?: string) => {
-    if (!draft) return;
-    if (generateInFlightRef.current && bodyOverride == null) return;
-    const text = bodyOverride ?? body;
-    if (bodyOverride == null && replacedBodyRef.current != null && text === replacedBodyRef.current) return;
-    await patchMailboxDraft(draft.id, {
+  const persistDraft = async (bodyOverride?: string, opts?: { allowDuringGenerate?: boolean }) => {
+    const currentDraft = draftRef.current;
+    if (!currentDraft) return;
+    const text = bodyOverride ?? bodyRef.current;
+    if (generateInFlightRef.current && !opts?.allowDuringGenerate) return;
+    const decision = resolveComposerBody({
+      current: bodyRef.current,
+      incoming: text,
+      incomingGenSeq: currentDraft.gen_seq,
+      lock: regenLockRef.current,
+      inFlight: generateInFlightRef.current && !opts?.allowDuringGenerate,
+      source: 'save',
+    });
+    if (!decision.accept) return;
+    await patchMailboxDraft(currentDraft.id, {
       to: emailsFromAddressText(to),
       cc: emailsFromAddressText(cc),
       bcc: emailsFromAddressText(bcc),
       subject,
-      body_text: text,
-      gen_seq: draft.gen_seq ?? 0,
+      body_text: decision.body,
+      gen_seq: currentDraft.gen_seq ?? 0,
       expects_reply: expectsReply,
     });
   };
@@ -804,20 +854,21 @@ export default function EmailThreadScreen() {
     if (generateInFlightRef.current) return;
     const replyMode = replyAll ? 'reply_all' : 'reply';
     const gen = ++generateGenRef.current;
-    const previousBody = body;
+    const previousBody = bodyRef.current;
     setGeneratingMessage('Drafting reply…');
     generateInFlightRef.current = true;
     setBusy(true);
     try {
       if (draft && composing) {
         try {
-          await persistDraft(previousBody);
+          await persistDraft(previousBody, { allowDuringGenerate: true });
         } catch {
           /* still generate */
         }
       }
       if (previousBody) {
         replacedBodyRef.current = previousBody;
+        regenLockRef.current = { gen: draft?.gen_seq ?? 0, body: '', replaced: previousBody };
         setBody('');
         setBodyKey((k) => k + 1);
       }
@@ -833,7 +884,7 @@ export default function EmailThreadScreen() {
       if (generateGenRef.current !== gen) return;
       if (data.reply_from) setReplyFrom(data.reply_from);
       if (data.thread) setThread(data.thread);
-      applyDraft(data.draft, true, true);
+      applyDraft(data.draft, true, true, 'generate');
       setBodyKey((k) => k + 1);
       setSuggestedReply(opts?.source === 'auto_suggest');
       setAiDetailsOpen(false);
@@ -858,6 +909,7 @@ export default function EmailThreadScreen() {
           Alert.alert('Draft', msg);
         }
       }
+      regenLockRef.current = null;
       if (replacedBodyRef.current) setBody(replacedBodyRef.current);
       replacedBodyRef.current = null;
     } finally {
@@ -892,7 +944,7 @@ export default function EmailThreadScreen() {
     const q = researchQuestion.trim();
     if (!q || generateInFlightRef.current) return;
     const gen = ++generateGenRef.current;
-    const previousBody = body;
+    const previousBody = bodyRef.current;
     setGeneratingMessage('Researching workspace…');
     setResearchPhase('searching');
     generateInFlightRef.current = true;
@@ -905,13 +957,14 @@ export default function EmailThreadScreen() {
     try {
       if (draft && composing) {
         try {
-          await persistDraft(previousBody);
+          await persistDraft(previousBody, { allowDuringGenerate: true });
         } catch {
           /* continue */
         }
       }
       if (previousBody) {
         replacedBodyRef.current = previousBody;
+        regenLockRef.current = { gen: draft?.gen_seq ?? 0, body: '', replaced: previousBody };
         setBody('');
         setBodyKey((k) => k + 1);
       }
@@ -927,7 +980,7 @@ export default function EmailThreadScreen() {
       if (generateGenRef.current !== gen) return;
       if (res.reply_from) setReplyFrom(res.reply_from);
       if (res.thread) setThread(res.thread);
-      applyDraft(res.draft, true, true);
+      applyDraft(res.draft, true, true, 'generate');
       setBodyKey((k) => k + 1);
       setSuggestedReply(true);
       setAiDetailsOpen(false);
@@ -941,6 +994,7 @@ export default function EmailThreadScreen() {
       if (limitData) showLimitError(limitData);
       else Alert.alert('Research', emailApiError(e, 'Could not research and generate'));
       if (generateGenRef.current === gen) setResearchPhase('idle');
+      regenLockRef.current = null;
       if (replacedBodyRef.current) setBody(replacedBodyRef.current);
       replacedBodyRef.current = null;
     } finally {
@@ -2510,12 +2564,27 @@ export default function EmailThreadScreen() {
                     ]}
                     value={body}
                     onChangeText={(v) => {
-                      if (generateInFlightRef.current) return;
+                      const decision = resolveComposerBody({
+                        current: bodyRef.current,
+                        incoming: v,
+                        lock: regenLockRef.current,
+                        inFlight: generateInFlightRef.current,
+                        source: 'user',
+                      });
+                      if (!decision.accept) {
+                        if (bodyRef.current !== decision.body) {
+                          setBody(decision.body);
+                          setBodyKey((k) => k + 1);
+                        }
+                        return;
+                      }
+                      if (regenLockRef.current && decision.body === regenLockRef.current.body) return;
                       replacedBodyRef.current = null;
+                      regenLockRef.current = null;
                       setSuggestedReply(false);
                       userHasTypedRef.current = true;
                       autoSuggestCancelledRef.current = true;
-                      setBody(v);
+                      setBody(decision.body);
                     }}
                     placeholder={isNewCompose ? 'Write your message…' : 'Reply'}
                     placeholderTextColor={colors.textSecondary}
