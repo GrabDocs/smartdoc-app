@@ -173,6 +173,8 @@ export default function MeetingDetailsScreen() {
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [videoBuffering, setVideoBuffering] = useState(true); // Track if video is buffering
   const [videoUiFullscreen, setVideoUiFullscreen] = useState(false);
+  /** True only when the system player could not open, so the in-app player is the fallback. */
+  const [nativeFullscreenFailed, setNativeFullscreenFailed] = useState(false);
   /** Skip the intermediate in-app player chrome — go straight to the native fullscreen player. */
   const autoFullscreenAttemptedRef = useRef(false);
   const hasShownVideoErrorRef = useRef(false); // Track if we've shown an error to prevent duplicates
@@ -928,6 +930,7 @@ export default function MeetingDetailsScreen() {
       setVideoTitle(title);
       setSelectedVideoUrl(uriToPlay);
       setVideoUiFullscreen(false);
+      setNativeFullscreenFailed(false);
       autoFullscreenAttemptedRef.current = false;
       setShowVideoPlayer(true);
       setVideoLoading(true);
@@ -982,6 +985,7 @@ export default function MeetingDetailsScreen() {
     setVideoKey(0);
     hasShownVideoErrorRef.current = false;
     autoFullscreenAttemptedRef.current = false;
+    setNativeFullscreenFailed(false);
     currentVideoStreamUrlRef.current = null;
     if (videoBufferingCheckRef.current) {
       clearInterval(videoBufferingCheckRef.current);
@@ -992,6 +996,7 @@ export default function MeetingDetailsScreen() {
   const closeVideoPlayer = async () => {
     setShowVideoPlayer(false);
     setVideoUiFullscreen(false);
+    setNativeFullscreenFailed(false);
     const player = videoInstanceRef.current || videoRef;
     if (player) {
       try {
@@ -1022,6 +1027,7 @@ export default function MeetingDetailsScreen() {
     } catch (error) {
       console.warn('🎬 Auto fullscreen failed; keeping in-app player:', error);
       autoFullscreenAttemptedRef.current = false;
+      setNativeFullscreenFailed(true);
     }
   };
 
@@ -1046,6 +1052,7 @@ export default function MeetingDetailsScreen() {
       setVideoTitle(title);
       setSelectedVideoUrl(uriToPlay);
       setVideoUiFullscreen(false);
+      setNativeFullscreenFailed(false);
       autoFullscreenAttemptedRef.current = false;
       setShowVideoPlayer(true);
       setVideoLoading(true);
@@ -3128,18 +3135,22 @@ export default function MeetingDetailsScreen() {
         <ChatGDBottomSheetHost nested onBeforeOpenFull={() => setShowRecapViewer(false)} />
       </Modal>
 
-      {/* Video Player Modal — hosts the Video so we can jump straight into native fullscreen */}
+      {/* Hidden host for the system player. The in-app screen shows only if that player cannot open. */}
       <Modal
         visible={showVideoPlayer}
-        animationType="fade"
-        presentationStyle="fullScreen"
+        transparent
+        animationType="none"
+        statusBarTranslucent
         onRequestClose={() => {
           void closeVideoPlayer();
         }}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={videoUiFullscreen ? [] : ['top', 'bottom']}>
-          {/* Close only while loading / if native fullscreen fails — no expand (opens native player directly) */}
-          {!videoUiFullscreen ? (
+        <SafeAreaView
+          style={{ flex: 1, backgroundColor: nativeFullscreenFailed ? '#000' : 'transparent' }}
+          edges={videoUiFullscreen || !nativeFullscreenFailed ? [] : ['top', 'bottom']}
+          pointerEvents={nativeFullscreenFailed ? 'auto' : 'box-none'}
+        >
+          {nativeFullscreenFailed && !videoUiFullscreen ? (
             <View
               style={{
                 flexDirection: 'row',
@@ -3166,8 +3177,16 @@ export default function MeetingDetailsScreen() {
               </TouchableOpacity>
             </View>
           ) : null}
-          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-            {videoLoading && !selectedVideoUrl ? (
+          <View
+            style={{
+              flex: 1,
+              justifyContent: 'center',
+              alignItems: 'center',
+              opacity: nativeFullscreenFailed || videoUiFullscreen ? 1 : 0,
+            }}
+            pointerEvents={nativeFullscreenFailed ? 'auto' : 'none'}
+          >
+            {nativeFullscreenFailed && videoLoading && !selectedVideoUrl ? (
               <View style={{ alignItems: 'center', width: '100%', paddingHorizontal: 40 }}>
                 <View style={{ 
                   width: 120, 
@@ -3187,7 +3206,7 @@ export default function MeetingDetailsScreen() {
               </View>
             ) : selectedVideoUrl ? (
               <View style={{ flex: 1, width: '100%' }}>
-                {(videoBuffering || videoLoading) && !videoUiFullscreen && (
+                {nativeFullscreenFailed && (videoBuffering || videoLoading) && !videoUiFullscreen && (
                   <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 5, justifyContent: 'center', alignItems: 'center' }}>
                     <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.7)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}>
                       <ActivityIndicator size="small" color="#fff" />
