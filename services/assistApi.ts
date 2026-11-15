@@ -170,6 +170,143 @@ export async function explainAssistDocument(payload: { file_id?: number; text?: 
   return res.data;
 }
 
+export type AssistArchiveCursor = {
+  id?: number;
+  connection_id?: number;
+  cursor_kind?: string;
+  status?: string;
+  messages_imported?: number;
+  mailbox_label?: string;
+  platform?: string;
+  account_name?: string | null;
+  last_error?: string | null;
+  updated_at?: string | null;
+};
+
+export function archiveCursorKindLabel(kind?: string): string {
+  if (kind === 'backfill') return 'Backfill';
+  if (kind === 'incremental') return 'Live sync';
+  return kind || 'Sync';
+}
+
+export function archiveCursorStatusLabel(cursor: AssistArchiveCursor): string {
+  const status = String(cursor?.status || '');
+  if (status === 'done' || status === 'synced') return 'finished';
+  if (status === 'running') return cursor?.cursor_kind === 'incremental' ? 'syncing' : 'importing';
+  if (status === 'paused_credits') return 'paused (out of credits)';
+  if (status === 'paused_quota') return 'paused (quota)';
+  if (status === 'paused_disconnected') return 'paused (mailbox disconnected)';
+  if (status === 'error_auth') return 'needs reconnect';
+  if (status === 'cancelled') return 'cancelled';
+  // Never surface raw snake_case codes in the UI.
+  return status.replace(/_/g, ' ') || 'unknown';
+}
+
+export function formatArchiveCursorLine(cursor: AssistArchiveCursor): string {
+  const mailbox = cursor?.mailbox_label || cursor?.account_name || 'Mailbox';
+  const kind = archiveCursorKindLabel(cursor?.cursor_kind);
+  const status = archiveCursorStatusLabel(cursor);
+  const imported = Number(cursor?.messages_imported || 0);
+  return `${mailbox} · ${kind}: ${status} · imported ${imported}`;
+}
+
+/** Client-side safety net: one row per mailbox + kind. */
+export function dedupeArchiveCursorsForDisplay(
+  cursors: AssistArchiveCursor[] | undefined | null,
+): AssistArchiveCursor[] {
+  const list = cursors || [];
+  const best = new Map<string, AssistArchiveCursor>();
+  const rank = (status?: string) => {
+    const s = String(status || '');
+    if (s === 'running') return 0;
+    if (s.startsWith('paused') || s === 'error_auth') return 1;
+    if (s === 'synced' || s === 'done') return 2;
+    return 3;
+  };
+  for (const c of list) {
+    const key = `${c.connection_id || 0}:${c.cursor_kind || ''}`;
+    const prev = best.get(key);
+    if (!prev || rank(c.status) < rank(prev.status) || (rank(c.status) === rank(prev.status) && Number(c.id || 0) > Number(prev.id || 0))) {
+      best.set(key, c);
+    }
+  }
+  return Array.from(best.values()).sort((a, b) => {
+    const ko = (k?: string) => (k === 'backfill' ? 0 : k === 'incremental' ? 1 : 9);
+    return (
+      ko(a.cursor_kind) - ko(b.cursor_kind) ||
+      String(a.mailbox_label || '').localeCompare(String(b.mailbox_label || '')) ||
+      Number(a.id || 0) - Number(b.id || 0)
+    );
+  });
+}
+
+export function archiveCursorsActive(cursors: AssistArchiveCursor[] | undefined | null): boolean {
+  return (cursors || []).some((c) => ['running', 'paused_quota'].includes(String(c?.status || '')));
+}
+
+/** True when archive can be resumed (credits/quota/disconnect/cancel). */
+export function archiveCursorsResumable(cursors: AssistArchiveCursor[] | undefined | null): boolean {
+  return (cursors || []).some((c) =>
+    ['paused_credits', 'paused_quota', 'cancelled', 'paused_disconnected'].includes(
+      String(c?.status || ''),
+    ),
+  );
+}
+
+export function summarizeArchiveSync(cursors: AssistArchiveCursor[] | undefined | null): string | null {
+  const list = cursors || [];
+  if (!list.length) return null;
+  const backfills = list.filter((c) => c.cursor_kind === 'backfill');
+  const pausedBackfill = backfills.find((c) =>
+    ['paused_credits', 'paused_quota', 'paused_disconnected', 'cancelled'].includes(
+      String(c?.status || ''),
+    ),
+  );
+  if (pausedBackfill) {
+    const mailbox = pausedBackfill.mailbox_label || 'Mailbox';
+    const status = archiveCursorStatusLabel(pausedBackfill);
+    return `${mailbox} archive is ${status} · imported ${Number(pausedBackfill.messages_imported || 0)}. Resume from Settings when ready.`;
+  }
+  const activeBackfill = backfills.find((c) => c.status === 'running');
+  if (activeBackfill) {
+    const mailbox = activeBackfill.mailbox_label || 'Mailbox';
+    return `${mailbox} archive is importing (${Number(activeBackfill.messages_imported || 0)} so far). Mail becomes searchable as it lands.`;
+  }
+  const live = list.find((c) => c.cursor_kind === 'incremental' && c.status === 'running');
+  if (live) {
+    return `${live.mailbox_label || 'Mailbox'} is syncing new mail.`;
+  }
+  const finished = backfills.filter((c) => c.status === 'done' || c.status === 'synced');
+  const syncedLive = list.find((c) => c.cursor_kind === 'incremental' && c.status === 'synced');
+  if (finished.length || syncedLive) {
+    const label = (syncedLive || finished[finished.length - 1])?.mailbox_label || 'Mailbox';
+    return `${label} is connected. Archive import finished; new mail keeps syncing in the background.`;
+  }
+  return null;
+}
+
+/** Prefer readable citation dates; never leave raw ISO in the Sources list. */
+export function formatAssistCitationDate(raw?: string | null): string {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  if (/[A-Za-z]{3,}/.test(text) && !/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return text;
+  }
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return '';
+  try {
+    return parsed.toLocaleString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  } catch {
+    return text;
+  }
+}
+
 export async function getArchiveProgress() {
   const res = await client().get(`${BASE}/archive/progress`);
   return res.data;

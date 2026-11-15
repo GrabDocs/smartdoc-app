@@ -26,6 +26,7 @@ import { calendarIsCompanyAdmin, useCalendarProfile } from '../../hooks/useCalen
 import { resendCooldownKey, useResendCooldown, formatRemainingCountdown } from '../../hooks/useResendCooldown';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { openMapsForLocationLabel } from '../../utils/openMapsQuery';
+import { stripAssistBriefMarkers } from '../../utils/linkifyPlainText';
 import {
     calendarConnections,
     calendarDeleteEvent,
@@ -697,7 +698,7 @@ export default function CalendarEventDetailScreen() {
         ) : null}
         {event.description ? (
           <LinkifiedText style={[styles.meta, { color: colors.text }]} linkColor={colors.primary || '#007AFF'}>
-            {event.description}
+            {stripAssistBriefMarkers(String(event.description))}
           </LinkifiedText>
         ) : null}
         {event.notes ? (

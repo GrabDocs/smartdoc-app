@@ -53,7 +53,6 @@ import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import {
   extractCallRecordingId,
-  getAudioCachePath,
   isRawUnplayableRecordingUrl,
   logRecordingPlaybackError,
   prepareAudioPlayback,
@@ -168,11 +167,14 @@ export default function MeetingDetailsScreen() {
   const [hasTriedVideoFallback, setHasTriedVideoFallback] = useState(false);
   const [isVideoFallbackInProgress, setIsVideoFallbackInProgress] = useState(false);
   const [videoRef, setVideoRef] = useState<Video | null>(null);
+  const videoInstanceRef = useRef<Video | null>(null);
   const [videoLoading, setVideoLoading] = useState(false);
   const [videoKey, setVideoKey] = useState(0); // Key counter to force remounts
   const [videoTitle, setVideoTitle] = useState<string>('');
   const [videoBuffering, setVideoBuffering] = useState(true); // Track if video is buffering
   const [videoUiFullscreen, setVideoUiFullscreen] = useState(false);
+  /** Skip the intermediate in-app player chrome — go straight to the native fullscreen player. */
+  const autoFullscreenAttemptedRef = useRef(false);
   const hasShownVideoErrorRef = useRef(false); // Track if we've shown an error to prevent duplicates
   const assetsLoadInFlightRef = useRef(false); // Prevent duplicate getMeetingAssets (e.g. Strict Mode)
   const videoLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Timeout for video loading
@@ -926,6 +928,7 @@ export default function MeetingDetailsScreen() {
       setVideoTitle(title);
       setSelectedVideoUrl(uriToPlay);
       setVideoUiFullscreen(false);
+      autoFullscreenAttemptedRef.current = false;
       setShowVideoPlayer(true);
       setVideoLoading(true);
       setVideoBuffering(!isPlayingFromCache);
@@ -968,165 +971,108 @@ export default function MeetingDetailsScreen() {
     }
   };
 
-  const toggleVideoFullscreen = async () => {
-    if (videoUiFullscreen) {
-      try {
-        await videoRef?.dismissFullscreenPlayer();
-      } catch {
-        /* native fullscreen may already be dismissed */
-      }
-      setVideoUiFullscreen(false);
-      return;
+  const resetVideoPlayerState = () => {
+    setSelectedVideoUrl(null);
+    setOriginalVideoUrl(null);
+    setVideoDirectUrl(null);
+    setHasTriedVideoFallback(false);
+    setIsVideoFallbackInProgress(false);
+    setVideoLoading(false);
+    setVideoBuffering(false);
+    setVideoKey(0);
+    hasShownVideoErrorRef.current = false;
+    autoFullscreenAttemptedRef.current = false;
+    currentVideoStreamUrlRef.current = null;
+    if (videoBufferingCheckRef.current) {
+      clearInterval(videoBufferingCheckRef.current);
+      videoBufferingCheckRef.current = null;
     }
+  };
+
+  const closeVideoPlayer = async () => {
+    setShowVideoPlayer(false);
+    setVideoUiFullscreen(false);
+    const player = videoInstanceRef.current || videoRef;
+    if (player) {
+      try {
+        await player.dismissFullscreenPlayer();
+      } catch {
+        /* ignore */
+      }
+      try {
+        const status = await player.getStatusAsync();
+        if (status.isLoaded) {
+          await player.unloadAsync();
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    resetVideoPlayerState();
+  };
+
+  /** Enter the native system player immediately (the "main" fullscreen screen). */
+  const enterNativeFullscreen = async () => {
+    const player = videoInstanceRef.current || videoRef;
+    if (!player || autoFullscreenAttemptedRef.current) return;
+    autoFullscreenAttemptedRef.current = true;
     try {
-      await videoRef?.presentFullscreenPlayer();
+      await player.presentFullscreenPlayer();
       setVideoUiFullscreen(true);
-    } catch {
-      setVideoUiFullscreen(true);
+    } catch (error) {
+      console.warn('🎬 Auto fullscreen failed; keeping in-app player:', error);
+      autoFullscreenAttemptedRef.current = false;
     }
   };
 
   const playAudioWithCache = async (audioUrl: string, title: string, assetId?: string) => {
-    // Show modal and loading UI immediately so user never sees a blank screen
-    setAudioTitle(title);
-    setShowAudioPlayer(true);
-    setAudioLoading(true);
-    setAudioLoadingMessage('Preparing...');
+    try {
+      if (audioSound) {
+        await audioSound.unloadAsync().catch(() => {});
+        setAudioSound(null);
+      }
+      setShowAudioPlayer(false);
 
-    const doPlay = async () => {
-      let token: string | null = null;
-      try {
-        const prepared = await prepareAudioPlayback(audioUrl, assetId);
-        token = prepared.token;
-        const { finalUrl, cachePath, cachedUri } = prepared;
-        const cached = { exists: !!cachedUri, size: cachedUri ? 1 : 0 };
+      const prepared = await prepareAudioPlayback(audioUrl, assetId);
+      const uriToPlay = prepared.cachedUri || prepared.finalUrl;
+      console.log(prepared.cachedUri ? '🎵 Starting cached audio in native player' : '🎵 Starting audio in native player:', uriToPlay);
 
-        if (cached.exists && (cached.size ?? 0) > 0) {
-          setAudioLoadingMessage('Loading...');
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: cachePath },
-            { shouldPlay: false, isMuted: false, volume: 1.0 }
-          );
-          await sound.setVolumeAsync(1);
-          await sound.setIsMutedAsync(false);
-          const status = await sound.getStatusAsync();
-          if (status.isLoaded && status.durationMillis) setAudioDuration(status.durationMillis);
-          setAudioSound(sound);
-          await sound.playAsync();
-          await applyPendingMediaSeek(sound);
-          setAudioPlaying(true);
-          setAudioLoading(false);
-          console.log('🎵 Audio playing from cache');
-          return;
-        }
+      setOriginalVideoUrl(audioUrl);
+      setVideoAssetId(assetId);
+      setVideoDirectUrl(null);
+      setHasTriedVideoFallback(false);
+      setIsVideoFallbackInProgress(false);
+      hasShownVideoErrorRef.current = false;
+      setVideoTitle(title);
+      setSelectedVideoUrl(uriToPlay);
+      setVideoUiFullscreen(false);
+      autoFullscreenAttemptedRef.current = false;
+      setShowVideoPlayer(true);
+      setVideoLoading(true);
+      setVideoBuffering(!prepared.cachedUri);
+      currentVideoStreamUrlRef.current = prepared.cachedUri ? null : prepared.finalUrl;
 
-        // Progressive play: stream from URL — playback starts as data arrives, no full download first
-        setAudioLoadingMessage('Loading audio...');
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: finalUrl },
-          { shouldPlay: false, isMuted: false, volume: 1.0 }
-        );
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const status = await sound.getStatusAsync();
-        if (!status.isLoaded) throw new Error('Audio failed to load - file may be corrupted or unsupported format');
-        if (status.durationMillis) setAudioDuration(status.durationMillis);
-        setAudioSound(sound);
-        await sound.setVolumeAsync(1);
-        await sound.setIsMutedAsync(false);
-        await sound.playAsync();
-        await applyPendingMediaSeek(sound);
-        setAudioPlaying(true);
-        setAudioLoading(false);
-        console.log('🎵 Audio playback started (progressive stream)');
-
-        // Cache in background for next time (does not block playback)
-        if (audioUrl.includes('/recording/') && (audioUrl.includes('/stream') || audioUrl.includes('/download'))) {
-          void startRecordingCacheDownload({
-            recordingUrl: audioUrl,
-            token,
-            cachePath,
-            kind: 'audio',
-          });
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('format is not supported') || errorMessage.includes('-11828')) {
-          if (audioUrl.includes('/recording/') && audioUrl.includes('/stream')) {
-            const recordingIdMatch = audioUrl.match(/\/recording\/(\d+)\//);
-            if (recordingIdMatch) {
-              const recordingId = recordingIdMatch[1];
-              const downloadUrl = `${API_BASE_URL}/api/v1/video/recording/${recordingId}/download`;
-              const fallbackUrl = token ? `${downloadUrl}?token=${encodeURIComponent(token)}` : downloadUrl;
-              const cachePath = getAudioCachePath(assetId, audioUrl);
-
-              // Try progressive play from download URL first (no full download wait)
-              try {
-                setAudioLoadingMessage('Loading audio...');
-                const { sound: fallbackSound } = await Audio.Sound.createAsync(
-                  { uri: fallbackUrl },
-                  { shouldPlay: false, isMuted: false, volume: 1.0 }
-                );
-                await fallbackSound.setVolumeAsync(1);
-                await fallbackSound.setIsMutedAsync(false);
-                const st = await fallbackSound.getStatusAsync();
-                if (st.isLoaded && st.durationMillis) setAudioDuration(st.durationMillis);
-                setAudioSound(fallbackSound);
-                await fallbackSound.playAsync();
-                await applyPendingMediaSeek(fallbackSound);
-                setAudioPlaying(true);
-                setAudioLoading(false);
-                console.log('🎵 Audio playing from download URL (progressive)');
-                // Cache in background for next time
-                FileSystem.downloadAsync(fallbackUrl, cachePath).catch(() => {});
-                return;
-              } catch (streamFallbackError) {
-                console.warn('Progressive fallback failed, trying full download:', streamFallbackError);
-              }
-
-              // Last resort: full download then play (only when streaming fails)
-              try {
-                setAudioLoadingMessage('Downloading...');
-                await FileSystem.downloadAsync(fallbackUrl, cachePath);
-                setAudioLoadingMessage('Loading...');
-                const { sound: fallbackSound } = await Audio.Sound.createAsync(
-                  { uri: cachePath },
-                  { shouldPlay: false, isMuted: false, volume: 1.0 }
-                );
-                await fallbackSound.setVolumeAsync(1);
-                await fallbackSound.setIsMutedAsync(false);
-                const st = await fallbackSound.getStatusAsync();
-                if (st.isLoaded && st.durationMillis) setAudioDuration(st.durationMillis);
-                setAudioSound(fallbackSound);
-                await fallbackSound.playAsync();
-                await applyPendingMediaSeek(fallbackSound);
-                setAudioPlaying(true);
-                setAudioLoading(false);
-                console.log('🎵 Audio playing from cache (full download fallback)');
-                return;
-              } catch (fullDownloadError) {
-                console.error('Full download fallback failed:', fullDownloadError);
-              }
-            }
-          }
-        }
-        setAudioLoading(false);
-        console.error('🎵 Audio playback failed:', { errorMessage: errorMessage, audioUrl });
-        Alert.alert('Error', `Failed to play audio: ${errorMessage}`);
-        setShowAudioPlayer(false);
-        logRecordingPlaybackError(errorMessage, {
+      if (!prepared.cachedUri && audioUrl.includes('/recording/') && (audioUrl.includes('/stream') || audioUrl.includes('/download'))) {
+        void startRecordingCacheDownload({
+          recordingUrl: audioUrl,
+          token: prepared.token,
+          cachePath: prepared.cachePath,
           kind: 'audio',
-          screenName: 'MeetingDetails',
-          userAction: 'tile_audio_play_failed',
-          url: audioUrl,
-          assetId,
         });
       }
-    };
-
-    // Defer heavy work so modal and loading spinner paint first
-    InteractionManager.runAfterInteractions(() => {
-      doPlay();
-    });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('🎵 Audio playback failed:', { errorMessage, audioUrl });
+      Alert.alert('Error', `Failed to play audio: ${errorMessage}`);
+      setShowVideoPlayer(false);
+      logRecordingPlaybackError(errorMessage, {
+        kind: 'audio',
+        screenName: 'MeetingDetails',
+        userAction: 'tile_audio_play_failed',
+        url: audioUrl,
+        assetId,
+      });
+    }
   };
 
   const openFile = async (asset: MeetingAsset) => {
@@ -1317,9 +1263,14 @@ export default function MeetingDetailsScreen() {
     );
     const chatAsset = asset._recapChat || sessionAssets.find((a) => isChatAssetType(a.type)) || null;
 
+    // Close any open action menu first so we never stack Modal on Modal.
+    setMenuAsset(null);
     setShowRecapViewer(true);
     setRecapSummary('');
     setRecapTranscript('');
+    setRecapChat('');
+    setRecapRecordings([]);
+    setRecapRecording(null);
     setRecapLoadingSummary(true);
     setRecapLoadingTranscript(true);
     setRecapInitialTab(tab || (summaryAsset ? 'recap' : 'transcript'));
@@ -1356,32 +1307,49 @@ export default function MeetingDetailsScreen() {
       null;
     setRecapEnrichment(enrich);
 
-    const [summaryText, transcriptText, chatText, recordingPairs] = await Promise.all([
-      loadAssetText(summaryAsset),
-      loadAssetText(transcriptAsset),
-      loadAssetText(chatAsset),
-      Promise.all(
-        recordingAssets.map(async (row) => {
-          const streamUrl = await buildRecordingStreamUrl(row);
-          return streamUrl
-            ? {
-                streamUrl,
-                trackType: row.track_type,
-                label: isAudioTrackType(row.track_type) ? 'Audio' : 'Video',
-                assetId: String(row.id || ''),
-              }
-            : null;
-        })
-      ),
-    ]);
-    const availableRecordings = recordingPairs.filter((row): row is MeetingRecapRecording => !!row);
-    setRecapSummary(summaryText);
-    setRecapTranscript(transcriptText);
-    setRecapChat(chatText);
-    setRecapRecordings(availableRecordings);
-    setRecapRecording(pickPreferredRecording(availableRecordings));
-    setRecapLoadingSummary(false);
-    setRecapLoadingTranscript(false);
+    // Let the recap Modal paint its spinner before network/parse work.
+    await new Promise<void>((resolve) => {
+      InteractionManager.runAfterInteractions(() => resolve());
+    });
+
+    try {
+      // Show summary + transcript as soon as they land; don't block on chat/recordings.
+      const [summaryText, transcriptText] = await Promise.all([
+        loadAssetText(summaryAsset),
+        loadAssetText(transcriptAsset),
+      ]);
+      setRecapSummary(summaryText);
+      setRecapTranscript(transcriptText);
+      setRecapLoadingSummary(false);
+      setRecapLoadingTranscript(false);
+
+      const [chatText, recordingPairs] = await Promise.all([
+        loadAssetText(chatAsset),
+        Promise.all(
+          recordingAssets.map(async (row) => {
+            const streamUrl = await buildRecordingStreamUrl(row);
+            return streamUrl
+              ? {
+                  streamUrl,
+                  trackType: row.track_type,
+                  label: isAudioTrackType(row.track_type) ? 'Audio' : 'Video',
+                  assetId: String(row.id || ''),
+                }
+              : null;
+          })
+        ),
+      ]);
+      const availableRecordings = recordingPairs.filter((row): row is MeetingRecapRecording => !!row);
+      setRecapChat(chatText);
+      setRecapRecordings(availableRecordings);
+      setRecapRecording(pickPreferredRecording(availableRecordings));
+    } catch (error) {
+      console.error('Failed to load meeting recap:', error);
+      Alert.alert('Error', 'Failed to load meeting recap. Please try again.');
+    } finally {
+      setRecapLoadingSummary(false);
+      setRecapLoadingTranscript(false);
+    }
   };
 
   const viewAsset = async (asset: MeetingAsset) => {
@@ -2321,6 +2289,7 @@ export default function MeetingDetailsScreen() {
         icon: 'share-outline',
         iconColor: '#007AFF',
         onPress: () => {
+          // Share sheet is another Modal — ActionMenu already dismisses first.
           void shareAsset(asset);
         },
       },
@@ -2888,7 +2857,10 @@ export default function MeetingDetailsScreen() {
     <View style={dynamicStyles.assetItem}>
       <TouchableOpacity 
         style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-        onPress={() => viewAsset(item)}
+        onPress={() => {
+          setMenuAsset(null);
+          void viewAsset(item);
+        }}
       >
         <View style={[dynamicStyles.assetIcon, { backgroundColor: `${getAssetColor(item.type)}20` }]}>
           <Ionicons name={getAssetIcon(item.type) as any} size={20} color={getAssetColor(item.type)} />
@@ -3156,117 +3128,44 @@ export default function MeetingDetailsScreen() {
         <ChatGDBottomSheetHost nested onBeforeOpenFull={() => setShowRecapViewer(false)} />
       </Modal>
 
-      {/* Video Player Modal */}
+      {/* Video Player Modal — hosts the Video so we can jump straight into native fullscreen */}
       <Modal
         visible={showVideoPlayer}
-        animationType="slide"
+        animationType="fade"
         presentationStyle="fullScreen"
-        onRequestClose={async () => {
-          setShowVideoPlayer(false);
-          setVideoUiFullscreen(false);
-          if (videoRef) {
-            try {
-              const status = await videoRef.getStatusAsync();
-              if (status.isLoaded) {
-                await videoRef.unloadAsync();
-              }
-            } catch (error) {
-              // Ignore errors when closing
-            }
-          }
-                  setSelectedVideoUrl(null);
-                  setOriginalVideoUrl(null);
-                  setVideoDirectUrl(null);
-                  setHasTriedVideoFallback(false);
-                  setIsVideoFallbackInProgress(false);
-                  setVideoLoading(false);
-                  setVideoBuffering(false);
-                  setVideoKey(0); // Reset key for next time
-                  hasShownVideoErrorRef.current = false; // Reset error flag
-                  currentVideoStreamUrlRef.current = null;
-                  // Clear buffering check interval
-                  if (videoBufferingCheckRef.current) {
-                    clearInterval(videoBufferingCheckRef.current);
-                    videoBufferingCheckRef.current = null;
-                  }
-                }}
-              >
+        onRequestClose={() => {
+          void closeVideoPlayer();
+        }}
+      >
         <SafeAreaView style={{ flex: 1, backgroundColor: '#000' }} edges={videoUiFullscreen ? [] : ['top', 'bottom']}>
-          {/* Close / fullscreen — above the video so native controls do not steal taps */}
-          <View
-            style={
-              videoUiFullscreen
-                ? {
-                    position: 'absolute',
-                    top: Math.max(insets.top, 8),
-                    left: 12,
-                    right: 12,
-                    zIndex: 20,
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }
-                : { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }
-            }
-          >
-            <TouchableOpacity
-              onPress={async () => {
-                setShowVideoPlayer(false);
-                setVideoUiFullscreen(false);
-                if (videoRef) {
-                  try {
-                    await videoRef.dismissFullscreenPlayer();
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    const status = await videoRef.getStatusAsync();
-                    if (status.isLoaded) {
-                      await videoRef.unloadAsync();
-                    }
-                  } catch (error) {
-                    // Ignore errors when closing
-                  }
-                }
-                setSelectedVideoUrl(null);
-                setOriginalVideoUrl(null);
-                setVideoDirectUrl(null);
-                setHasTriedVideoFallback(false);
-                setIsVideoFallbackInProgress(false);
-                setVideoLoading(false);
-                setVideoBuffering(false);
-                hasShownVideoErrorRef.current = false;
-                currentVideoStreamUrlRef.current = null;
-                if (videoBufferingCheckRef.current) {
-                  clearInterval(videoBufferingCheckRef.current);
-                  videoBufferingCheckRef.current = null;
-                }
-              }}
+          {/* Close only while loading / if native fullscreen fails — no expand (opens native player directly) */}
+          {!videoUiFullscreen ? (
+            <View
               style={{
-                backgroundColor: 'rgba(255,255,255,0.15)',
-                borderRadius: 22,
-                padding: 10,
-                paddingHorizontal: 12,
+                flexDirection: 'row',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
               }}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel="Close video"
             >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => void toggleVideoFullscreen()}
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.15)',
-                borderRadius: 22,
-                padding: 10,
-                paddingHorizontal: 12,
-              }}
-              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              accessibilityLabel={videoUiFullscreen ? 'Exit full screen' : 'Full screen'}
-            >
-              <Ionicons name={videoUiFullscreen ? 'contract' : 'expand'} size={22} color="#fff" />
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                onPress={() => {
+                  void closeVideoPlayer();
+                }}
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.15)',
+                  borderRadius: 22,
+                  padding: 10,
+                  paddingHorizontal: 12,
+                }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityLabel="Close video"
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          ) : null}
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
             {videoLoading && !selectedVideoUrl ? (
               <View style={{ alignItems: 'center', width: '100%', paddingHorizontal: 40 }}>
@@ -3288,11 +3187,11 @@ export default function MeetingDetailsScreen() {
               </View>
             ) : selectedVideoUrl ? (
               <View style={{ flex: 1, width: '100%' }}>
-                {videoBuffering && (
+                {(videoBuffering || videoLoading) && !videoUiFullscreen && (
                   <View style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 5, justifyContent: 'center', alignItems: 'center' }}>
                     <View style={{ backgroundColor: 'rgba(0, 0, 0, 0.7)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}>
                       <ActivityIndicator size="small" color="#fff" />
-                      <Text style={{ color: '#fff', fontSize: 12, marginTop: 4 }}>Buffering...</Text>
+                      <Text style={{ color: '#fff', fontSize: 12, marginTop: 4 }}>Opening player...</Text>
                     </View>
                   </View>
                 )}
@@ -3300,6 +3199,7 @@ export default function MeetingDetailsScreen() {
                   <Video
                     key={`${selectedVideoUrl}-${videoKey}`} // Force remount when URL or key changes
                     ref={(ref) => {
+                      videoInstanceRef.current = ref;
                       setVideoRef(ref);
                       // Don't set loading to false here - wait for onLoad callback
                     }}
@@ -3310,8 +3210,12 @@ export default function MeetingDetailsScreen() {
                     onFullscreenUpdate={(event) => {
                       if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_PRESENT) {
                         setVideoUiFullscreen(true);
+                        setVideoLoading(false);
+                        setVideoBuffering(false);
                       } else if (event.fullscreenUpdate === VideoFullscreenUpdate.PLAYER_DID_DISMISS) {
+                        // Leaving the native player exits entirely — no intermediate screen.
                         setVideoUiFullscreen(false);
+                        void closeVideoPlayer();
                       }
                     }}
                     shouldPlay={false} // Don't auto-play - we'll start when buffered
@@ -3322,103 +3226,100 @@ export default function MeetingDetailsScreen() {
                   }}
                   onReadyForDisplay={async () => {
                     console.log('🎬 Video ready for display - first frame available');
-                    // First frame is ready - start playback immediately for progressive loading
-                    if (videoRef) {
+                    const player = videoInstanceRef.current;
+                    if (player) {
                       try {
-                        await videoRef.playAsync();
+                        await player.playAsync();
                         await applyPendingMediaSeek();
                         console.log('🎬 ✅ Started playback (progressive)');
-                        setVideoLoading(false); // Hide loading indicator
+                        setVideoLoading(false);
                         setVideoBuffering(false);
+                        await enterNativeFullscreen();
                       } catch (playError) {
                         console.warn('🎬 Auto-play failed:', playError);
-                        // Still hide loading - user can tap play button
                         setVideoLoading(false);
+                        await enterNativeFullscreen();
                       }
                     }
                   }}
                   onLoad={async () => {
-                    // Video metadata loaded - check if we have enough buffered data
-                    if (videoRef) {
-                      try {
-                        const status = await videoRef.getStatusAsync();
-                        if (status.isLoaded) {
-                          const playableDuration = status.playableDurationMillis || 0;
-                          const duration = status.durationMillis || 0;
-                          
-                          console.log(`🎬 Video metadata loaded - playable: ${(playableDuration/1000).toFixed(1)}s, total: ${(duration/1000).toFixed(1)}s`);
-                          
-                          // If we have at least 2 seconds buffered or 10% of video, start playing
-                          const minBufferMs = Math.min(2000, duration * 0.1);
-                          if (playableDuration >= minBufferMs && !status.isPlaying) {
-                            await videoRef.playAsync();
-                            await applyPendingMediaSeek();
-                            console.log('🎬 ✅ Started playback (enough buffered)');
-                            setVideoLoading(false);
-                            setVideoBuffering(false);
-                          } else if (playableDuration > 0) {
-                            // Some data buffered but not enough - start monitoring
-                            setVideoLoading(false); // Hide loading spinner, show video
-                            // Start monitoring buffering progress
-                            if (videoBufferingCheckRef.current) {
-                              clearInterval(videoBufferingCheckRef.current);
-                            }
-                            videoBufferingCheckRef.current = setInterval(async () => {
-                              if (videoRef) {
-                                try {
-                                  const currentStatus = await videoRef.getStatusAsync();
-                                  if (currentStatus.isLoaded) {
-                                    const currentPlayable = currentStatus.playableDurationMillis || 0;
-                                    const currentDuration = currentStatus.durationMillis || 0;
-                                    const minBuffer = Math.min(2000, currentDuration * 0.1);
-                                    
-                                    // Start playing when we have enough buffered
-                                    if (currentPlayable >= minBuffer && !currentStatus.isPlaying && !currentStatus.isBuffering) {
-                                      await videoRef.playAsync();
-                                      console.log('🎬 ✅ Started playback (buffered enough)');
-                                      setVideoBuffering(false);
-                                      if (videoBufferingCheckRef.current) {
-                                        clearInterval(videoBufferingCheckRef.current);
-                                        videoBufferingCheckRef.current = null;
-                                      }
-                                    }
+                    const player = videoInstanceRef.current;
+                    if (!player) return;
+                    try {
+                      const status = await player.getStatusAsync();
+                      if (status.isLoaded) {
+                        const playableDuration = status.playableDurationMillis || 0;
+                        const duration = status.durationMillis || 0;
+
+                        console.log(`🎬 Video metadata loaded - playable: ${(playableDuration/1000).toFixed(1)}s, total: ${(duration/1000).toFixed(1)}s`);
+
+                        const minBufferMs = Math.min(2000, duration * 0.1);
+                        if (playableDuration >= minBufferMs && !status.isPlaying) {
+                          await player.playAsync();
+                          await applyPendingMediaSeek();
+                          console.log('🎬 ✅ Started playback (enough buffered)');
+                          setVideoLoading(false);
+                          setVideoBuffering(false);
+                          await enterNativeFullscreen();
+                        } else if (playableDuration > 0) {
+                          setVideoLoading(false);
+                          if (videoBufferingCheckRef.current) {
+                            clearInterval(videoBufferingCheckRef.current);
+                          }
+                          videoBufferingCheckRef.current = setInterval(async () => {
+                            const current = videoInstanceRef.current;
+                            if (!current) return;
+                            try {
+                              const currentStatus = await current.getStatusAsync();
+                              if (currentStatus.isLoaded) {
+                                const currentPlayable = currentStatus.playableDurationMillis || 0;
+                                const currentDuration = currentStatus.durationMillis || 0;
+                                const minBuffer = Math.min(2000, currentDuration * 0.1);
+
+                                if (currentPlayable >= minBuffer && !currentStatus.isPlaying && !currentStatus.isBuffering) {
+                                  await current.playAsync();
+                                  console.log('🎬 ✅ Started playback (buffered enough)');
+                                  setVideoBuffering(false);
+                                  if (videoBufferingCheckRef.current) {
+                                    clearInterval(videoBufferingCheckRef.current);
+                                    videoBufferingCheckRef.current = null;
                                   }
-                                } catch (err) {
-                                  console.warn('Buffering check error:', err);
+                                  await enterNativeFullscreen();
                                 }
                               }
-                            }, 500);
-                          }
-                          
-                          // Clear loading timeout since video is loading
-                          if (videoLoadingTimeoutRef.current) {
-                            clearTimeout(videoLoadingTimeoutRef.current);
-                            videoLoadingTimeoutRef.current = null;
-                          }
+                            } catch (err) {
+                              console.warn('Buffering check error:', err);
+                            }
+                          }, 500);
                         }
-                      } catch (statusError) {
-                        console.warn('Error checking video status:', statusError);
+
+                        if (videoLoadingTimeoutRef.current) {
+                          clearTimeout(videoLoadingTimeoutRef.current);
+                          videoLoadingTimeoutRef.current = null;
+                        }
                       }
+                    } catch (statusError) {
+                      console.warn('Error checking video status:', statusError);
                     }
                   }}
                   onPlaybackStatusUpdate={async (status) => {
                     if (status.isLoaded) {
-                      // Update buffering state based on playback status
                       if (status.isBuffering && !videoBuffering) {
                         setVideoBuffering(true);
                       } else if (!status.isBuffering && videoBuffering && status.isPlaying) {
                         setVideoBuffering(false);
                       }
-                      
-                      // Clear loading state once playback starts
+
                       if (status.isPlaying && videoLoading) {
                         setVideoLoading(false);
                         setIsVideoFallbackInProgress(false);
-                        // Clear timeout
                         if (videoLoadingTimeoutRef.current) {
                           clearTimeout(videoLoadingTimeoutRef.current);
                           videoLoadingTimeoutRef.current = null;
                         }
+                      }
+                      if (status.isPlaying && !videoUiFullscreen) {
+                        void enterNativeFullscreen();
                       }
                     }
                   }}

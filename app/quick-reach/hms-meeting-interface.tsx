@@ -56,6 +56,7 @@ import {
   needsJoinConfirm,
   parseJoinByIdResponse,
 } from '../../utils/meetingJoinPresence';
+import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
 import { MeetingJoinSound } from '../components/MeetingJoinSound';
 import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
@@ -245,10 +246,15 @@ export default function HMSMeetingInterfaceScreen() {
   const [presenceConfirmed, setPresenceConfirmed] = useState(false);
   /** True once HMS reports room entry (before/without confirm). Allows heartbeat safety-net upsert. */
   const [inHmsRoom, setInHmsRoom] = useState(false);
+  const inHmsRoomRef = useRef(false);
 
   useEffect(() => {
     presenceConfirmedRef.current = presenceConfirmed;
   }, [presenceConfirmed]);
+
+  useEffect(() => {
+    inHmsRoomRef.current = inHmsRoom;
+  }, [inHmsRoom]);
 
   useEffect(() => {
     roomIdRef.current = roomId;
@@ -297,6 +303,8 @@ export default function HMSMeetingInterfaceScreen() {
       const names = pendingJoinNamesRef.current;
       pendingJoinNamesRef.current = [];
       joinGroupTimerRef.current = null;
+      // Banner covers the HMS UI — skip it while still on prejoin.
+      if (!inHmsRoomRef.current && !presenceConfirmedRef.current) return;
       let message: string;
       if (names.length === 1) {
         message = `${names[0]} joined the meeting`;
@@ -309,15 +317,16 @@ export default function HMSMeetingInterfaceScreen() {
     }, 2000);
   }, []);
 
-  // Delay mounting MeetingJoinSound until GrabDocs presence is confirmed (useHMSPeerUpdates needs room context)
+  // Listen for joins as soon as HMS is mounted — not after presence confirm. Solo hosts often
+  // only get confirmed by the first remote PEER_JOINED, which a later-mounted listener misses.
+  // Same ON_PEER_UPDATE channel as MeetingPresenceConfirmBridge, so mounting early is safe.
   useEffect(() => {
-    if (!joinConfig || Platform.OS === 'web' || !presenceConfirmed) {
+    if (!joinConfig || Platform.OS === 'web') {
       setJoinSoundReady(false);
       return;
     }
-    const t = setTimeout(() => setJoinSoundReady(true), 4000);
-    return () => clearTimeout(t);
-  }, [joinConfig, presenceConfirmed]);
+    setJoinSoundReady(true);
+  }, [joinConfig]);
 
   // Network connectivity monitor — poll the backend health endpoint every 5 s during a live call.
   // When the connection drops we show our own friendly banner (which renders above the HMS native UI
@@ -887,6 +896,11 @@ export default function HMSMeetingInterfaceScreen() {
           Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
           notificationDisplayedRef.current = false;
         }
+        // Prejoin or in-call: restore play-and-record after OS / other-app interruptions.
+        // Do not remount HMS — that drops active calls.
+        if (authToken && meetingId) {
+          void restoreHmsCallAudioMode();
+        }
       }
     };
     const sub = AppState.addEventListener('change', handleAppStateChange);
@@ -1198,6 +1212,12 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, [joinConfig, authToken, presenceConfirmed, handleHmsEnteredForPresenceConfirm]);
 
+  // Prejoin preview and post-join media both need a play-and-record session.
+  useEffect(() => {
+    if (!authToken || Platform.OS === 'web') return;
+    void restoreHmsCallAudioMode();
+  }, [authToken, presenceConfirmed]);
+
   const retryHmsConnect = useCallback(() => {
     if (hmsRetryTimerRef.current) {
       clearTimeout(hmsRetryTimerRef.current);
@@ -1478,9 +1498,8 @@ export default function HMSMeetingInterfaceScreen() {
             onLocalPeerName={handleLocalPeerName}
             onConnectionStuck={handleConnectionStuck}
           />
-          {/* Join sound after GrabDocs presence + short delay (useHMSPeerUpdates needs room context) */}
           {HMSPrebuilt && joinSoundReady && (
-            <MeetingJoinSound enabled={!!authToken && !!meetingId && presenceConfirmed} onPeerJoined={handlePeerJoined} />
+            <MeetingJoinSound enabled={!!authToken && !!meetingId && !hmsError} onPeerJoined={handlePeerJoined} />
           )}
 
           {/* Join stuck overlay — Modal keeps HMS mounted (unmounting causes peer.leave client request). */}

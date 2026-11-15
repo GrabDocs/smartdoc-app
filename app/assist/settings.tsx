@@ -1,6 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
+import { useNetworkState } from 'expo-network';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -15,7 +16,11 @@ import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
+  archiveCursorsActive,
+  archiveCursorsResumable,
   cancelAssistArchive,
+  dedupeArchiveCursorsForDisplay,
+  formatArchiveCursorLine,
   getArchiveProgress,
   getAssistScheduleSettings,
   getAssistStatus,
@@ -23,7 +28,9 @@ import {
   saveAssistScheduleSettings,
   setupAssistCalls,
   startAssistTestCall,
+  summarizeArchiveSync,
 } from '../../services/assistApi';
+import { isNetworkError } from '../../utils/networkErrors';
 
 const CANCELABLE_ARCHIVE = new Set(['running', 'paused_quota', 'paused_credits', 'paused_disconnected']);
 const RESUMABLE_ARCHIVE = new Set(['paused_credits', 'paused_quota', 'cancelled', 'paused_disconnected']);
@@ -157,8 +164,11 @@ function CallsSetupGuide({ captureNumber }: { captureNumber: string | null }) {
 export default function AssistSettingsScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const network = useNetworkState();
   const [status, setStatus] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
+  const [offline, setOffline] = useState(false);
+  const [metaReady, setMetaReady] = useState(false);
 
   const [schedulePolicy, setSchedulePolicy] = useState<'auto_when_complete' | 'confirm_always'>(
     'auto_when_complete',
@@ -170,34 +180,71 @@ export default function AssistSettingsScreen() {
   const [schedulePhoneVerified, setSchedulePhoneVerified] = useState(false);
   const [schedulePhoneDraft, setSchedulePhoneDraft] = useState('');
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const [st, prog, schedule] = await Promise.all([
-          getAssistStatus(),
-          getArchiveProgress(),
-          getAssistScheduleSettings().catch(() => null),
-        ]);
-        setStatus(st);
-        setProgress(prog);
-        if (schedule?.settings) {
-          setSchedulePolicy(
-            (schedule.settings.schedule_write_policy as 'auto_when_complete' | 'confirm_always') ||
-              'auto_when_complete',
-          );
-          setScheduleSms(schedule.settings.schedule_sms_enabled !== false);
-          setScheduleEmail(schedule.settings.schedule_email_enabled !== false);
-          setScheduleCapture(schedule.capture_number || st?.capture_number || null);
-          setScheduleOwnerPhone(schedule.settings.schedule_owner_phone || null);
-          setSchedulePhoneVerified(Boolean(schedule.settings.schedule_owner_phone_verified_at));
-        } else {
-          setScheduleCapture(st?.capture_number || null);
-        }
-      } catch {
-        /* ignore */
+  const loadSettings = useCallback(async () => {
+    // Light status first so setup_completed survives flaky/offline detail fetches.
+    try {
+      const light = await getAssistStatus(undefined, { light: true });
+      setStatus((prev: any) => ({ ...(prev || {}), ...light }));
+      setOffline(false);
+    } catch (e: any) {
+      if (isNetworkError(e)) setOffline(true);
+    } finally {
+      setMetaReady(true);
+    }
+
+    try {
+      const [st, prog, schedule] = await Promise.all([
+        getAssistStatus(),
+        getArchiveProgress().catch(() => null),
+        getAssistScheduleSettings().catch(() => null),
+      ]);
+      setStatus(st);
+      if (prog) setProgress(prog);
+      setOffline(false);
+      if (schedule?.settings) {
+        setSchedulePolicy(
+          (schedule.settings.schedule_write_policy as 'auto_when_complete' | 'confirm_always') ||
+            'auto_when_complete',
+        );
+        setScheduleSms(schedule.settings.schedule_sms_enabled !== false);
+        setScheduleEmail(schedule.settings.schedule_email_enabled !== false);
+        setScheduleCapture(schedule.capture_number || st?.capture_number || null);
+        setScheduleOwnerPhone(schedule.settings.schedule_owner_phone || null);
+        setSchedulePhoneVerified(Boolean(schedule.settings.schedule_owner_phone_verified_at));
+      } else {
+        setScheduleCapture(st?.capture_number || null);
       }
-    })();
+    } catch (e: any) {
+      if (isNetworkError(e)) setOffline(true);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  // Refresh when connectivity returns without requiring a screen reopen.
+  useEffect(() => {
+    if (network.isConnected === true && offline) {
+      void loadSettings();
+    }
+  }, [network.isConnected, offline, loadSettings]);
+
+  const setupCompleted = Boolean(status?.setup_completed);
+  const cursors = dedupeArchiveCursorsForDisplay(progress?.cursors || status?.cursors || []);
+  const syncActive = archiveCursorsActive(cursors);
+  const syncResumable = archiveCursorsResumable(cursors);
+  const syncSummary = summarizeArchiveSync(cursors);
+
+  useEffect(() => {
+    if (!setupCompleted || (!syncActive && !syncResumable)) return undefined;
+    const timer = setInterval(() => {
+      void getArchiveProgress()
+        .then(setProgress)
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [setupCompleted, syncActive, syncResumable]);
 
   const saveCalls = async () => {
     try {
@@ -228,21 +275,75 @@ export default function AssistSettingsScreen() {
         <View style={{ width: 40 }} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 16 }}>
-        <TouchableOpacity style={styles.link} onPress={() => router.push('/assist/setup' as any)}>
+        {offline ? (
+          <View
+            style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: '#FCD34D',
+              backgroundColor: '#FFFBEB',
+            }}
+          >
+            <Text style={{ color: '#92400E', fontWeight: '700', marginBottom: 4 }}>You’re offline</Text>
+            <Text style={{ color: '#92400E', fontSize: 13 }}>
+              {setupCompleted
+                ? 'Showing the last known Assist setup. Archive progress may be out of date until you reconnect.'
+                : 'Connect to the internet to load Assist settings.'}
+            </Text>
+            <TouchableOpacity style={{ marginTop: 8 }} onPress={() => void loadSettings()}>
+              <Text style={{ color: '#0284C7', fontWeight: '700' }}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <TouchableOpacity
+          style={styles.link}
+          onPress={() => router.push('/assist/setup' as any)}
+          disabled={offline && !setupCompleted}
+        >
           <Text style={{ color: '#0284C7', fontWeight: '700' }}>
-            {status?.setup_completed ? 'Re-run / review setup' : 'Finish Assist setup'}
+            {!metaReady
+              ? 'Loading setup…'
+              : setupCompleted
+                ? 'Update / review setup'
+                : offline
+                  ? 'Setup unavailable offline'
+                  : 'Finish Assist setup'}
           </Text>
         </TouchableOpacity>
 
-        {(progress?.cursors || []).length > 0 ? (
+        {setupCompleted ? (
+          <View
+            style={{
+              marginBottom: 12,
+              padding: 12,
+              borderRadius: 12,
+              borderWidth: 1,
+              borderColor: syncActive ? '#BAE6FD' : '#A7F3D0',
+              backgroundColor: syncActive ? '#F0F9FF' : '#ECFDF5',
+            }}
+          >
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>
+              {syncActive ? 'Connected · syncing' : 'Connected'}
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: 13 }}>
+              {syncSummary ||
+                'Mailbox is bound to Assist. Archive import and live sync run in the background.'}
+            </Text>
+          </View>
+        ) : null}
+
+        {cursors.length > 0 ? (
           <>
             <Text style={[styles.h, { color: colors.text }]}>Archive progress</Text>
-            {(progress?.cursors || []).map((c: any, i: number) => (
-              <Text key={i} style={{ color: colors.textSecondary, marginBottom: 4 }}>
-                {c.cursor_kind}: {c.status} · imported {c.messages_imported}
+            {cursors.map((c: any, i: number) => (
+              <Text key={c.id || i} style={{ color: colors.textSecondary, marginBottom: 4 }}>
+                {formatArchiveCursorLine(c)}
               </Text>
             ))}
-            {(progress?.cursors || []).some((c: any) => CANCELABLE_ARCHIVE.has(c.status)) ? (
+            {cursors.some((c: any) => CANCELABLE_ARCHIVE.has(c.status)) ? (
               <TouchableOpacity
                 style={[styles.btn, { backgroundColor: '#64748B', marginTop: 8 }]}
                 onPress={() =>
@@ -254,7 +355,7 @@ export default function AssistSettingsScreen() {
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Cancel archive</Text>
               </TouchableOpacity>
             ) : null}
-            {(progress?.cursors || []).some((c: any) => RESUMABLE_ARCHIVE.has(c.status)) ? (
+            {cursors.some((c: any) => RESUMABLE_ARCHIVE.has(c.status)) ? (
               <TouchableOpacity
                 style={[styles.btn, { backgroundColor: '#0369A1', marginTop: 8 }]}
                 onPress={() =>

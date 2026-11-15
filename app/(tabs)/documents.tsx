@@ -4043,7 +4043,10 @@ export default function QuickFilesScreen() {
               </TouchableOpacity>
             )}
             
-            {selectedDocumentForMenu?.file_kind?.toLowerCase() === 'receipt' && (
+            {(() => {
+              const kind = selectedDocumentForMenu?.file_kind?.toLowerCase();
+              return kind === 'receipt' || kind === 'receipts' || kind === 'invoice' || kind === 'invoices';
+            })() && (
               <TouchableOpacity
                 style={dynamicStyles.kebabMenuItem}
                 onPress={handleEditReceipt}
@@ -4422,7 +4425,11 @@ export default function QuickFilesScreen() {
       <ReceiptEditSheet
         visible={showReceiptEditSheet}
         fileId={selectedDocumentForMenu ? parseInt(selectedDocumentForMenu.id, 10) : null}
-        fileKind="receipt"
+        fileKind={
+          ['invoice', 'invoices'].includes(selectedDocumentForMenu?.file_kind?.toLowerCase() || '')
+            ? 'invoice'
+            : 'receipt'
+        }
         workspaceId={workspaceId}
         onClose={() => setShowReceiptEditSheet(false)}
         onSaved={() => {

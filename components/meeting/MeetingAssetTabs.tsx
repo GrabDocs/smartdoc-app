@@ -97,6 +97,10 @@ export default function MeetingAssetTabs({
 
   const canAsk = !!askContext && ((askContext.fileIds?.length || 0) + (askContext.transcriptIds?.length || 0) > 0);
   const canShare = accessFile != null;
+  const shareAdapter = useMemo(
+    () => (accessFile ? createFileShareAdapter(accessFile) : null),
+    [accessFile?.id, accessFile?.name]
+  );
 
   const handleAsk = () => {
     if (!canAsk || !askContext) return;
@@ -220,7 +224,7 @@ export default function MeetingAssetTabs({
       )}
       <ShareAccessSheet
         visible={accessOpen && accessFile != null}
-        adapter={accessFile ? createFileShareAdapter(accessFile) : null}
+        adapter={shareAdapter}
         onClose={() => setAccessOpen(false)}
       />
     </View>

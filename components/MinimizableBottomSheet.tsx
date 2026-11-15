@@ -240,7 +240,7 @@ export default function MinimizableBottomSheet({
       >
         {title ? (
           <View style={styles.headerTitles}>
-            <AppHeaderTitle fill={false} shrink={false}>
+            <AppHeaderTitle fill={false} shrink={false} size={18} style={styles.sheetTitle}>
               {truncateAppHeaderTitle(title)}
             </AppHeaderTitle>
             {(minimized ? minimizedSubtitle : subtitle) ? (
@@ -426,13 +426,15 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 10,
     gap: 8,
   },
   headerLeft: { flex: 1, minWidth: 0 },
-  headerTitles: { flex: 1, minWidth: 0 },
+  headerTitles: { flex: 1, minWidth: 0, paddingTop: 2 },
+  sheetTitle: { lineHeight: 24, includeFontPadding: false },
   title: { fontSize: 17, fontWeight: '600' },
-  subtitle: { fontSize: 12, marginTop: 2 },
+  subtitle: { fontSize: 12, marginTop: 4, lineHeight: 16 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerActionBtn: { padding: 6 },
   bodyHost: { flex: 1 },

@@ -70,6 +70,16 @@ interface Meeting {
   source?: MeetingSource;
 }
 
+function meetingMatchesSearch(meeting: Meeting, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [meeting.title, meeting.meetingId, meeting.host, meeting.description]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
 function meetingInfoStartLabel(meeting: Meeting, room: Record<string, any> | null | undefined): string {
   const iso =
     room?.started_at ||
@@ -161,8 +171,9 @@ function extractReachHostDisplayName(m: Record<string, unknown>): string {
 
 function isReachMeetingOwner(meeting: Meeting, userId: string | undefined): boolean {
   if (!userId) return false;
-  if (meeting.creatorId != null && String(meeting.creatorId) === String(userId)) return true;
-  return meeting.source === 'own';
+  // Only the creator is owner. Do not treat source==='own' as ownership — that list
+  // also includes meetings the user hosts but did not create, and must not elevate invitees.
+  return meeting.creatorId != null && String(meeting.creatorId) === String(userId);
 }
 
 function isReachMeetingHost(meeting: Meeting, userId: string | undefined): boolean {
@@ -173,10 +184,20 @@ function isReachMeetingHost(meeting: Meeting, userId: string | undefined): boole
   return false;
 }
 
+function canControlReachMeeting(meeting: Meeting, userId: string | undefined): boolean {
+  return isReachMeetingOwner(meeting, userId) || isReachMeetingHost(meeting, userId);
+}
+
+/** Stop / end — hosts & owners only (invitees/guests must never see this). */
+function canEndReachMeetingFromList(meeting: Meeting, userId: string | undefined): boolean {
+  if (meeting.status !== 'active') return false;
+  return canControlReachMeeting(meeting, userId);
+}
+
 /** Trash / delete — hidden while the meeting is live for owners and hosts */
 function canDeleteReachMeetingFromList(meeting: Meeting, userId: string | undefined): boolean {
   if (meeting.status === 'active') return false;
-  return isReachMeetingOwner(meeting, userId) || isReachMeetingHost(meeting, userId);
+  return canControlReachMeeting(meeting, userId);
 }
 
 /** Keys `id:<meetingId>` / `title:<normalized>` for meetings that have ≥1 asset (from getMeetingAssets). */
@@ -428,6 +449,7 @@ export default function MeetingCallScreen() {
   const [inviteSending, setInviteSending] = useState(false);
   /** True when GET /api/v1/video/invited-meetings fails (own list may still show). */
   const [invitedLoadFailed, setInvitedLoadFailed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Use keyboard height for padding so join modal stays above keyboard on both Android and iOS
   useEffect(() => {
@@ -497,7 +519,9 @@ export default function MeetingCallScreen() {
 
       const startTime = Date.now();
       const [ownRes, invitedAxiosRes] = await Promise.all([
-        apiClient.getMeetings(10, 0).catch((e) => {
+        // Match web Reach volume (mobile API caps at 50). Limit 10 was dropping
+        // calendar/booking meetings that web /video/rooms still shows.
+        apiClient.getMeetings(50, 0).catch((e) => {
           console.warn('📱 getMeetings failed:', e);
           return null;
         }),
@@ -555,49 +579,25 @@ export default function MeetingCallScreen() {
 
       const now = new Date();
       const upcoming = uniqueMeetings.filter((m: Meeting) => {
-        if (m.status === 'active') {
-          return false;
-        }
+        // Live meetings belong in Ongoing, ended in Recent.
+        if (m.status === 'active' || m.status === 'ended') return false;
 
         const hasNoStartTime =
           !m.startTime ||
-          (typeof m.startTime === 'string' && m.startTime.trim() === '') ||
-          m.startTime === null ||
-          m.startTime === undefined;
+          (typeof m.startTime === 'string' && m.startTime.trim() === '');
 
-        if (m.status === 'created') {
-          console.log(`✅ Meeting "${m.title}" included in upcoming: newly created meeting (status="created")`);
-          return true;
+        // Instant Create (no schedule) stays in Upcoming until joined/ended.
+        if (hasNoStartTime) {
+          return m.status === 'created' || m.status === 'scheduled';
         }
 
-        if (hasNoStartTime && m.status !== 'ended') {
-          console.log(`✅ Meeting "${m.title}" included in upcoming: newly created without start_at/end_at (status="${m.status}")`);
-          return true;
+        const startTime = new Date(m.startTime);
+        if (isNaN(startTime.getTime())) {
+          return m.status === 'created' || m.status === 'scheduled';
         }
 
-        if (m.status === 'scheduled' && !hasNoStartTime) {
-          try {
-            const startTime = new Date(m.startTime);
-            if (isNaN(startTime.getTime())) {
-              console.log(`✅ Meeting "${m.title}" included in upcoming: scheduled but invalid startTime, treating as newly created`);
-              return true;
-            }
-            const isFuture = startTime > now;
-            if (isFuture) {
-              console.log(`✅ Meeting "${m.title}" included in upcoming: scheduled with future startTime (${m.startTime})`);
-              return true;
-            } else {
-              console.log(`❌ Meeting "${m.title}" excluded from upcoming: scheduled but startTime in past (${m.startTime})`);
-              return false;
-            }
-          } catch {
-            console.warn(`⚠️ Meeting "${m.title}" has invalid startTime format: ${m.startTime}, treating as newly created`);
-            return true;
-          }
-        }
-
-        console.log(`❌ Meeting "${m.title}" excluded from upcoming: status="${m.status}", hasNoStartTime=${hasNoStartTime}, startTime="${m.startTime}"`);
-        return false;
+        // Future calendar/booking/schedule → Upcoming; past ones → Recent.
+        return startTime > now;
       });
 
       let ongoing = uniqueMeetings.filter((m: Meeting) => m.status === 'active');
@@ -649,8 +649,15 @@ export default function MeetingCallScreen() {
 
       const recentCount = uniqueMeetings.filter((m) => {
         if (m.status === 'ended') return true;
-        if ((m.status === 'created' || m.status === 'scheduled') && !m.startTime) return true;
-        return false;
+        if (m.status === 'active') return false;
+        const hasNoStartTime =
+          !m.startTime ||
+          (typeof m.startTime === 'string' && m.startTime.trim() === '');
+        // Instant creates stay in Upcoming; past scheduled/booking belong in Recent.
+        if (hasNoStartTime) return false;
+        const startTime = new Date(m.startTime);
+        if (isNaN(startTime.getTime())) return false;
+        return startTime <= now;
       }).length;
 
       console.log(`📱 Loaded ${uniqueMeetings.length} meetings in ${loadTime}ms:`, {
@@ -896,6 +903,10 @@ export default function MeetingCallScreen() {
   };
 
   const endMeeting = async (meeting: Meeting) => {
+    if (!canEndReachMeetingFromList(meeting, user?.id)) {
+      Alert.alert('End Meeting', 'Only the meeting host can end this meeting.');
+      return;
+    }
     const busyKey = `end:${meeting.id}`;
     Alert.alert(
       'End Meeting',
@@ -1188,23 +1199,6 @@ export default function MeetingCallScreen() {
   const buildLocalInviteText = (meeting: Meeting, inviteLink?: string) => {
     let details = `GrabDocs Meeting Invitation\n\n`;
     details += `Meeting: ${stripClipboardEmojis(meeting.title)}\n\n`;
-    if (meeting.startTime) {
-      try {
-        const when = new Date(meeting.startTime);
-        if (!Number.isNaN(when.getTime())) {
-          details += `Date & time: ${when.toLocaleString([], {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-          })}\n\n`;
-        }
-      } catch {
-        // ignore bad dates
-      }
-    }
     const link = (inviteLink || meeting.roomUrl || '').trim();
     if (link) details += `Join Meeting:\n${link}\n\n`;
     details += `Dial-in:\n+1 415 993-7779\n`;
@@ -1319,8 +1313,29 @@ export default function MeetingCallScreen() {
       paddingHorizontal: 20,
       paddingVertical: 20,
       backgroundColor: colors.card,
-      marginBottom: 8,
+      marginBottom: 0,
       gap: 12,
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.inputBackground || colors.surface,
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 8,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    searchIcon: {
+      marginRight: 8,
+    },
+    searchInput: {
+      flex: 1,
+      paddingVertical: 10,
+      fontSize: 16,
+      color: colors.text,
     },
     actionButton: {
       flex: 1,
@@ -1717,20 +1732,21 @@ export default function MeetingCallScreen() {
         const isLive = item.status === 'active';
         const owner = isReachMeetingOwner(item, user?.id);
         const host = isReachMeetingHost(item, user?.id);
+        const canEnd = canEndReachMeetingFromList(item, user?.id);
         const canDelete = canDeleteReachMeetingFromList(item, user?.id);
         const buttons = [
           { text: 'Cancel', style: 'cancel' as const },
           { text: 'Join Meeting', onPress: () => { if (!isJoining) joinMeeting(item); } },
           { text: 'View Assets', onPress: () => viewMeetingAssets(item) },
-          ...(isLive ? [{ text: 'End Meeting', style: 'destructive' as const, onPress: () => endMeeting(item) }] : []),
+          ...(canEnd ? [{ text: 'End Meeting', style: 'destructive' as const, onPress: () => endMeeting(item) }] : []),
           ...(canDelete
             ? [{ text: 'Delete', style: 'destructive' as const, onPress: () => deleteMeeting(item) }]
             : !owner && !host && !isLive
               ? [{ text: 'Remove from my list', onPress: () => removeMeetingFromList(item) }]
               : []),
-          { text: 'Invite', onPress: () => {
-            void openInviteModal(item);
-          }}
+          ...(canControlReachMeeting(item, user?.id)
+            ? [{ text: 'Invite', onPress: () => { void openInviteModal(item); } }]
+            : []),
         ];
 
         Alert.alert(
@@ -1814,9 +1830,10 @@ export default function MeetingCallScreen() {
           <Ionicons name="information-circle" size={20} color="#FF9500" />
         </TouchableOpacity>
         
-        {(item.status === 'active') && (
+        {canEndReachMeetingFromList(item, user?.id) && (
           <FeedbackTouchable
             style={dynamicStyles.actionIcon}
+            accessibilityLabel="End meeting"
             disabled={actionBusyKey != null}
             loading={actionBusyKey === `end:${item.id}`}
             spinnerColor="#FF3B30"
@@ -1829,15 +1846,18 @@ export default function MeetingCallScreen() {
           </FeedbackTouchable>
         )}
         
-        <TouchableOpacity
-          style={dynamicStyles.actionIcon}
-          onPress={(e) => {
-            e.stopPropagation();
-            void openInviteModal(item);
-          }}
-        >
-          <Ionicons name="person-add" size={20} color="#34C759" />
-        </TouchableOpacity>
+        {canControlReachMeeting(item, user?.id) ? (
+          <TouchableOpacity
+            style={dynamicStyles.actionIcon}
+            accessibilityLabel="Invite participants"
+            onPress={(e) => {
+              e.stopPropagation();
+              void openInviteModal(item);
+            }}
+          >
+            <Ionicons name="person-add" size={20} color="#34C759" />
+          </TouchableOpacity>
+        ) : null}
         
         {canDeleteReachMeetingFromList(item, user?.id) ? (
           <FeedbackTouchable
@@ -1853,8 +1873,7 @@ export default function MeetingCallScreen() {
           >
             <Ionicons name="trash-outline" size={20} color="#FF3B30" />
           </FeedbackTouchable>
-        ) : !isReachMeetingOwner(item, user?.id) &&
-          !isReachMeetingHost(item, user?.id) &&
+        ) : !canControlReachMeeting(item, user?.id) &&
           item.status !== 'active' ? (
           <FeedbackTouchable
             style={dynamicStyles.actionIcon}
@@ -1874,12 +1893,48 @@ export default function MeetingCallScreen() {
     </TouchableOpacity>
   );
 
+  const filteredOngoingMeetings = useMemo(
+    () => ongoingMeetings.filter((m) => meetingMatchesSearch(m, searchQuery)),
+    [ongoingMeetings, searchQuery]
+  );
+
+  const filteredUpcomingMeetings = useMemo(
+    () => upcomingMeetings.filter((m) => meetingMatchesSearch(m, searchQuery)),
+    [upcomingMeetings, searchQuery]
+  );
+
+  const filteredRecentMeetings = useMemo(() => {
+    const now = new Date();
+    const recent = sortMeetingsNewestFirst(
+      meetings.filter((m) => {
+        if (m.status === 'ended') return true;
+        if (m.status === 'active') return false;
+        const hasNoStartTime =
+          !m.startTime ||
+          (typeof m.startTime === 'string' && m.startTime.trim() === '');
+        // Instant Create (no schedule) stays under Upcoming until ended.
+        if (hasNoStartTime) return false;
+        const startTime = new Date(m.startTime);
+        if (isNaN(startTime.getTime())) return false;
+        // Past calendar/booking/schedule (including never-started) → Recent.
+        return startTime <= now;
+      })
+    );
+    return recent.filter((m) => meetingMatchesSearch(m, searchQuery));
+  }, [meetings, searchQuery]);
+
+  const hasSearchQuery = searchQuery.trim().length > 0;
+  const hasAnyFilteredMeetings =
+    filteredOngoingMeetings.length > 0 ||
+    filteredUpcomingMeetings.length > 0 ||
+    filteredRecentMeetings.length > 0;
+
   const renderEmptyState = (title: string, subtitle: string) => (
     <View style={dynamicStyles.emptyState}>
       <Ionicons name="videocam-off-outline" size={48} color={colors.textLight} />
       <Text style={dynamicStyles.emptyStateText}>{title}</Text>
       <Text style={dynamicStyles.emptyStateSubtext}>{subtitle}</Text>
-      {title.includes('meeting') && (
+      {title.includes('meeting') && !hasSearchQuery && (
         <TouchableOpacity style={dynamicStyles.createFirstButton} onPress={scheduleMeeting}>
           <Text style={dynamicStyles.createFirstButtonText}>Schedule Your First Meeting</Text>
         </TouchableOpacity>
@@ -1940,6 +1995,38 @@ export default function MeetingCallScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Search Bar */}
+      <View style={dynamicStyles.searchContainer}>
+        <Ionicons
+          name="search"
+          size={20}
+          color={colors.textSecondary}
+          style={dynamicStyles.searchIcon}
+        />
+        <TextInput
+          style={dynamicStyles.searchInput}
+          placeholder="Search meetings..."
+          placeholderTextColor={colors.textLight}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          returnKeyType="search"
+          onSubmitEditing={() => Keyboard.dismiss()}
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="never"
+          accessibilityLabel="Search meetings"
+        />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity
+            onPress={() => setSearchQuery('')}
+            accessibilityLabel="Clear search"
+            accessibilityRole="button"
+          >
+            <Ionicons name="close-circle" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <FlatList
         data={[]}
         renderItem={renderMeetingCard}
@@ -1948,14 +2035,17 @@ export default function MeetingCallScreen() {
         onRefresh={handleRefresh}
         contentContainerStyle={dynamicStyles.meetingsList}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         ListHeaderComponent={() => (
           <View>
             {/* Ongoing Meetings */}
-            {ongoingMeetings.length > 0 && (
+            {filteredOngoingMeetings.length > 0 && (
               <View style={dynamicStyles.section}>
-                <Text style={dynamicStyles.sectionTitle}>Live Meetings ({ongoingMeetings.length})</Text>
+                <Text style={dynamicStyles.sectionTitle}>
+                  Live Meetings ({filteredOngoingMeetings.length})
+                </Text>
                 <FlatList
-                  data={ongoingMeetings}
+                  data={filteredOngoingMeetings}
                   renderItem={renderMeetingCard}
                   keyExtractor={(item) => item.id}
                   scrollEnabled={false}
@@ -1964,48 +2054,40 @@ export default function MeetingCallScreen() {
             )}
 
             {/* Upcoming Meetings */}
-            {upcomingMeetings.length > 0 ? (
+            {filteredUpcomingMeetings.length > 0 ? (
               <View style={dynamicStyles.section}>
-                <Text style={dynamicStyles.sectionTitle}>Upcoming Meetings ({upcomingMeetings.length})</Text>
+                <Text style={dynamicStyles.sectionTitle}>
+                  Upcoming Meetings ({filteredUpcomingMeetings.length})
+                </Text>
                 <FlatList
-                  data={upcomingMeetings.slice(0, 3)}
+                  data={filteredUpcomingMeetings}
                   renderItem={renderMeetingCard}
                   keyExtractor={(item) => item.id}
                   scrollEnabled={false}
                 />
               </View>
-            ) : !loading && meetings.length === 0 && (
-              renderEmptyState("No upcoming meetings", "Create or join a meeting to get started")
-            )}
+            ) : null}
 
             {/* Recent Meetings */}
-            {(() => {
-              const recentMeetings = sortMeetingsNewestFirst(
-                meetings.filter((m) => {
-                // Include ended meetings
-                if (m.status === 'ended') return true;
-                
-                // Include created/scheduled meetings without startTime (immediate meetings created via "Create")
-                if ((m.status === 'created' || m.status === 'scheduled') && !m.startTime) {
-                  return true;
-                }
-                
-                return false;
-              })
-              );
-              
-              return recentMeetings.length > 0 ? (
-                <View style={dynamicStyles.section}>
-                  <Text style={dynamicStyles.sectionTitle}>Recent Meetings ({recentMeetings.length})</Text>
-                  <FlatList
-                    data={recentMeetings}
-                    renderItem={renderMeetingCard}
-                    keyExtractor={(item) => item.id}
-                    scrollEnabled={false}
-                  />
-                </View>
-              ) : null;
-            })()}
+            {filteredRecentMeetings.length > 0 ? (
+              <View style={dynamicStyles.section}>
+                <Text style={dynamicStyles.sectionTitle}>
+                  Recent Meetings ({filteredRecentMeetings.length})
+                </Text>
+                <FlatList
+                  data={filteredRecentMeetings}
+                  renderItem={renderMeetingCard}
+                  keyExtractor={(item) => item.id}
+                  scrollEnabled={false}
+                />
+              </View>
+            ) : null}
+
+            {!hasAnyFilteredMeetings &&
+              !loading &&
+              (hasSearchQuery
+                ? renderEmptyState('No meetings match your search', 'Try a different title, ID, or host name')
+                : renderEmptyState('No upcoming meetings', 'Create or join a meeting to get started'))}
           </View>
         )}
       />

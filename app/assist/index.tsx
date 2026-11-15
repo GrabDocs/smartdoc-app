@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   RefreshControl,
   ScrollView,
@@ -23,18 +22,41 @@ import AskHistoryPanel from '../../components/assist/AskHistoryPanel';
 import AssistSourceSheet, {
   type AssistSourceContent,
 } from '../../components/assist/AssistSourceSheet';
+import GeneralFileViewerModal from '../../components/GeneralFileViewerModal';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
+import { API_BASE_URL } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import { apiClient } from '../../services/api';
 import {
   addBriefItemToCalendar,
+  archiveCursorsActive,
   generateTodayBrief,
   getBriefItemSource,
   getTodayBrief,
   patchBriefItem,
+  summarizeArchiveSync,
   type AssistBriefItem,
 } from '../../services/assistApi';
+import { isNetworkError } from '../../utils/networkErrors';
 import { trackRecentApp } from '../../utils/recentApps';
+
+function itemHasOpenableSource(item: AssistBriefItem): boolean {
+  return (item.source_refs || []).some((r) =>
+    ['email', 'call', 'file'].includes(String(r?.kind || '')),
+  );
+}
+
+function briefGenerateErrorMessage(error: any): string {
+  if (isNetworkError(error)) {
+    return 'No connection. Connect to the internet and try again.';
+  }
+  const reason = error?.response?.data?.reason || error?.response?.data?.error;
+  if (reason === 'paused_credits') return 'Not enough AI credits to build today’s brief.';
+  if (reason === 'llm_unavailable' || reason === 'llm_failed') {
+    return 'Could not build the brief right now. Try again in a moment.';
+  }
+  if (reason === 'setup_incomplete') return 'Finish Assist setup before generating a brief.';
+  return error?.response?.data?.message || 'Could not generate today’s brief.';
+}
 
 const LIST_PREVIEW = 5;
 
@@ -47,7 +69,7 @@ const TYPE_STYLES: Record<string, { bg: string; fg: string }> = {
   call_followup: { bg: '#FFE4E6', fg: '#9F1239' },
 };
 
-type SectionKey = 'new_today' | 'still_open' | 'done';
+type SectionKey = 'new_today' | 'still_open' | 'done' | 'dismissed';
 
 function typeLabel(raw: string): string {
   return (raw || 'todo').replace(/_/g, ' ');
@@ -110,14 +132,20 @@ export default function AssistTodayScreen() {
   const [askOpen, setAskOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [mailboxIssue, setMailboxIssue] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncActive, setSyncActive] = useState(false);
   const [setupCompleted, setSetupCompleted] = useState(true);
   const [canGenerateBrief, setCanGenerateBrief] = useState(false);
+  const [canRegenerateBrief, setCanRegenerateBrief] = useState(false);
+  const [needsBriefRefresh, setNeedsBriefRefresh] = useState(false);
   const [generatingBrief, setGeneratingBrief] = useState(false);
   const [counts, setCounts] = useState({ new_today: 0, still_open: 0, done: 0 });
   const [newToday, setNewToday] = useState<AssistBriefItem[]>([]);
   const [stillOpen, setStillOpen] = useState<AssistBriefItem[]>([]);
   const [done, setDone] = useState<AssistBriefItem[]>([]);
+  const [dismissed, setDismissed] = useState<AssistBriefItem[]>([]);
   const [doneOpen, setDoneOpen] = useState(false);
+  const [dismissedOpen, setDismissedOpen] = useState(false);
   const [callsEnabled, setCallsEnabled] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [sectionPanel, setSectionPanel] = useState<{
@@ -126,6 +154,13 @@ export default function AssistTodayScreen() {
     items: AssistBriefItem[];
   } | null>(null);
   const [sourcePanel, setSourcePanel] = useState<AssistSourceContent | null>(null);
+  const [fileViewer, setFileViewer] = useState<{
+    visible: boolean;
+    fileId: number;
+    title: string;
+    pdfUri: string | null;
+    expandNonce: number;
+  }>({ visible: false, fileId: 0, title: 'Document', pdfUri: null, expandNonce: 0 });
   const [editing, setEditing] = useState<AssistBriefItem | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editDetail, setEditDetail] = useState('');
@@ -165,18 +200,24 @@ export default function AssistTodayScreen() {
           ? 'Mailbox is disconnected. Assist archive is kept. Reconnect on the Email Replies mailbox page.'
           : null,
     );
+    setSyncStatus(summarizeArchiveSync(cursors));
+    setSyncActive(archiveCursorsActive(cursors));
     setSetupCompleted(Boolean(brief?.setup_completed));
     setCallsEnabled(Boolean(brief?.calls_enabled));
     setCanGenerateBrief(Boolean(brief?.can_generate) && !brief?.brief);
+    setCanRegenerateBrief(Boolean(brief?.can_regenerate) && Boolean(brief?.brief));
+    setNeedsBriefRefresh(Boolean(brief?.needs_refresh));
   }, []);
 
   const loadBrief = useCallback(async () => {
     const brief = await getTodayBrief(ownerId);
     applyBriefShell(brief);
-    if (!brief?.setup_completed) {
+    // Only clear when the API explicitly says setup is incomplete (avoid zeroing Done on partial/odd payloads).
+    if (brief && brief.setup_completed === false) {
       setNewToday([]);
       setStillOpen([]);
       setDone([]);
+      setDismissed([]);
       setCounts({ new_today: 0, still_open: 0, done: 0 });
       return brief;
     }
@@ -184,6 +225,7 @@ export default function AssistTodayScreen() {
     setNewToday(brief?.items?.new_today || []);
     setStillOpen(brief?.items?.still_open || []);
     setDone(brief?.items?.done || []);
+    setDismissed(brief?.items?.dismissed || []);
     return brief;
   }, [applyBriefShell, ownerId]);
 
@@ -204,20 +246,12 @@ export default function AssistTodayScreen() {
     try {
       const res = await generateTodayBrief();
       if (res?.ok === false) {
-        const reason = res?.reason || 'failed';
-        Alert.alert(
-          'Daily Brief',
-          reason === 'paused_credits'
-            ? 'Not enough AI credits to build today’s brief.'
-            : reason === 'llm_unavailable' || reason === 'llm_failed'
-              ? 'Could not build the brief right now. Try again in a moment.'
-              : 'Could not generate today’s brief.',
-        );
+        Alert.alert('Daily Brief', briefGenerateErrorMessage({ response: { data: res } }));
         return;
       }
       await loadBrief();
-    } catch {
-      Alert.alert('Daily Brief', 'Could not generate today’s brief.');
+    } catch (e: any) {
+      Alert.alert('Daily Brief', briefGenerateErrorMessage(e));
     } finally {
       setGeneratingBrief(false);
     }
@@ -229,7 +263,18 @@ export default function AssistTodayScreen() {
     }, [load]),
   );
 
-  const allItems = useMemo(() => [...newToday, ...stillOpen, ...done], [newToday, stillOpen, done]);
+  useEffect(() => {
+    if (!setupCompleted || !syncActive || ownerId) return undefined;
+    const timer = setInterval(() => {
+      void loadBrief().catch(() => undefined);
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [setupCompleted, syncActive, ownerId, loadBrief]);
+
+  const allItems = useMemo(
+    () => [...newToday, ...stillOpen, ...done, ...dismissed],
+    [newToday, stillOpen, done, dismissed],
+  );
 
   const availableTypes = useMemo(() => {
     const set = new Set<string>();
@@ -248,11 +293,24 @@ export default function AssistTodayScreen() {
   const filteredNew = useMemo(() => filterItems(newToday), [filterItems, newToday]);
   const filteredOpen = useMemo(() => filterItems(stillOpen), [filterItems, stillOpen]);
   const filteredDone = useMemo(() => filterItems(done), [filterItems, done]);
+  const filteredDismissed = useMemo(() => filterItems(dismissed), [filterItems, dismissed]);
 
   const removeFromSectionPanel = (id: number) => {
     setSectionPanel((prev) =>
       prev ? { ...prev, items: prev.items.filter((i) => i.id !== id) } : null,
     );
+  };
+
+  const reopenItem = async (item: AssistBriefItem) => {
+    try {
+      await patchBriefItem(item.id, { status: 'open' }, ownerId);
+      setSectionPanel((prev) =>
+        prev ? { ...prev, items: prev.items.filter((i) => i.id !== item.id) } : null,
+      );
+      await loadBrief();
+    } catch {
+      Alert.alert('Daily Brief', 'Could not reopen that item.');
+    }
   };
 
   const markDone = async (item: AssistBriefItem) => {
@@ -288,30 +346,41 @@ export default function AssistTodayScreen() {
         );
         return;
       }
-      const file = sources.find((s: any) => s.kind === 'file' && s.file_url);
-      if (file?.file_url) {
-        const base = String(apiClient.client.defaults.baseURL || '').replace(/\/$/, '');
-        const url = String(file.file_url).startsWith('http')
-          ? String(file.file_url)
-          : `${base}${file.file_url}`;
-        await Linking.openURL(url);
-        return;
-      }
+      // Prefer the email body in-app over opening an attachment download in Chrome.
       const email = sources.find((s: any) => s.kind === 'email');
       if (email) {
         setSourcePanel({ type: 'email', email });
         return;
       }
+      const file = sources.find((s: any) => s.kind === 'file' && (s.file_url || s.id));
+      if (file?.file_url || file?.id) {
+        const path = String(file.file_url || '');
+        const pdfUri = path
+          ? path.startsWith('http')
+            ? path
+            : `${String(API_BASE_URL || '').replace(/\/$/, '')}${path}`
+          : null;
+        setFileViewer((prev) => ({
+          visible: true,
+          fileId: Number(file.id) || 0,
+          title: file.filename || item.title || 'Document',
+          pdfUri,
+          expandNonce: prev.expandNonce + 1,
+        }));
+        return;
+      }
       setSourcePanel({
         type: 'message',
         title: item.title || 'Source',
-        body: 'This item does not have an email or call attached.',
+        body: 'No email or call is linked to this item.',
       });
-    } catch {
+    } catch (e: any) {
       setSourcePanel({
         type: 'message',
         title: 'Source',
-        body: 'Could not load the source for this item.',
+        body: isNetworkError(e)
+          ? 'No connection. Connect to the internet and try again.'
+          : 'Could not load the source for this item.',
       });
     }
   };
@@ -408,11 +477,15 @@ export default function AssistTodayScreen() {
 
   const saveEdit = async () => {
     if (!editing) return;
+    if (!editTitle.trim()) {
+      Alert.alert('Edit item', 'Title is required.');
+      return;
+    }
     try {
       await patchBriefItem(
         editing.id,
         {
-          title: editTitle,
+          title: editTitle.trim(),
           detail: editDetail,
           due_at: editDue.trim() ? editDue.trim() : null,
         },
@@ -420,8 +493,12 @@ export default function AssistTodayScreen() {
       );
       setEditing(null);
       await loadBrief();
-    } catch {
-      Alert.alert('Assist', 'Could not save the edit.');
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.message ||
+        (e?.response?.data?.error === 'title_required' ? 'Title is required.' : null) ||
+        'Could not save the edit.';
+      Alert.alert('Assist', msg);
     }
   };
 
@@ -457,9 +534,11 @@ export default function AssistTodayScreen() {
                 <TouchableOpacity onPress={() => void dismiss(item)}>
                   <Text style={styles.action}>Dismiss</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => void openSource(item)}>
-                  <Text style={styles.action}>Source</Text>
-                </TouchableOpacity>
+                {itemHasOpenableSource(item) ? (
+                  <TouchableOpacity onPress={() => void openSource(item)}>
+                    <Text style={styles.action}>Source</Text>
+                  </TouchableOpacity>
+                ) : null}
                 <TouchableOpacity
                   accessibilityLabel="Edit"
                   accessibilityHint="Change this item’s title, notes, or due date. Does not edit the original email."
@@ -472,9 +551,20 @@ export default function AssistTodayScreen() {
                 </TouchableOpacity>
               </>
             ) : (
-              <TouchableOpacity onPress={() => void openSource(item)}>
-                <Text style={styles.action}>Source</Text>
-              </TouchableOpacity>
+              <>
+                {item.status === 'done' || item.status === 'dismissed' ? (
+                  <TouchableOpacity onPress={() => void reopenItem(item)}>
+                    <Text style={styles.action}>
+                      {item.status === 'dismissed' ? 'Undo dismiss' : 'Reopen'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                {itemHasOpenableSource(item) ? (
+                  <TouchableOpacity onPress={() => void openSource(item)}>
+                    <Text style={styles.action}>Source</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
             )}
           </View>
         </View>
@@ -489,7 +579,9 @@ export default function AssistTodayScreen() {
     empty: string,
     collapsible = false,
   ) => {
-    const collapsed = collapsible && !doneOpen;
+    const open = key === 'dismissed' ? dismissedOpen : doneOpen;
+    const setOpen = key === 'dismissed' ? setDismissedOpen : setDoneOpen;
+    const collapsed = collapsible && !open;
     const preview = items.slice(0, LIST_PREVIEW);
     const hasMore = items.length > LIST_PREVIEW;
 
@@ -497,9 +589,9 @@ export default function AssistTodayScreen() {
       <View style={{ marginBottom: 8 }}>
         <View style={styles.sectionHeader}>
           {collapsible ? (
-            <TouchableOpacity onPress={() => setDoneOpen((v) => !v)} style={{ flex: 1 }}>
+            <TouchableOpacity onPress={() => setOpen((v) => !v)} style={{ flex: 1 }}>
               <Text style={[styles.section, { color: colors.text }]}>
-                {title} {doneOpen ? '▾' : '▸'} ({items.length})
+                {title} {open ? '▾' : '▸'} ({items.length})
               </Text>
             </TouchableOpacity>
           ) : (
@@ -592,6 +684,23 @@ export default function AssistTodayScreen() {
               )}
             </TouchableOpacity>
           ) : null}
+          {syncStatus ? (
+            <View
+              style={{
+                backgroundColor: syncActive ? '#F0F9FF' : '#ECFDF5',
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: syncActive ? '#BAE6FD' : '#A7F3D0',
+              }}
+            >
+              <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>
+                {syncActive ? 'Syncing mailbox' : 'Mailbox connected'}
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: 13 }}>{syncStatus}</Text>
+            </View>
+          ) : null}
           <View style={styles.strip}>
             <View style={styles.stat}>
               <Text style={styles.statNum}>{counts.new_today}</Text>
@@ -606,11 +715,11 @@ export default function AssistTodayScreen() {
               <Text style={styles.statLabel}>Done</Text>
             </View>
           </View>
+          <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
+            Counts are for today’s Daily Brief (account timezone).
+          </Text>
 
           <View style={styles.navRow}>
-            <TouchableOpacity style={styles.navChip} onPress={() => setAskOpen(true)}>
-              <Text style={styles.navChipText}>Ask</Text>
-            </TouchableOpacity>
             {callsEnabled ? (
               <TouchableOpacity
                 style={styles.navChip}
@@ -630,11 +739,16 @@ export default function AssistTodayScreen() {
             </TouchableOpacity>
           </View>
 
-          {canGenerateBrief ? (
+          {canGenerateBrief || canRegenerateBrief ? (
             <View style={{ marginBottom: 16 }}>
               <Text style={{ color: colors.textSecondary, marginBottom: 8 }}>
-                Today’s brief is not ready yet. Build it from yesterday and today’s archived mail,
-                calls, and calendar.
+                {canGenerateBrief
+                  ? syncActive
+                    ? 'Today’s brief is not ready yet. Archive sync is still importing mail — you can generate now from what’s already archived, or wait a bit for more history.'
+                    : 'Today’s brief is not ready yet. Build it from yesterday and today’s archived mail, calls, and calendar.'
+                  : needsBriefRefresh
+                    ? 'Mailbox changed since this brief was built. Regenerate to pull follow-ups from the current mailbox.'
+                    : 'Refresh today’s brief from yesterday and today’s archived mail, calls, and calendar.'}
               </Text>
               <TouchableOpacity
                 style={[styles.primaryBtn, generatingBrief ? { opacity: 0.6 } : null]}
@@ -644,7 +758,9 @@ export default function AssistTodayScreen() {
                 {generatingBrief ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
-                  <Text style={styles.primaryBtnText}>Generate today’s brief</Text>
+                  <Text style={styles.primaryBtnText}>
+                    {canGenerateBrief ? 'Generate today’s brief' : 'Regenerate today’s brief'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -701,7 +817,14 @@ export default function AssistTodayScreen() {
 
           {renderSection('new_today', 'New today', filteredNew, 'Nothing new yet.')}
           {renderSection('still_open', 'Still open', filteredOpen, 'All clear.')}
-          {renderSection('done', 'Done', filteredDone, 'No completed items yet.', true)}
+          {renderSection('done', 'Done', filteredDone, 'No checked-off items yet.', true)}
+          {renderSection(
+            'dismissed',
+            'Dismissed',
+            filteredDismissed,
+            'No dismissed items.',
+            true,
+          )}
         </ScrollView>
       )}
 
@@ -855,6 +978,15 @@ export default function AssistTodayScreen() {
         visible={Boolean(sourcePanel)}
         content={sourcePanel}
         onClose={() => setSourcePanel(null)}
+      />
+
+      <GeneralFileViewerModal
+        visible={fileViewer.visible}
+        expandNonce={fileViewer.expandNonce}
+        fileId={fileViewer.fileId}
+        title={fileViewer.title}
+        pdfUri={fileViewer.pdfUri}
+        onClose={() => setFileViewer((s) => ({ ...s, visible: false }))}
       />
 
       <AskHistoryPanel

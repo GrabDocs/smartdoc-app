@@ -351,6 +351,9 @@ export default function EmailThreadScreen() {
   const keyboardOpen = kbInset > 0;
   const [busy, setBusy] = useState(false);
   const [body, setBody] = useState('');
+  const [bodyKey, setBodyKey] = useState(0);
+  /** Body that regenerate just cleared. A later save must not put it back. */
+  const replacedBodyRef = useRef<string | null>(null);
   const [expectsReply, setExpectsReply] = useState(false);
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -781,14 +784,17 @@ export default function EmailThreadScreen() {
   // While the keyboard is up it already covers the nav/home-indicator area.
   const restAboveNav = keyboardOpen ? 0 : systemBottomPad;
 
-  const persistDraft = async () => {
+  const persistDraft = async (bodyOverride?: string) => {
     if (!draft) return;
+    if (generateInFlightRef.current && bodyOverride == null) return;
+    const text = bodyOverride ?? body;
+    if (bodyOverride == null && replacedBodyRef.current != null && text === replacedBodyRef.current) return;
     await patchMailboxDraft(draft.id, {
       to: emailsFromAddressText(to),
       cc: emailsFromAddressText(cc),
       bcc: emailsFromAddressText(bcc),
       subject,
-      body_text: body,
+      body_text: text,
       gen_seq: draft.gen_seq ?? 0,
       expects_reply: expectsReply,
     });
@@ -798,16 +804,22 @@ export default function EmailThreadScreen() {
     if (generateInFlightRef.current) return;
     const replyMode = replyAll ? 'reply_all' : 'reply';
     const gen = ++generateGenRef.current;
+    const previousBody = body;
     setGeneratingMessage('Drafting reply…');
     generateInFlightRef.current = true;
     setBusy(true);
     try {
       if (draft && composing) {
         try {
-          await persistDraft();
+          await persistDraft(previousBody);
         } catch {
           /* still generate */
         }
+      }
+      if (previousBody) {
+        replacedBodyRef.current = previousBody;
+        setBody('');
+        setBodyKey((k) => k + 1);
       }
       const payload: Record<string, unknown> = {
         reply_mode: replyMode,
@@ -816,12 +828,13 @@ export default function EmailThreadScreen() {
       if (customInstructions.trim()) payload.custom_instructions = customInstructions.trim();
       if (opts?.source) payload.source = opts.source;
       const currentDraft = draftRef.current;
-      if (currentDraft) payload.body_text = body || currentDraft.body_text || '';
+      if (currentDraft) payload.body_text = previousBody || currentDraft.body_text || '';
       const data = await generateMailboxDraft(threadId, payload as any);
       if (generateGenRef.current !== gen) return;
       if (data.reply_from) setReplyFrom(data.reply_from);
       if (data.thread) setThread(data.thread);
       applyDraft(data.draft, true, true);
+      setBodyKey((k) => k + 1);
       setSuggestedReply(opts?.source === 'auto_suggest');
       setAiDetailsOpen(false);
       setAiCardOpen(false);
@@ -845,6 +858,8 @@ export default function EmailThreadScreen() {
           Alert.alert('Draft', msg);
         }
       }
+      if (replacedBodyRef.current) setBody(replacedBodyRef.current);
+      replacedBodyRef.current = null;
     } finally {
       generateInFlightRef.current = false;
       setBusy(false);
@@ -877,6 +892,7 @@ export default function EmailThreadScreen() {
     const q = researchQuestion.trim();
     if (!q || generateInFlightRef.current) return;
     const gen = ++generateGenRef.current;
+    const previousBody = body;
     setGeneratingMessage('Researching workspace…');
     setResearchPhase('searching');
     generateInFlightRef.current = true;
@@ -889,10 +905,15 @@ export default function EmailThreadScreen() {
     try {
       if (draft && composing) {
         try {
-          await persistDraft();
+          await persistDraft(previousBody);
         } catch {
           /* continue */
         }
+      }
+      if (previousBody) {
+        replacedBodyRef.current = previousBody;
+        setBody('');
+        setBodyKey((k) => k + 1);
       }
       const payload: Record<string, unknown> = {
         research_text: q,
@@ -901,12 +922,13 @@ export default function EmailThreadScreen() {
       };
       if (customInstructions.trim()) payload.custom_instructions = customInstructions.trim();
       const currentDraft = draftRef.current;
-      if (currentDraft) payload.body_text = body || currentDraft.body_text || '';
+      if (currentDraft) payload.body_text = previousBody || currentDraft.body_text || '';
       const res = await researchAndGenerateMailboxDraft(threadId, payload as any);
       if (generateGenRef.current !== gen) return;
       if (res.reply_from) setReplyFrom(res.reply_from);
       if (res.thread) setThread(res.thread);
       applyDraft(res.draft, true, true);
+      setBodyKey((k) => k + 1);
       setSuggestedReply(true);
       setAiDetailsOpen(false);
       setAiCardOpen(false);
@@ -919,6 +941,8 @@ export default function EmailThreadScreen() {
       if (limitData) showLimitError(limitData);
       else Alert.alert('Research', emailApiError(e, 'Could not research and generate'));
       if (generateGenRef.current === gen) setResearchPhase('idle');
+      if (replacedBodyRef.current) setBody(replacedBodyRef.current);
+      replacedBodyRef.current = null;
     } finally {
       if (researchStageTimerRef.current) {
         clearTimeout(researchStageTimerRef.current);
@@ -2476,6 +2500,7 @@ export default function EmailThreadScreen() {
                     </View>
                   ) : null}
                   <TextInput
+                    key={bodyKey}
                     style={[
                       styles.input,
                       composeFill
@@ -2485,6 +2510,8 @@ export default function EmailThreadScreen() {
                     ]}
                     value={body}
                     onChangeText={(v) => {
+                      if (generateInFlightRef.current) return;
+                      replacedBodyRef.current = null;
                       setSuggestedReply(false);
                       userHasTypedRef.current = true;
                       autoSuggestCancelledRef.current = true;

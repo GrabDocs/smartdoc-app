@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { InteractionManager, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FeedbackTouchable } from './FeedbackTouchable';
 import { useThemeColors } from '../hooks/useThemeColors';
 import { floatingDialogSurfaceStyle, modalScrimOverlayStyle } from '../utils/dialogSurfaceStyles';
@@ -86,10 +86,17 @@ export default function ActionMenuModal({ visible, title, message, items, onClos
                   disabled={!!busyId && busyId !== item.id}
                   spinnerColor={spinnerColor}
                   onPress={async () => {
+                    if (busyId) return;
                     setBusyId(item.id);
+                    const run = item.onPress;
+                    // Dismiss this Modal before the action opens another Modal/screen.
+                    // Same-tick Modal→Modal transitions freeze touch handling on iOS.
+                    onClose();
                     try {
-                      await Promise.resolve(item.onPress());
-                      onClose();
+                      await new Promise<void>((resolve) => {
+                        InteractionManager.runAfterInteractions(() => resolve());
+                      });
+                      await Promise.resolve(run());
                     } finally {
                       setBusyId(null);
                     }

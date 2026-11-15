@@ -29,11 +29,19 @@ function decodeHtmlEntities(text: string): string {
   return s;
 }
 
+/** Strip Assist calendar dedupe markers from user-visible text. */
+export function stripAssistBriefMarkers(text: string): string {
+  return String(text || '')
+    .replace(/\[assist_brief_item:\d+\]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /** Convert HTML / markdown-ish calendar text to readable plain text. */
 export function htmlToPlainText(html: string): string {
   if (!html) return '';
 
-  let s = decodeHtmlEntities(html.trim());
+  let s = decodeHtmlEntities(stripAssistBriefMarkers(html.trim()));
 
   s = s.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi, (_match, label: string, url: string) => {
     const trimmed = label.replace(/<\/?[a-z][^>]*>/gi, '').trim();

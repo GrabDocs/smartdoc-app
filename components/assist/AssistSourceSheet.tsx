@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useThemeColors } from '../../hooks/useThemeColors';
+import { formatAssistCitationDate } from '../../services/assistApi';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
 
 export type AssistSourceEmail = {
@@ -21,15 +22,6 @@ type Props = {
   content: AssistSourceContent | null;
   onClose: () => void;
 };
-
-function formatWhen(iso?: string | null): string {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return String(iso);
-  }
-}
 
 function formatRecipients(to?: string[] | string | null): string {
   if (!to) return '';
@@ -75,7 +67,7 @@ export default function AssistSourceSheet({ visible, content, onClose }: Props) 
               {content.email.provider_received_at ? (
                 <Text style={[styles.metaLine, { color: colors.textSecondary }]}>
                   <Text style={{ fontWeight: '700', color: colors.text }}>Date: </Text>
-                  {formatWhen(content.email.provider_received_at)}
+                  {formatAssistCitationDate(content.email.provider_received_at)}
                 </Text>
               ) : null}
             </View>

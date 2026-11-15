@@ -17,6 +17,14 @@ import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { completeAssistSetup, getAssistStatus, getAssistTaxonomy } from '../../services/assistApi';
+
+function deviceTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
 import {
   listInboxConnections,
   type InboxConnection,
@@ -70,13 +78,11 @@ export default function AssistSetupScreen() {
   const [showIosFrom, setShowIosFrom] = useState(false);
   const [briefTime, setBriefTime] = useState('06:00');
   const [showIosBrief, setShowIosBrief] = useState(false);
-  const [timezone, setTimezone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-  );
   const [saving, setSaving] = useState(false);
   const [folders, setFolders] = useState<string[]>([]);
   const [fallbackFolder, setFallbackFolder] = useState('');
   const [callsEnabled, setCallsEnabled] = useState(false);
+  const [setupCompleted, setSetupCompleted] = useState(false);
   const hydratedRef = React.useRef(false);
   const dirtyRef = React.useRef(false);
 
@@ -87,7 +93,6 @@ export default function AssistSetupScreen() {
       const t = String(saved.brief_local_time);
       setBriefTime(t.length >= 5 ? t.slice(0, 5) : t);
     }
-    if (saved.timezone) setTimezone(String(saved.timezone));
     if (saved.lookback_since) {
       const d = new Date(saved.lookback_since);
       if (!Number.isNaN(d.getTime())) {
@@ -113,6 +118,7 @@ export default function AssistSetupScreen() {
       setFolders(tax?.folders || []);
       setFallbackFolder(tax?.fallback || '');
       setCallsEnabled(Boolean(status?.calls_enabled));
+      setSetupCompleted(Boolean(status?.setup_completed));
       const saved = status?.settings;
       const preferred = saved?.connection_id ? Number(saved.connection_id) : null;
       setConnectionId((prev) => {
@@ -225,14 +231,16 @@ export default function AssistSetupScreen() {
         lookback_mode: lookback,
         lookback_from: lookback === 'custom' && fromAt ? formatFromLocal(fromAt) : undefined,
         brief_local_time: briefTime,
-        timezone,
+        // Account timezone is authoritative; device only heals a UTC placeholder.
+        timezone: deviceTimezone(),
       });
       dirtyRef.current = false;
       hydratedRef.current = true;
+      setSetupCompleted(true);
       if (res?.settings) applySavedSettings(res.settings);
       Alert.alert(
-        'Assist is ready',
-        'Archive backfill has started. Your first Daily Brief is created in the next hourly check.',
+        'Connected',
+        'Mailbox is connected and archive sync has started. Your first Daily Brief is created in the next hourly check.',
       );
       router.replace('/assist' as any);
     } catch (e: any) {
@@ -330,7 +338,7 @@ export default function AssistSetupScreen() {
         {lookback === 'custom' ? (
           <View style={{ marginTop: 8 }}>
             <Text style={{ color: colors.textSecondary, fontSize: 12 }}>
-              Uses the timezone below. Mail on or after this moment is imported.
+              Uses your account timezone. Mail on or after this moment is imported.
             </Text>
             {showIosFrom && Platform.OS === 'ios' ? (
               <View>
@@ -375,8 +383,8 @@ export default function AssistSetupScreen() {
           <Text style={{ color: colors.text }}>{displayBriefTime(briefTime)}</Text>
         </TouchableOpacity>
         <Text style={{ color: colors.textSecondary, marginTop: 6, fontSize: 12 }}>
-          Ready each day after this time in the timezone below. Your phone shows AM/PM or 24-hour
-          based on its settings.
+          Ready each day after this time in your account timezone ({deviceTimezone()}). Change
+          timezone in Settings → Display. Your phone shows AM/PM or 24-hour based on its settings.
         </Text>
         {showIosBrief && Platform.OS === 'ios' ? (
           <View style={{ marginTop: 8 }}>
@@ -393,21 +401,17 @@ export default function AssistSetupScreen() {
           </View>
         ) : null}
 
-        <Text style={[styles.label, { color: colors.text }]}>Timezone</Text>
-        <TextInput
-          value={timezone}
-          onChangeText={setTimezone}
-          style={[styles.input, { color: colors.text, borderColor: colors.border }]}
-        />
-
         <Text style={{ color: colors.textSecondary, marginVertical: 12, fontSize: 13 }}>
           Setup creates a dedicated Assist workspace for this account. Invite helpers only into that
-          workspace. Attachments are LLM-filed into a fixed folder list. Completing setup also enables
-          Email Replies for this mailbox (it will not auto-send mail).
+          workspace. Document attachments are sorted into the folders above; unclear ones go to Needs
+          review. Unsupported types like zip or video are skipped. Completing setup also enables Email
+          Replies for this mailbox (it will not auto-send mail).
         </Text>
 
         <TouchableOpacity style={styles.btn} onPress={() => void finish()} disabled={saving}>
-          <Text style={styles.btnText}>{saving ? 'Saving…' : 'Finish setup'}</Text>
+          <Text style={styles.btnText}>
+            {saving ? 'Saving…' : setupCompleted ? 'Update setup' : 'Finish setup'}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

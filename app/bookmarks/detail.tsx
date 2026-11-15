@@ -1229,7 +1229,7 @@ export default function BookmarkDetailScreen() {
               <Ionicons name="eye-outline" size={20} color="#007AFF" />
               <Text style={dynamicStyles.kebabMenuText}>View</Text>
             </TouchableOpacity>
-            {selectedDocumentForMenu && isReceipt(selectedDocumentForMenu) && (
+            {selectedDocumentForMenu && isReceiptOrInvoice(selectedDocumentForMenu) && (
               <TouchableOpacity style={dynamicStyles.kebabMenuItem} onPress={handleEditReceipt}>
                 <Ionicons name="create-outline" size={20} color="#007AFF" />
                 <Text style={dynamicStyles.kebabMenuText}>Edit</Text>
@@ -1277,7 +1277,7 @@ export default function BookmarkDetailScreen() {
       <ReceiptEditSheet
         visible={showReceiptEditSheet}
         fileId={selectedDocumentForMenu ? parseInt(selectedDocumentForMenu.id, 10) : null}
-        fileKind="receipt"
+        fileKind={selectedDocumentForMenu && isInvoice(selectedDocumentForMenu) ? 'invoice' : 'receipt'}
         onClose={() => setShowReceiptEditSheet(false)}
         onSaved={() => {
           if (detailCacheKey) screenCache.invalidate(detailCacheKey);

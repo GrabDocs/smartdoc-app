@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["MeetingChimeModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.meetingchime.MeetingChimeModule"]
+  }
+}

@@ -355,7 +355,7 @@ const config = {
     // IMPORTANT: bump this string ONLY when you change the native layer (new native deps, SDK
     // upgrades, permissions, plugins) and ship a new binary, so JS updates never land on an
     // incompatible binary.
-    runtimeVersion: "1.1.0",
+    runtimeVersion: "1.2.0",
     updates: {
       url: "https://u.expo.dev/341d1cdf-5759-41ef-8ae3-36e4cf7fab00",
     },

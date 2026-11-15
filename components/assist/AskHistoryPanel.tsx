@@ -2,7 +2,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,11 +9,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { API_BASE_URL } from '../../constants/Config';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import { apiClient } from '../../services/api';
-import { askAssist, getAssistArchiveMessage } from '../../services/assistApi';
+import {
+  askAssist,
+  formatAssistCitationDate,
+  getAssistArchiveMessage,
+} from '../../services/assistApi';
+import GeneralFileViewerModal from '../GeneralFileViewerModal';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
 import AssistSourceSheet, { type AssistSourceContent } from './AssistSourceSheet';
+import MarkdownPlainText from './MarkdownPlainText';
 
 type Props = {
   visible: boolean;
@@ -32,6 +37,13 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
   const [citations, setCitations] = useState<any[]>([]);
   const [note, setNote] = useState('');
   const [source, setSource] = useState<AssistSourceContent | null>(null);
+  const [fileViewer, setFileViewer] = useState<{
+    visible: boolean;
+    fileId: number;
+    title: string;
+    pdfUri: string | null;
+    expandNonce: number;
+  }>({ visible: false, fileId: 0, title: 'Document', pdfUri: null, expandNonce: 0 });
 
   useEffect(() => {
     if (!visible) return;
@@ -40,6 +52,7 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
     setCitations([]);
     setNote('');
     setSource(null);
+    setFileViewer((s) => ({ ...s, visible: false }));
   }, [visible]);
 
   const run = async () => {
@@ -48,10 +61,17 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
     try {
       const res = await askAssist(q.trim(), ownerUserId);
       setAnswer(res?.answer || '');
-      setCitations(res?.citations || []);
-      setNote(res?.note || '');
+      // No Sources when Ask failed (e.g. out of credits) or returned no usable answer.
+      const showSources = res?.ok !== false && Boolean(res?.answer) && !res?.error;
+      setCitations(showSources ? res?.citations || [] : []);
+      setNote(showSources ? res?.note || '' : '');
     } catch (e: any) {
-      setAnswer(e?.response?.data?.error || 'Ask failed');
+      setAnswer(
+        e?.response?.data?.answer ||
+          e?.response?.data?.error ||
+          (e?.response?.status === 402 ? 'Not enough credits to Ask right now.' : null) ||
+          'Ask failed',
+      );
       setCitations([]);
       setNote('');
     } finally {
@@ -79,12 +99,20 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
         } as any);
         return;
       }
-      if (c.kind === 'file' && c.file_url) {
-        const base = String(apiClient.client.defaults.baseURL || '').replace(/\/$/, '');
-        const url = String(c.file_url).startsWith('http')
-          ? String(c.file_url)
-          : `${base}${c.file_url}`;
-        await Linking.openURL(url);
+      if (c.kind === 'file' && (c.file_url || c.id)) {
+        const path = String(c.file_url || '');
+        const pdfUri = path
+          ? path.startsWith('http')
+            ? path
+            : `${String(API_BASE_URL || '').replace(/\/$/, '')}${path}`
+          : null;
+        setFileViewer((prev) => ({
+          visible: true,
+          fileId: Number(c.id) || 0,
+          title: c.filename || 'Document',
+          pdfUri,
+          expandNonce: prev.expandNonce + 1,
+        }));
       }
     })();
   };
@@ -124,21 +152,27 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
 
           {!!answer && (
             <View style={[styles.answer, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Text style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}>{answer}</Text>
+              <MarkdownPlainText
+                text={answer}
+                style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}
+              />
               {!!note && (
                 <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 12 }}>{note}</Text>
               )}
               {citations.length > 0 && (
                 <View style={{ marginTop: 12 }}>
                   <Text style={{ fontWeight: '700', color: colors.text, marginBottom: 6 }}>Sources</Text>
-                  {citations.map((c, i) => (
-                    <TouchableOpacity key={i} onPress={() => openCitation(c)}>
-                      <Text style={{ color: '#0284C7', fontSize: 12, marginBottom: 4 }}>
-                        • {c.kind} {c.subject || c.headline || c.filename || c.id}{' '}
-                        {c.date ? `(${c.date})` : ''}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  {citations.map((c, i) => {
+                    const when = formatAssistCitationDate(c.date);
+                    return (
+                      <TouchableOpacity key={i} onPress={() => openCitation(c)}>
+                        <Text style={{ color: '#0284C7', fontSize: 12, marginBottom: 4 }}>
+                          • {c.kind} {c.subject || c.headline || c.filename || c.id}{' '}
+                          {when ? `(${when})` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               )}
             </View>
@@ -150,6 +184,15 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
         visible={Boolean(source)}
         content={source}
         onClose={() => setSource(null)}
+      />
+
+      <GeneralFileViewerModal
+        visible={fileViewer.visible}
+        expandNonce={fileViewer.expandNonce}
+        fileId={fileViewer.fileId}
+        title={fileViewer.title}
+        pdfUri={fileViewer.pdfUri}
+        onClose={() => setFileViewer((s) => ({ ...s, visible: false }))}
       />
     </>
   );
