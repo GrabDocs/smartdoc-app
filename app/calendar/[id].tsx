@@ -134,8 +134,17 @@ function rsvpStatusBadge(status?: string | null): {
 }
 
 export default function CalendarEventDetailScreen() {
-  const { id: idParam } = useLocalSearchParams<{ id?: string }>();
+  const { id: idParam, occurrence_start: occurrenceStartParam } = useLocalSearchParams<{
+    id?: string;
+    occurrence_start?: string;
+  }>();
   const eventId = Number(idParam);
+  const occurrenceStart =
+    typeof occurrenceStartParam === 'string' && occurrenceStartParam.trim()
+      ? occurrenceStartParam.trim()
+      : Array.isArray(occurrenceStartParam) && typeof occurrenceStartParam[0] === 'string'
+        ? occurrenceStartParam[0].trim()
+        : '';
   const router = useRouter();
   const colors = useThemeColors();
   const { profile, refresh: refreshProfile } = useCalendarProfile();
@@ -465,9 +474,87 @@ export default function CalendarEventDetailScreen() {
     );
   }, [deviceOffline, performRemoveFromCalendar]);
 
+  const looksLikeGoogleInstanceId = (externalId?: string | null) =>
+    Boolean(externalId && /^.+_\d{8}T\d{6}Z$/.test(externalId));
+
+  const isRecurringEvent = useMemo(() => {
+    if (!event) return Boolean(occurrenceStart);
+    if ((event.rrule || '').trim()) return true;
+    if ((event as any).recurrence_parent_id) return true;
+    if (looksLikeGoogleInstanceId((event as any).external_event_id)) return true;
+    return Boolean(occurrenceStart);
+  }, [event, occurrenceStart]);
+
+  const runCancelEvent = useCallback(
+    async (scope: 'series' | 'occurrence') => {
+      setActionBusy('cancel');
+      leavingDetailRef.current = true;
+      try {
+        await calendarDeleteEvent(eventId, {
+          scope,
+          occurrence_start:
+            scope === 'occurrence'
+              ? occurrenceStart || event?.start_time || undefined
+              : undefined,
+        });
+        await leaveEventAndGoToList();
+      } catch (e: any) {
+        leavingDetailRef.current = false;
+        const data = e?.response?.data;
+        if (data?.code === 'use_remove_from_calendar') {
+          setActionBusy(null);
+          Alert.alert(
+            'Remove from calendar?',
+            data?.error ||
+              'You are not the organizer. Remove this event from your calendar only?',
+            [
+              { text: 'Keep', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  void performRemoveFromCalendar();
+                },
+              },
+            ]
+          );
+          return;
+        }
+        Alert.alert('Error', data?.error || 'Cancel failed');
+      } finally {
+        setActionBusy((prev) => (prev === 'cancel' ? null : prev));
+      }
+    },
+    [event?.start_time, eventId, leaveEventAndGoToList, occurrenceStart, performRemoveFromCalendar]
+  );
+
   const handleCancelEvent = useCallback(() => {
     if (deviceOffline) {
       Alert.alert('Offline', 'Canceling requires a connection.');
+      return;
+    }
+    if (isRecurringEvent) {
+      Alert.alert(
+        'Cancel event',
+        'Cancel only this occurrence, or the entire series? Participants will be notified.',
+        [
+          { text: 'Keep', style: 'cancel' },
+          {
+            text: 'This occurrence',
+            style: 'destructive',
+            onPress: () => {
+              void runCancelEvent('occurrence');
+            },
+          },
+          {
+            text: 'Entire series',
+            style: 'destructive',
+            onPress: () => {
+              void runCancelEvent('series');
+            },
+          },
+        ]
+      );
       return;
     }
     Alert.alert(
@@ -478,43 +565,13 @@ export default function CalendarEventDetailScreen() {
         {
           text: 'Cancel event',
           style: 'destructive',
-          onPress: async () => {
-            setActionBusy('cancel');
-            leavingDetailRef.current = true;
-            try {
-              await calendarDeleteEvent(eventId);
-              await leaveEventAndGoToList();
-            } catch (e: any) {
-              leavingDetailRef.current = false;
-              const data = e?.response?.data;
-              if (data?.code === 'use_remove_from_calendar') {
-                setActionBusy(null);
-                Alert.alert(
-                  'Remove from calendar?',
-                  data?.error ||
-                    'You are not the organizer. Remove this event from your calendar only?',
-                  [
-                    { text: 'Keep', style: 'cancel' },
-                    {
-                      text: 'Remove',
-                      style: 'destructive',
-                      onPress: () => {
-                        void performRemoveFromCalendar();
-                      },
-                    },
-                  ]
-                );
-                return;
-              }
-              Alert.alert('Error', data?.error || 'Cancel failed');
-            } finally {
-              setActionBusy((prev) => (prev === 'cancel' ? null : prev));
-            }
+          onPress: () => {
+            void runCancelEvent('series');
           },
         },
       ]
     );
-  }, [deviceOffline, eventId, leaveEventAndGoToList, performRemoveFromCalendar]);
+  }, [deviceOffline, isRecurringEvent, runCancelEvent]);
 
   const saveNote = async () => {
     if (deviceOffline) {

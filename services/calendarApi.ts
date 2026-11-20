@@ -206,8 +206,14 @@ export async function calendarUpdateEvent(id: number, body: Record<string, unkno
 }
 
 /** Organizer cancel — soft-deletes for everyone and emails participants. */
-export async function calendarDeleteEvent(id: number) {
-  await client().delete(`/api/v1/calendar/events/${id}`);
+export async function calendarDeleteEvent(
+  id: number,
+  options?: { scope?: 'series' | 'occurrence'; occurrence_start?: string }
+) {
+  const params: Record<string, string> = {};
+  if (options?.scope) params.scope = options.scope;
+  if (options?.occurrence_start) params.occurrence_start = options.occurrence_start;
+  await client().delete(`/api/v1/calendar/events/${id}`, { params });
 }
 
 /** Participant-only — soft-deletes this user's calendar copy; no emails. */

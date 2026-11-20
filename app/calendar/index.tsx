@@ -1132,9 +1132,21 @@ export default function CalendarHomeScreen() {
     (ev: EventRow) => {
       if (ev._offlinePendingCreate && ev._offlinePendingLocalId) {
         router.push(`/calendar/pending/${ev._offlinePendingLocalId}` as any);
-      } else {
-        router.push(`/calendar/${ev.id}` as any);
+        return;
       }
+      const start = (ev as any).start_time || (ev as any).startTime;
+      const recurring =
+        Boolean((ev as any).is_recurring_instance) ||
+        Boolean((ev as any).rrule) ||
+        Boolean((ev as any).recurrence_parent_id);
+      if (recurring && start) {
+        router.push({
+          pathname: `/calendar/${ev.id}`,
+          params: { occurrence_start: String(start) },
+        } as any);
+        return;
+      }
+      router.push(`/calendar/${ev.id}` as any);
     },
     [router]
   );

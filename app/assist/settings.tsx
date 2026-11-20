@@ -1,19 +1,20 @@
-import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from '@expo/vector-icons';
 import { useNetworkState } from 'expo-network';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import CallsSetupGuide from '../../components/assist/CallsSetupGuide';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import {
   archiveCursorsActive,
@@ -35,132 +36,6 @@ import { isNetworkError } from '../../utils/networkErrors';
 const CANCELABLE_ARCHIVE = new Set(['running', 'paused_quota', 'paused_credits', 'paused_disconnected']);
 const RESUMABLE_ARCHIVE = new Set(['paused_credits', 'paused_quota', 'cancelled', 'paused_disconnected']);
 
-type ForwardClient = 'iphone' | 'android' | 'carrier';
-
-const FORWARD_STEPS: Record<ForwardClient, { title: string; steps: (capture: string) => string[] }> = {
-  iphone: {
-    title: 'iPhone',
-    steps: (capture) => [
-      'Open Settings → Phone → Call Forwarding.',
-      'Turn Call Forwarding on.',
-      `Enter ${capture} as the forward-to number.`,
-      'Save. New calls to your personal number go to GrabDocs, then ring your eSIM.',
-    ],
-  },
-  android: {
-    title: 'Android',
-    steps: (capture) => [
-      'Open the Phone app → ⋮ → Settings → Calling accounts / Calls → Call forwarding.',
-      'Choose Always forward (or your carrier’s unconditional forwarding).',
-      `Enter ${capture}.`,
-      'Confirm. Test by calling your personal number from another phone.',
-    ],
-  },
-  carrier: {
-    title: 'Carrier',
-    steps: (capture) => [
-      'Open your carrier app or account site (AT&T, T-Mobile, Verizon, etc.).',
-      'Find Call Forwarding for your personal line.',
-      `Set always forward to ${capture}.`,
-      'Save. Keep 911 on your normal dialer — Assist is not an emergency service.',
-    ],
-  },
-};
-
-function CallsSetupGuide({ captureNumber }: { captureNumber: string | null }) {
-  const [client, setClient] = useState<ForwardClient>('iphone');
-
-  if (!captureNumber) {
-    return (
-      <View style={[styles.card, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }]}>
-        <Text style={{ color: '#92400E', fontSize: 13 }}>
-          Waiting for an admin to assign your GrabDocs capture number. After that, this section shows
-          the number to forward to and eSIM setup steps.
-        </Text>
-      </View>
-    );
-  }
-
-  const guide = FORWARD_STEPS[client];
-
-  return (
-    <View style={{ gap: 10 }}>
-      <View style={[styles.card, { backgroundColor: '#F0F9FF', borderColor: '#BAE6FD' }]}>
-        <Text style={{ color: '#0C4A6E', fontWeight: '700', fontSize: 13, marginBottom: 4 }}>
-          Your GrabDocs capture number
-        </Text>
-        <Text style={{ color: '#082F49', fontFamily: 'monospace', fontSize: 18, fontWeight: '700' }}>
-          {captureNumber}
-        </Text>
-        <Text style={{ color: '#075985', fontSize: 12, marginTop: 8 }}>
-          Forward your personal number to this address. Do not enter this as your eSIM ring number.
-        </Text>
-        <TouchableOpacity
-          style={[styles.btn, { marginTop: 10, marginBottom: 0 }]}
-          onPress={async () => {
-            await Clipboard.setStringAsync(captureNumber);
-            Alert.alert('Copied', captureNumber);
-          }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '700' }}>Copy number</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.card, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
-        <Text style={{ color: '#1E3A8A', fontWeight: '700', fontSize: 13, marginBottom: 6 }}>
-          Ring number = verified phone
-        </Text>
-        {[
-          'Assist rings your account verified phone (managed in Settings).',
-          'If you use an eSIM as that line, confirm it rings when dialed.',
-          'Change the number only in Settings → Profile → Phone.',
-          'Then return here to finish forwarding and Save Calls setup.',
-        ].map((step, i) => (
-          <Text key={i} style={{ color: '#1E40AF', fontSize: 12, marginBottom: 4 }}>
-            {i + 1}. {step}
-          </Text>
-        ))}
-      </View>
-
-      <View style={[styles.card, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
-        <Text style={{ color: '#1E3A8A', fontWeight: '700', fontSize: 13, marginBottom: 8 }}>
-          Forward your personal number — {guide.title}
-        </Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-          {(['iphone', 'android', 'carrier'] as const).map((c) => {
-            const on = client === c;
-            return (
-              <TouchableOpacity
-                key={c}
-                onPress={() => setClient(c)}
-                style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 999,
-                  backgroundColor: on ? '#2563EB' : '#DBEAFE',
-                }}
-              >
-                <Text style={{ color: on ? '#fff' : '#1D4ED8', fontSize: 12, fontWeight: '600' }}>
-                  {c === 'iphone' ? 'iPhone' : c === 'android' ? 'Android' : 'Carrier'}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-        {guide.steps(captureNumber).map((step, i) => (
-          <Text key={i} style={{ color: '#1E40AF', fontSize: 12, marginBottom: 4 }}>
-            {i + 1}. {step}
-          </Text>
-        ))}
-        <Text style={{ color: '#1D4ED8', fontSize: 12, marginTop: 8 }}>
-          Callers hear: “This call may be recorded by GrabDocs Assist for the account holder.” Hang up
-          to decline.
-        </Text>
-      </View>
-    </View>
-  );
-}
-
 export default function AssistSettingsScreen() {
   const router = useRouter();
   const colors = useThemeColors();
@@ -178,7 +53,7 @@ export default function AssistSettingsScreen() {
   const [scheduleCapture, setScheduleCapture] = useState<string | null>(null);
   const [scheduleOwnerPhone, setScheduleOwnerPhone] = useState<string | null>(null);
   const [schedulePhoneVerified, setSchedulePhoneVerified] = useState(false);
-  const [schedulePhoneDraft, setSchedulePhoneDraft] = useState('');
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const loadSettings = useCallback(async () => {
     // Light status first so setup_completed survives flaky/offline detail fetches.
@@ -381,51 +256,15 @@ export default function AssistSettingsScreen() {
             Capture number required for SMS scheduling.
           </Text>
         )}
-        <Text style={{ color: colors.textSecondary, marginBottom: 8 }}>
-          Schedule phone:{' '}
+        <Text style={{ color: colors.textSecondary, marginBottom: 4 }}>
+          Only your verified account phone can text Assist to schedule. Change that number in Settings
+          → Profile → Phone.
+        </Text>
+        <Text style={{ color: colors.text, marginBottom: 8, fontFamily: 'monospace' }}>
           {scheduleOwnerPhone && schedulePhoneVerified
             ? scheduleOwnerPhone
-            : 'Uses your verified account phone from Settings.'}
+            : 'No verified schedule phone yet'}
         </Text>
-        <TextInput
-          value={schedulePhoneDraft}
-          onChangeText={setSchedulePhoneDraft}
-          placeholder="+1 415 555 0100"
-          placeholderTextColor={colors.textSecondary}
-          keyboardType="phone-pad"
-          style={{
-            borderWidth: 1,
-            borderColor: colors.border,
-            borderRadius: 8,
-            padding: 10,
-            color: colors.text,
-            marginBottom: 8,
-          }}
-        />
-        <TouchableOpacity
-          style={[styles.btn, { backgroundColor: '#0F766E', marginBottom: 8 }]}
-          onPress={() =>
-            void saveAssistScheduleSettings({ schedule_owner_phone: schedulePhoneDraft.trim() })
-              .then((res: any) => {
-                const saved = res?.settings || {};
-                setScheduleOwnerPhone(saved.schedule_owner_phone || null);
-                setSchedulePhoneVerified(Boolean(saved.schedule_owner_phone_verified_at));
-                setScheduleSms(saved.schedule_sms_enabled !== false);
-                setSchedulePhoneDraft('');
-                Alert.alert('Schedule phone', 'Saved.');
-              })
-              .catch((e: any) =>
-                Alert.alert(
-                  'Schedule phone',
-                  e?.response?.data?.message ||
-                    e?.response?.data?.error ||
-                    'Verify that number with a code first',
-                ),
-              )
-          }
-        >
-          <Text style={{ color: '#fff', fontWeight: '700' }}>Save schedule phone</Text>
-        </TouchableOpacity>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: '#64748B', paddingVertical: 8, paddingHorizontal: 12 }]}
@@ -524,8 +363,23 @@ export default function AssistSettingsScreen() {
 
         {status?.calls_enabled ? (
           <>
-            <Text style={[styles.h, { color: colors.text }]}>Calls setup</Text>
-            <CallsSetupGuide captureNumber={captureNumber} />
+            <View
+              style={{
+                marginTop: 18,
+                marginBottom: 6,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <Text style={[styles.h, { color: colors.text, marginTop: 0, marginBottom: 0 }]}>
+                Calls setup
+              </Text>
+              <TouchableOpacity onPress={() => setSetupOpen(true)}>
+                <Text style={{ color: '#0284C7', fontWeight: '700' }}>Setup instructions</Text>
+              </TouchableOpacity>
+            </View>
             {captureNumber ? (
               <>
                 <View style={{ marginTop: 12, marginBottom: 8 }}>
@@ -590,6 +444,30 @@ export default function AssistSettingsScreen() {
           Files are left alone.
         </Text>
       </ScrollView>
+
+      <Modal
+        visible={setupOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setSetupOpen(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }} edges={['top', 'bottom']}>
+          <View style={styles.header}>
+            <View style={{ width: 40 }} />
+            <AppHeaderTitle>Setup instructions</AppHeaderTitle>
+            <TouchableOpacity
+              onPress={() => setSetupOpen(false)}
+              style={{ width: 40, alignItems: 'flex-end', padding: 8 }}
+              accessibilityLabel="Close"
+            >
+              <Ionicons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+            <CallsSetupGuide captureNumber={captureNumber} />
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -611,10 +489,5 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
     marginBottom: 8,
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
   },
 });

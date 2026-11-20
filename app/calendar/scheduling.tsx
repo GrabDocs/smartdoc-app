@@ -1029,13 +1029,9 @@ export default function CalendarSchedulingScreen() {
   const selected = types.find((item) => item.id === selectedType) || null;
   const showTabs = eventsView === 'list';
   const title = eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
-  // Active types first; deactivated stay visible at the bottom for Activate.
+  // Newest event type first (last created at the top).
   const listedTypes = useMemo(
-    () =>
-      [...types].sort((a, b) => {
-        if (a.active !== b.active) return a.active ? -1 : 1;
-        return String(a.name || '').localeCompare(String(b.name || ''));
-      }),
+    () => [...types].sort((a, b) => b.id - a.id),
     [types],
   );
 
