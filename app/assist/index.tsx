@@ -716,7 +716,9 @@ export default function AssistTodayScreen() {
             </View>
           </View>
           <Text style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 12 }}>
-            Counts are for today’s Daily Brief (account timezone).
+            {canGenerateBrief
+              ? 'Open items stay visible until today’s brief runs. New finds appear after sync or Generate.'
+              : 'Counts are for today’s Daily Brief (account timezone).'}
           </Text>
 
           <View style={styles.navRow}>
@@ -744,8 +746,8 @@ export default function AssistTodayScreen() {
               <Text style={{ color: colors.textSecondary, marginBottom: 8 }}>
                 {canGenerateBrief
                   ? syncActive
-                    ? 'Today’s brief is not ready yet. Archive sync is still importing mail — you can generate now from what’s already archived, or wait a bit for more history.'
-                    : 'Today’s brief is not ready yet. Build it from yesterday and today’s archived mail, calls, and calendar.'
+                    ? 'Today’s brief is not ready yet. Your open items stay listed below while archive sync continues — generate now, or wait for the scheduled brief.'
+                    : 'Today’s brief is not ready yet. Your open items stay listed below — generate now to pull new finds from mail, calls, and calendar, or wait for the scheduled brief.'
                   : needsBriefRefresh
                     ? 'Mailbox changed since this brief was built. Regenerate to pull follow-ups from the current mailbox.'
                     : 'Refresh today’s brief from yesterday and today’s archived mail, calls, and calendar.'}
