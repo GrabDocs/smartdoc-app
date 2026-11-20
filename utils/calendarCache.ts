@@ -24,6 +24,8 @@ export type CalendarOfflineStore = {
   listByKey: Record<string, ListCacheEntry>;
   eventsById: Record<string, DetailCacheEntry>;
   identityEmails?: string[];
+  /** Last known calendar OAuth connections by account user id. */
+  connectionsByUid?: Record<string, { connections: unknown[]; savedAt: number }>;
 };
 
 function isValidOfflineStore(p: unknown): p is CalendarOfflineStore {
@@ -285,6 +287,39 @@ export async function getCalendarIdentityEmails(): Promise<string[]> {
     return Array.isArray(store.identityEmails) ? [...store.identityEmails] : [];
   } catch {
     return [];
+  }
+}
+
+export async function saveCalendarConnectionsCache(
+  userId: number | null | undefined,
+  connections: unknown[],
+): Promise<void> {
+  if (userId == null || !Number.isFinite(Number(userId))) return;
+  try {
+    const store = await readStore();
+    const map = { ...(store.connectionsByUid || {}) };
+    map[String(userId)] = {
+      connections: Array.isArray(connections) ? connections : [],
+      savedAt: Date.now(),
+    };
+    store.connectionsByUid = map;
+    await writeStore(store);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function getCalendarConnectionsCache(
+  userId: number | null | undefined,
+): Promise<unknown[] | null> {
+  if (userId == null || !Number.isFinite(Number(userId))) return null;
+  try {
+    const store = await readStore();
+    const hit = store.connectionsByUid?.[String(userId)];
+    if (!hit || !Array.isArray(hit.connections)) return null;
+    return hit.connections;
+  } catch {
+    return null;
   }
 }
 

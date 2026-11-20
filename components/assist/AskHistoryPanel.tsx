@@ -15,6 +15,9 @@ import {
   askAssist,
   formatAssistCitationDate,
   getAssistArchiveMessage,
+  getAssistAskThread,
+  listAssistAskThreads,
+  type AssistAskThread,
 } from '../../services/assistApi';
 import GeneralFileViewerModal from '../GeneralFileViewerModal';
 import MinimizableBottomSheet from '../MinimizableBottomSheet';
@@ -27,15 +30,47 @@ type Props = {
   ownerUserId?: number;
 };
 
+type Turn = {
+  question: string;
+  answer: string;
+  citations: any[];
+  note: string;
+};
+
+function citationLabel(c: any): string {
+  if (c.kind === 'calendar') {
+    const when = formatAssistCitationDate(c.date || c.start_time);
+    return `• calendar ${c.title || 'Event'}${when ? ` (${when})` : ''}`;
+  }
+  const when = formatAssistCitationDate(c.date);
+  return `• ${c.kind} ${c.subject || c.headline || c.filename || c.id}${when ? ` (${when})` : ''}`;
+}
+
+function messagesToTurns(
+  messages: { role: string; content: string; citations?: any[]; note?: string }[],
+): Turn[] {
+  const turns: Turn[] = [];
+  for (const m of messages) {
+    if (m.role === 'user') {
+      turns.push({ question: m.content, answer: '', citations: [], note: '' });
+    } else if (m.role === 'assistant' && turns.length) {
+      turns[turns.length - 1].answer = m.content;
+      turns[turns.length - 1].citations = Array.isArray(m.citations) ? m.citations : [];
+      turns[turns.length - 1].note = m.note || '';
+    }
+  }
+  return turns;
+}
+
 export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props) {
   const router = useRouter();
   const colors = useThemeColors();
 
   const [q, setQ] = useState('');
   const [loading, setLoading] = useState(false);
-  const [answer, setAnswer] = useState('');
-  const [citations, setCitations] = useState<any[]>([]);
-  const [note, setNote] = useState('');
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [threadId, setThreadId] = useState<number | null>(null);
+  const [threads, setThreads] = useState<AssistAskThread[]>([]);
   const [source, setSource] = useState<AssistSourceContent | null>(null);
   const [fileViewer, setFileViewer] = useState<{
     visible: boolean;
@@ -45,35 +80,74 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
     expandNonce: number;
   }>({ visible: false, fileId: 0, title: 'Document', pdfUri: null, expandNonce: 0 });
 
+  const refreshThreads = () => {
+    listAssistAskThreads(ownerUserId)
+      .then((res) => setThreads(res?.threads || []))
+      .catch(() => setThreads([]));
+  };
+
   useEffect(() => {
     if (!visible) return;
     setQ('');
-    setAnswer('');
-    setCitations([]);
-    setNote('');
+    setTurns([]);
+    setThreadId(null);
     setSource(null);
     setFileViewer((s) => ({ ...s, visible: false }));
-  }, [visible]);
+    refreshThreads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, ownerUserId]);
+
+  const startNew = () => {
+    setQ('');
+    setTurns([]);
+    setThreadId(null);
+    refreshThreads();
+  };
+
+  const openThread = async (id: number) => {
+    try {
+      const res = await getAssistAskThread(id, ownerUserId);
+      setTurns(messagesToTurns(res?.messages || []));
+      setThreadId(id);
+    } catch {
+      setTurns([]);
+      setThreadId(null);
+    }
+  };
 
   const run = async () => {
-    if (!q.trim()) return;
+    const question = q.trim();
+    if (!question) return;
     setLoading(true);
     try {
-      const res = await askAssist(q.trim(), ownerUserId);
-      setAnswer(res?.answer || '');
+      const res = await askAssist(question, ownerUserId, threadId);
       // No Sources when Ask failed (e.g. out of credits) or returned no usable answer.
       const showSources = res?.ok !== false && Boolean(res?.answer) && !res?.error;
-      setCitations(showSources ? res?.citations || [] : []);
-      setNote(showSources ? res?.note || '' : '');
+      setTurns((prev) => [
+        ...prev,
+        {
+          question,
+          answer: res?.answer || '',
+          citations: showSources ? res?.citations || [] : [],
+          note: showSources ? res?.note || '' : '',
+        },
+      ]);
+      if (res?.chat_history_id) setThreadId(Number(res.chat_history_id));
+      setQ('');
     } catch (e: any) {
-      setAnswer(
-        e?.response?.data?.answer ||
-          e?.response?.data?.error ||
-          (e?.response?.status === 402 ? 'Not enough credits to Ask right now.' : null) ||
-          'Ask failed',
-      );
-      setCitations([]);
-      setNote('');
+      setTurns((prev) => [
+        ...prev,
+        {
+          question,
+          answer:
+            e?.response?.data?.answer ||
+            e?.response?.data?.error ||
+            (e?.response?.status === 402 ? 'Not enough credits to Ask right now.' : null) ||
+            'Ask failed',
+          citations: [],
+          note: '',
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -131,10 +205,57 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28 }}
           keyboardShouldPersistTaps="handled"
         >
+          {turns.length === 0 && threads.length > 0 && (
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontWeight: '700', color: colors.text, marginBottom: 6 }}>Recent</Text>
+              {threads.slice(0, 8).map((t) => (
+                <TouchableOpacity key={t.id} onPress={() => void openThread(t.id)}>
+                  <Text numberOfLines={1} style={{ color: '#0284C7', fontSize: 13, marginBottom: 6 }}>
+                    {t.title || t.last_message_preview || 'Question'}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {turns.map((t, idx) => (
+            <View
+              key={idx}
+              style={[styles.answer, { borderColor: colors.border, backgroundColor: colors.background }]}
+            >
+              <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 8 }}>{t.question}</Text>
+              {!!t.answer && (
+                <MarkdownPlainText
+                  text={t.answer}
+                  style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}
+                />
+              )}
+              {!!t.note && (
+                <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 12 }}>{t.note}</Text>
+              )}
+              {t.citations.length > 0 && (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ fontWeight: '700', color: colors.text, marginBottom: 6 }}>Sources</Text>
+                  {t.citations.map((c, i) =>
+                    c.kind === 'calendar' ? (
+                      <Text key={i} style={{ color: colors.textSecondary, fontSize: 12, marginBottom: 4 }}>
+                        {citationLabel(c)}
+                      </Text>
+                    ) : (
+                      <TouchableOpacity key={i} onPress={() => openCitation(c)}>
+                        <Text style={{ color: '#0284C7', fontSize: 12, marginBottom: 4 }}>{citationLabel(c)}</Text>
+                      </TouchableOpacity>
+                    ),
+                  )}
+                </View>
+              )}
+            </View>
+          ))}
+
           <TextInput
             value={q}
             onChangeText={setQ}
-            placeholder="Ask about emails, attachments, or calls…"
+            placeholder={turns.length ? 'Ask a follow-up…' : 'Ask about emails, attachments, calls, or meetings…'}
             placeholderTextColor={colors.textSecondary}
             style={[
               styles.input,
@@ -149,33 +270,10 @@ export default function AskHistoryPanel({ visible, onClose, ownerUserId }: Props
           >
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Ask</Text>}
           </TouchableOpacity>
-
-          {!!answer && (
-            <View style={[styles.answer, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <MarkdownPlainText
-                text={answer}
-                style={{ color: colors.text, fontSize: 15, lineHeight: 22 }}
-              />
-              {!!note && (
-                <Text style={{ color: colors.textSecondary, marginTop: 12, fontSize: 12 }}>{note}</Text>
-              )}
-              {citations.length > 0 && (
-                <View style={{ marginTop: 12 }}>
-                  <Text style={{ fontWeight: '700', color: colors.text, marginBottom: 6 }}>Sources</Text>
-                  {citations.map((c, i) => {
-                    const when = formatAssistCitationDate(c.date);
-                    return (
-                      <TouchableOpacity key={i} onPress={() => openCitation(c)}>
-                        <Text style={{ color: '#0284C7', fontSize: 12, marginBottom: 4 }}>
-                          • {c.kind} {c.subject || c.headline || c.filename || c.id}{' '}
-                          {when ? `(${when})` : ''}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
+          {turns.length > 0 && !loading && (
+            <TouchableOpacity onPress={startNew} style={{ alignItems: 'center', paddingVertical: 6 }}>
+              <Text style={{ color: '#0284C7', fontWeight: '600' }}>New question</Text>
+            </TouchableOpacity>
           )}
         </ScrollView>
       </MinimizableBottomSheet>
@@ -215,5 +313,5 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   btnText: { color: '#fff', fontWeight: '700' },
-  answer: { borderWidth: 1, borderRadius: 12, padding: 14 },
+  answer: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 12 },
 });

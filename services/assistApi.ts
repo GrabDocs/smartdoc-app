@@ -101,12 +101,44 @@ export async function getBriefItemSource(itemId: number, ownerUserId?: number) {
   return res.data;
 }
 
-export async function askAssist(question: string, ownerUserId?: number) {
+export async function askAssist(question: string, ownerUserId?: number, chatHistoryId?: number | null) {
   const res = await client().post(`${BASE}/ask`, {
     question,
     owner_user_id: ownerUserId,
+    ...(chatHistoryId ? { chat_history_id: chatHistoryId } : {}),
   });
   return res.data;
+}
+
+export type AssistAskThread = {
+  id: number;
+  title: string;
+  last_message_preview?: string | null;
+  message_count?: number | null;
+  updated_at?: string | null;
+};
+
+export async function listAssistAskThreads(ownerUserId?: number) {
+  const res = await client().get(`${BASE}/ask/history`, {
+    params: ownerUserId ? { owner_user_id: ownerUserId } : undefined,
+  });
+  return res.data as { threads: AssistAskThread[] };
+}
+
+export async function getAssistAskThread(threadId: number, ownerUserId?: number) {
+  const res = await client().get(`${BASE}/ask/history/${threadId}`, {
+    params: ownerUserId ? { owner_user_id: ownerUserId } : undefined,
+  });
+  return res.data as {
+    thread: AssistAskThread;
+    messages: {
+      role: 'user' | 'assistant';
+      content: string;
+      timestamp?: string;
+      citations?: any[];
+      note?: string;
+    }[];
+  };
 }
 
 export async function listAssistCalls(ownerUserId?: number) {
@@ -184,30 +216,95 @@ export type AssistArchiveCursor = {
 };
 
 export function archiveCursorKindLabel(kind?: string): string {
-  if (kind === 'backfill') return 'Backfill';
-  if (kind === 'incremental') return 'Live sync';
+  if (kind === 'backfill') return 'Historical import';
+  if (kind === 'incremental') return 'New mail';
   return kind || 'Sync';
 }
 
 export function archiveCursorStatusLabel(cursor: AssistArchiveCursor): string {
   const status = String(cursor?.status || '');
-  if (status === 'done' || status === 'synced') return 'finished';
-  if (status === 'running') return cursor?.cursor_kind === 'incremental' ? 'syncing' : 'importing';
-  if (status === 'paused_credits') return 'paused (out of credits)';
-  if (status === 'paused_quota') return 'paused (quota)';
-  if (status === 'paused_disconnected') return 'paused (mailbox disconnected)';
-  if (status === 'error_auth') return 'needs reconnect';
-  if (status === 'cancelled') return 'cancelled';
+  if (status === 'done') return 'Finished';
+  if (status === 'synced') {
+    return cursor?.cursor_kind === 'incremental' ? 'Up to date' : 'Finished';
+  }
+  if (status === 'running') return cursor?.cursor_kind === 'incremental' ? 'Syncing' : 'Importing';
+  if (status === 'paused_credits') return 'Paused — out of credits';
+  if (status === 'paused_quota') return 'Paused — quota';
+  if (status === 'paused_disconnected') return 'Paused — mailbox disconnected';
+  if (status === 'error_auth') return 'Needs reconnect';
+  if (status === 'cancelled') return 'Stopped until resume';
   // Never surface raw snake_case codes in the UI.
   return status.replace(/_/g, ' ') || 'unknown';
 }
 
 export function formatArchiveCursorLine(cursor: AssistArchiveCursor): string {
-  const mailbox = cursor?.mailbox_label || cursor?.account_name || 'Mailbox';
   const kind = archiveCursorKindLabel(cursor?.cursor_kind);
   const status = archiveCursorStatusLabel(cursor);
   const imported = Number(cursor?.messages_imported || 0);
-  return `${mailbox} · ${kind}: ${status} · imported ${imported}`;
+  const count =
+    cursor?.cursor_kind === 'incremental' && (status === 'Up to date' || status === 'Syncing')
+      ? imported > 0
+        ? ` · ${imported} messages`
+        : ''
+      : ` · ${imported} messages`;
+  return `${kind} · ${status}${count}`;
+}
+
+export type AssistConnectionPill = {
+  key: string;
+  label: string;
+  tone: 'ok' | 'warn';
+};
+
+/** Status pills for Assist settings (Connected / Syncing / Paused / Needs reconnect). */
+export function assistConnectionStatusPills(
+  cursors: AssistArchiveCursor[] | undefined | null,
+  setupCompleted: boolean,
+): AssistConnectionPill[] {
+  if (!setupCompleted) return [];
+  const list = cursors || [];
+  const needsReconnect = list.some((c) =>
+    ['paused_disconnected', 'error_auth'].includes(String(c?.status || '')),
+  );
+  if (needsReconnect) {
+    return [{ key: 'reconnect', label: 'Needs reconnect', tone: 'warn' }];
+  }
+  const syncing = list.some((c) => String(c?.status || '') === 'running');
+  const paused = list.some((c) =>
+    ['paused_credits', 'paused_quota', 'cancelled'].includes(String(c?.status || '')),
+  );
+  if (syncing) {
+    return [
+      { key: 'connected', label: 'Connected', tone: 'ok' },
+      { key: 'syncing', label: 'Syncing', tone: 'ok' },
+    ];
+  }
+  if (paused) {
+    return [{ key: 'paused', label: 'Paused', tone: 'warn' }];
+  }
+  return [{ key: 'connected', label: 'Connected', tone: 'ok' }];
+}
+
+/** Group deduped cursors under each mailbox for the Archive progress section. */
+export function groupArchiveCursorsByMailbox(
+  cursors: AssistArchiveCursor[] | undefined | null,
+): { label: string; cursors: AssistArchiveCursor[] }[] {
+  const list = dedupeArchiveCursorsForDisplay(cursors);
+  const order: string[] = [];
+  const map = new Map<string, AssistArchiveCursor[]>();
+  for (const c of list) {
+    const key = String(c.connection_id || c.mailbox_label || c.account_name || 'Mailbox');
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key)!.push(c);
+  }
+  return order.map((key) => {
+    const rows = map.get(key) || [];
+    const label = rows[0]?.mailbox_label || rows[0]?.account_name || 'Mailbox';
+    return { label: String(label), cursors: rows };
+  });
 }
 
 /** Client-side safety net: one row per mailbox + kind. */
@@ -240,6 +337,14 @@ export function dedupeArchiveCursorsForDisplay(
   });
 }
 
+/** True when Stop archive until resume should be offered for this job. */
+export function archiveCursorStoppable(cursor: AssistArchiveCursor | undefined | null): boolean {
+  const status = String(cursor?.status || '');
+  if (['running', 'paused_quota', 'paused_credits', 'paused_disconnected'].includes(status)) return true;
+  // Caught-up new mail would sync again on the next pass unless the owner stops it.
+  return cursor?.cursor_kind === 'incremental' && status === 'synced';
+}
+
 export function archiveCursorsActive(cursors: AssistArchiveCursor[] | undefined | null): boolean {
   return (cursors || []).some((c) => ['running', 'paused_quota'].includes(String(c?.status || '')));
 }
@@ -264,13 +369,13 @@ export function summarizeArchiveSync(cursors: AssistArchiveCursor[] | undefined 
   );
   if (pausedBackfill) {
     const mailbox = pausedBackfill.mailbox_label || 'Mailbox';
-    const status = archiveCursorStatusLabel(pausedBackfill);
+    const status = archiveCursorStatusLabel(pausedBackfill).toLowerCase();
     return `${mailbox} archive is ${status} · imported ${Number(pausedBackfill.messages_imported || 0)}. Resume from Settings when ready.`;
   }
   const activeBackfill = backfills.find((c) => c.status === 'running');
   if (activeBackfill) {
     const mailbox = activeBackfill.mailbox_label || 'Mailbox';
-    return `${mailbox} archive is importing (${Number(activeBackfill.messages_imported || 0)} so far). Mail becomes searchable as it lands.`;
+    return `${mailbox} historical import is running (${Number(activeBackfill.messages_imported || 0)} so far). Mail becomes searchable as it lands.`;
   }
   const live = list.find((c) => c.cursor_kind === 'incremental' && c.status === 'running');
   if (live) {
@@ -280,7 +385,7 @@ export function summarizeArchiveSync(cursors: AssistArchiveCursor[] | undefined 
   const syncedLive = list.find((c) => c.cursor_kind === 'incremental' && c.status === 'synced');
   if (finished.length || syncedLive) {
     const label = (syncedLive || finished[finished.length - 1])?.mailbox_label || 'Mailbox';
-    return `${label} is connected. Archive import finished; new mail keeps syncing in the background.`;
+    return `${label} is connected. Historical import finished; new mail keeps syncing in the background.`;
   }
   return null;
 }

@@ -50,9 +50,11 @@ import {
 } from '../../services/calendarApi';
 import {
   buildCalendarListStorageKey,
+  getCalendarConnectionsCache,
   getCalendarListCache,
   getCalendarListFallback,
   isCalendarFetchOfflineError,
+  saveCalendarConnectionsCache,
   saveCalendarIdentityEmails,
   saveCalendarListCache,
 } from '../../utils/calendarCache';
@@ -153,10 +155,17 @@ export default function CalendarHomeScreen() {
   const onEndReachedCalledDuringMomentumRef = useRef(false);
 
   const [calendarConnectionsList, setCalendarConnectionsList] = useState<CalendarConnection[]>([]);
+  /** False until cache hydrate or first network result — avoids a false "Connect" flash. */
+  const [connectionsReady, setConnectionsReady] = useState(false);
   const [busyConnectionId, setBusyConnectionId] = useState<number | null>(null);
   const [connectModalOpen, setConnectModalOpen] = useState(false);
   const [oauthOpen, setOauthOpen] = useState(false);
   const [oauthProvider, setOauthProvider] = useState<CalendarProvider>('google');
+  const connectionsFetchGenRef = useRef(0);
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
 
   const networkState = useNetworkState();
   const deviceOffline = useMemo(
@@ -179,14 +188,21 @@ export default function CalendarHomeScreen() {
   const calendarScrollBottomPad = calendarFabBottom + 56 + 16;
 
   const refreshConnections = useCallback(async () => {
+    const gen = ++connectionsFetchGenRef.current;
+    const uid = Number(userIdRef.current);
     try {
       const list = await calendarConnections();
+      if (gen !== connectionsFetchGenRef.current) return;
       setCalendarConnectionsList(list);
-      await saveCalendarIdentityEmails(calendarIdentityEmails(profile, list));
+      setConnectionsReady(true);
+      void saveCalendarConnectionsCache(uid, list);
+      await saveCalendarIdentityEmails(calendarIdentityEmails(profileRef.current, list));
     } catch {
-      setCalendarConnectionsList([]);
+      if (gen !== connectionsFetchGenRef.current) return;
+      // Keep last known connections — never flash the Connect banner on a blip/timeout.
+      setConnectionsReady(true);
     }
-  }, [profile]);
+  }, []);
 
   const hasGoogleConnection = useMemo(
     () => calendarConnectionsList.some((c) => calendarConnectionProvider(c) === 'google'),
@@ -452,11 +468,27 @@ export default function CalendarHomeScreen() {
 
   const eventsSignature = useMemo(() => displayEvents.map((e) => String(e.id ?? '')).join(','), [displayEvents]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    const uid = Number(user?.id);
+    if (!Number.isFinite(uid)) return;
+    (async () => {
+      const cached = await getCalendarConnectionsCache(uid);
+      if (cancelled || !cached?.length) return;
+      setCalendarConnectionsList((prev) => (prev.length ? prev : (cached as CalendarConnection[])));
+      setConnectionsReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       refreshProfile({ silent: true });
-      refreshConnections();
+      void refreshConnections();
       if (!deviceOffline) {
+        // Sync in background after connections paint — do not block chips/banner.
         calendarSyncGoogleWithStaleConnectionRecovery().catch(() => {});
       }
       reloadPendingRows();
@@ -1398,7 +1430,7 @@ export default function CalendarHomeScreen() {
         </View>
       ) : null}
 
-      {!viewUserActive && !hasAnyConnection ? (
+      {!viewUserActive && connectionsReady && !hasAnyConnection ? (
         <View style={styles.connectBanner}>
           <View style={styles.connectBannerIcons}>
             <GoogleLogo size={18} />
