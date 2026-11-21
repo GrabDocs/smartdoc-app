@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import CallsSetupGuide from '../../components/assist/CallsSetupGuide';
@@ -56,6 +56,7 @@ type ScheduleDraft = {
 export default function AssistSettingsScreen() {
   const router = useRouter();
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const network = useNetworkState();
   const [status, setStatus] = useState<any>(null);
   const [progress, setProgress] = useState<any>(null);
@@ -251,73 +252,14 @@ export default function AssistSettingsScreen() {
         <TouchableOpacity
           onPress={() => router.push('/assist/setup' as any)}
           disabled={setupDisabled}
-          style={{ width: 40, alignItems: 'flex-end', padding: 8, opacity: setupDisabled ? 0.4 : 1 }}
-          accessibilityLabel={
-            !metaReady
-              ? 'Loading setup'
-              : setupCompleted
-                ? 'Update or review setup'
-                : offline
-                  ? 'Setup unavailable offline'
-                  : 'Finish Assist setup'
-          }
+          style={{ paddingVertical: 8, paddingLeft: 8, opacity: setupDisabled ? 0.4 : 1 }}
+          accessibilityLabel="Edit settings"
         >
-          <Ionicons name="create-outline" size={22} color={colors.text} />
+          <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 15 }}>Edit settings</Text>
         </TouchableOpacity>
       </View>
 
-      {scheduleDirty ? (
-        <View
-          style={{
-            marginHorizontal: 16,
-            marginBottom: 8,
-            padding: 12,
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: '#FCD34D',
-            backgroundColor: '#FFFBEB',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 13 }}>
-              Unsaved schedule changes
-            </Text>
-            <Text style={{ color: '#92400E', fontSize: 12, marginTop: 2 }}>
-              Save to apply SMS, email, and when-to-save settings.
-            </Text>
-          </View>
-          <TouchableOpacity onPress={discardScheduleDraft} hitSlop={8}>
-            <Text style={{ color: '#92400E', fontWeight: '600', fontSize: 13 }}>Discard</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() =>
-              void saveAssistScheduleSettings({
-                schedule_write_policy: schedulePolicy,
-                schedule_sms_enabled: scheduleSms,
-                schedule_email_enabled: scheduleEmail,
-              })
-                .then((res: any) => {
-                  applyScheduleFromServer(res, status);
-                  Alert.alert('Saved', 'Schedule settings updated.');
-                })
-                .catch((e: any) =>
-                  Alert.alert(
-                    'Save failed',
-                    e?.response?.data?.message || e?.response?.data?.error || 'Failed',
-                  ),
-                )
-            }
-            hitSlop={8}
-          >
-            <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 13 }}>Save</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
-
-      <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: scheduleDirty ? 88 : 16 }}>
         {offline ? (
           <View
             style={{
@@ -753,6 +695,55 @@ export default function AssistSettingsScreen() {
           Files are left alone.
         </Text>
       </ScrollView>
+
+      {scheduleDirty ? (
+        <View
+          style={{
+            position: 'absolute',
+            left: 16,
+            right: 16,
+            bottom: Math.max(insets.bottom, 12),
+            paddingVertical: 12,
+            paddingHorizontal: 14,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: '#FCD34D',
+            backgroundColor: '#FFFBEB',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <Text style={{ color: '#92400E', fontWeight: '700', fontSize: 13, flex: 1 }}>
+            Unsaved schedule changes
+          </Text>
+          <TouchableOpacity onPress={discardScheduleDraft} hitSlop={8}>
+            <Text style={{ color: '#92400E', fontWeight: '600', fontSize: 13 }}>Discard</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() =>
+              void saveAssistScheduleSettings({
+                schedule_write_policy: schedulePolicy,
+                schedule_sms_enabled: scheduleSms,
+                schedule_email_enabled: scheduleEmail,
+              })
+                .then((res: any) => {
+                  applyScheduleFromServer(res, status);
+                  Alert.alert('Saved', 'Schedule settings updated.');
+                })
+                .catch((e: any) =>
+                  Alert.alert(
+                    'Save failed',
+                    e?.response?.data?.message || e?.response?.data?.error || 'Failed',
+                  ),
+                )
+            }
+            hitSlop={8}
+          >
+            <Text style={{ color: '#0284C7', fontWeight: '700', fontSize: 13 }}>Save</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       <Modal
         visible={setupOpen}

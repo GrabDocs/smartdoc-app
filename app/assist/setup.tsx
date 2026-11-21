@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import { useThemeColors } from '../../hooks/useThemeColors';
-import { completeAssistSetup, getAssistStatus, getAssistTaxonomy } from '../../services/assistApi';
+import { completeAssistSetup, getAssistStatus } from '../../services/assistApi';
 
 function deviceTimezone(): string {
   try {
@@ -79,8 +79,6 @@ export default function AssistSetupScreen() {
   const [briefTime, setBriefTime] = useState('06:00');
   const [showIosBrief, setShowIosBrief] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [folders, setFolders] = useState<string[]>([]);
-  const [fallbackFolder, setFallbackFolder] = useState('');
   const [callsEnabled, setCallsEnabled] = useState(false);
   const [setupCompleted, setSetupCompleted] = useState(false);
   const hydratedRef = React.useRef(false);
@@ -108,15 +106,12 @@ export default function AssistSetupScreen() {
   const loadConnections = useCallback(async () => {
     setLoadingConns(true);
     try {
-      const [list, tax, status] = await Promise.all([
+      const [list, status] = await Promise.all([
         listInboxConnections(),
-        getAssistTaxonomy().catch(() => null),
         getAssistStatus().catch(() => null),
       ]);
       const usable = (list || []).filter((c) => c.is_active !== false && !c.needs_reconnect);
       setConnections(usable);
-      setFolders(tax?.folders || []);
-      setFallbackFolder(tax?.fallback || '');
       setCallsEnabled(Boolean(status?.calls_enabled));
       setSetupCompleted(Boolean(status?.setup_completed));
       const saved = status?.settings;
@@ -133,7 +128,6 @@ export default function AssistSetupScreen() {
       }
     } catch {
       setConnections([]);
-      setFolders([]);
     } finally {
       setLoadingConns(false);
     }
@@ -358,16 +352,6 @@ export default function AssistSetupScreen() {
           </View>
         ) : null}
 
-        <Text style={[styles.label, { color: colors.text }]}>Smart filing folders</Text>
-        <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 6 }}>
-          Assist files attachments into this list. You do not pick a folder. Unclear documents go to{' '}
-          {fallbackFolder || 'Assist / Needs review'}. Email Replies folder selection stays as it is.
-        </Text>
-        {folders.map((name) => (
-          <Text key={name} style={{ color: colors.text, fontSize: 13 }}>
-            {name}
-          </Text>
-        ))}
         {callsEnabled ? (
           <Text style={{ color: colors.textSecondary, marginTop: 10, fontSize: 13 }}>
             Calls setup can wait. Finish here to start the archive and Daily Brief, then add your ring
@@ -400,13 +384,6 @@ export default function AssistSetupScreen() {
             </TouchableOpacity>
           </View>
         ) : null}
-
-        <Text style={{ color: colors.textSecondary, marginVertical: 12, fontSize: 13 }}>
-          Setup creates a dedicated Assist workspace for this account. Invite helpers only into that
-          workspace. Document attachments are sorted into the folders above; unclear ones go to Needs
-          review. Unsupported types like zip or video are skipped. Completing setup also enables Email
-          Replies for this mailbox (it will not auto-send mail).
-        </Text>
 
         <TouchableOpacity style={styles.btn} onPress={() => void finish()} disabled={saving}>
           <Text style={styles.btnText}>
