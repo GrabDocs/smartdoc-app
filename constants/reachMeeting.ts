@@ -46,11 +46,19 @@ export function isLiveReachMeetingMounted(meetingId: unknown): boolean {
 /**
  * Route to stay on the live call. Also marks the current HMS instance to skip leave if
  * Expo remounts anyway (so the shared guest row is not deleted).
+ *
+ * Prefer router.navigate(this) so React Navigation pops back to the mounted screen
+ * instead of pushing a second HMSPrebuilt (which would leave/rejoin).
  */
 export function resumeLiveReachMeetingRoute(meetingId: unknown): string | null {
   if (!isLiveReachMeetingMounted(meetingId)) return null;
   skipHmsLeaveUntil = Date.now() + 8000;
   return liveRouteForId(liveReachMeetingId);
+}
+
+/** True when any Reach HMS screen is still mounted (including minimized under the stack). */
+export function hasLiveReachMeetingMounted(): boolean {
+  return Boolean(liveReachMeetingMounted && liveReachMeetingId);
 }
 
 export function shouldSkipHmsLeave(): boolean {

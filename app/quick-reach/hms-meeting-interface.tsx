@@ -790,15 +790,25 @@ export default function HMSMeetingInterfaceScreen() {
     }
   }, [meetingId, title, userName]);
 
-  // Back / swipe: return to origin (Reach list by default; Calendar when joined from calendar).
-  // Using replace avoids popping to (tabs)/Home first and keeps path correct (avoids grabdocs:/// unmatched route when tapping active meeting later).
+  // Back / swipe:
+  // - Prejoin: leave the route (no live session yet).
+  // - In-call: push the exit screen ON TOP of HMS so WebRTC stays mounted; user returns via
+  //   the Active meeting card (router.navigate pops back to this screen). Never replace/unmount.
   const goBackToApp = useCallback(() => {
-    isNavigatingAwayRef.current = true;
     if (presenceConfirmed) {
       isMinimizingAwayRef.current = true;
+      // Keep liveReachMeetingMounted true — this screen stays under the stack.
+      void showMeetingNotification();
+      router.push(meetingExitPath as any);
+      // Allow a later explicit Leave to run the real leave path.
+      setTimeout(() => {
+        isMinimizingAwayRef.current = false;
+      }, 750);
+      return;
     }
+    isNavigatingAwayRef.current = true;
     router.replace(meetingExitPath as any);
-  }, [router, presenceConfirmed, meetingExitPath]);
+  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification]);
 
   const showPrejoinBack = !presenceConfirmed && !!meetingId;
 

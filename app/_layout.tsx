@@ -675,7 +675,9 @@ function RootLayoutNav() {
       <View style={styles.chatGdShell}>
       <View ref={mainContentRef} style={[styles.mainContainer, { backgroundColor: isDark ? '#151718' : '#fff' }]} accessibilityLabel="Main content">
         <HeaderVisibilityProvider>
-        <Stack screenOptions={{ headerShown: false }}>
+        {/* detachInactiveScreens: false — a minimized Reach call keeps HMS mounted under
+            quick-reach when the user is on Home/tabs; otherwise swipe-back tears down WebRTC. */}
+        <Stack screenOptions={{ headerShown: false, detachInactiveScreens: false }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           <Stack.Screen name="login-success" options={{ headerShown: false }} />
@@ -687,7 +689,7 @@ function RootLayoutNav() {
           {/* Documents tab lives under (tabs)/documents — no root app/documents */}
           <Stack.Screen name="forms" options={{ headerShown: false }} />
           <Stack.Screen name="calendar" options={{ headerShown: false }} />
-          <Stack.Screen name="quick-reach" options={{ headerShown: false }} />
+          <Stack.Screen name="quick-reach" options={{ headerShown: false, freezeOnBlur: false }} />
           <Stack.Screen name="join-meeting" options={{ headerShown: false }} />
           <Stack.Screen name="incoming-import" options={{ headerShown: false }} />
           <Stack.Screen name="meeting/[id]" options={{ headerShown: false }} />

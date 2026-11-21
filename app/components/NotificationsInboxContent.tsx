@@ -80,7 +80,7 @@ export function NotificationsInboxContent({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [markingId, setMarkingId] = useState<number | null>(null);
-  type NotificationActionState = 'accepting' | 'rejecting' | 'accepted' | 'rejected';
+  type NotificationActionState = 'accepting' | 'rejecting' | 'accepted' | 'rejected' | 'unavailable';
   const [actionState, setActionState] = useState<Record<number, NotificationActionState>>({});
   const inboxHeaderScrollRestore = useScrollRestoresHeaderProps();
 
@@ -184,7 +184,7 @@ export function NotificationsInboxContent({
       n.metadata?.action_type === 'file_share';
     if (!isInvite || n.metadata?.share_id == null) return false;
     const status = n.metadata?.action_status;
-    if (status === 'accepted' || status === 'rejected') return false;
+    if (status === 'accepted' || status === 'rejected' || status === 'unavailable') return false;
     return Boolean(n.metadata?.has_actions);
   };
 
@@ -323,6 +323,24 @@ export function NotificationsInboxContent({
     [onListMutated]
   );
 
+  const markShareUnavailable = useCallback((notificationId: number) => {
+    setActionState((prev) => ({ ...prev, [notificationId]: 'unavailable' }));
+    setNotifications((prev) =>
+      prev.map((n2) =>
+        n2.id === notificationId
+          ? {
+              ...n2,
+              metadata: {
+                ...(n2.metadata || {}),
+                has_actions: false,
+                action_status: 'unavailable',
+              },
+            }
+          : n2
+      )
+    );
+  }, []);
+
   const handleAcceptFileInvite = useCallback(
     async (n: AppNotification) => {
       const shareId = n.metadata?.share_id;
@@ -340,6 +358,11 @@ export function NotificationsInboxContent({
           router.navigate('/(tabs)/documents');
         });
       } catch (err: any) {
+        if (err?.code === 'share_unavailable') {
+          markShareUnavailable(n.id);
+          alert('This share is no longer available.');
+          return;
+        }
         setActionState((prev) => {
           const next = { ...prev };
           delete next[n.id];
@@ -348,7 +371,7 @@ export function NotificationsInboxContent({
         alert(err?.message || 'Failed to accept invite');
       }
     },
-    [actionState, router, variant, onDismiss, finalizeSuccessfulAction]
+    [actionState, router, variant, onDismiss, finalizeSuccessfulAction, markShareUnavailable]
   );
 
   const handleRejectFileInvite = useCallback(
@@ -365,6 +388,11 @@ export function NotificationsInboxContent({
         }
         finalizeSuccessfulAction(n.id, 'rejected');
       } catch (err: any) {
+        if (err?.code === 'share_unavailable') {
+          markShareUnavailable(n.id);
+          alert('This share is no longer available.');
+          return;
+        }
         setActionState((prev) => {
           const next = { ...prev };
           delete next[n.id];
@@ -373,7 +401,7 @@ export function NotificationsInboxContent({
         alert(err?.message || 'Failed to reject invite');
       }
     },
-    [actionState, finalizeSuccessfulAction]
+    [actionState, finalizeSuccessfulAction, markShareUnavailable]
   );
 
   const handleAcceptWorkspaceInvitation = useCallback(
@@ -659,6 +687,13 @@ export function NotificationsInboxContent({
                           {state === 'accepting' ? 'Accepting…' : 'Rejecting…'}
                         </Text>
                       </View>
+                    );
+                  }
+                  if (state === 'unavailable' || n.metadata?.action_status === 'unavailable') {
+                    return (
+                      <Text style={[dynamicStyles.time, { marginTop: 4, color: '#B45309', fontWeight: '600' }]}>
+                        This share is no longer available.
+                      </Text>
                     );
                   }
                   if (state === 'accepted' || state === 'rejected') {

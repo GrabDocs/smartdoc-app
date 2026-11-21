@@ -77,5 +77,5 @@ The previous implementation called `GrabDocsPipModule.enterPipForMeeting()` proa
 
 ## Back vs background
 
-- **Back button (in-app):** Navigates back to the meeting list; the call stays connected. User returns via the active meeting card. No PiP.
+- **Back / swipe (in-app):** Pushes the meeting list (or calendar) **on top of** the live HMS screen without unmounting it (`detachInactiveScreens: false`). The call stays connected; return via the Active meeting card or the “In GrabDocs meeting” notification (`router.navigate` pops back to the mounted screen). Explicit Leave still tears down HMS. No PiP for in-app back.
 - **Home / app switch (backgrounded):** HMS `autoEnterPipMode` shows the meeting in a small PiP window. If PiP does not activate after 2 s, a "Tap to return" notification is shown.

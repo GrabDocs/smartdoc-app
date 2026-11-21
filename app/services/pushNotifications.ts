@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import { resumeLiveReachMeetingRoute } from '../../constants/reachMeeting';
 import { apiClient } from '../../services/api';
 import { resolveAppDeepLinkPath } from '../../utils/resolveAppDeepLinkPath';
 
@@ -726,6 +727,8 @@ export function getNotificationScreen(data: Record<string, any>): string {
     }
     case 'meeting_minimized': {
       if (data?.meetingId) {
+        const live = resumeLiveReachMeetingRoute(data.meetingId);
+        if (live) return live;
         const params = new URLSearchParams({ meetingId: String(data.meetingId) });
         if (data?.title) params.set('title', String(data.title));
         if (data?.userName) params.set('userName', String(data.userName));

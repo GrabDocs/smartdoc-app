@@ -26,7 +26,12 @@ import { apiClient } from '../../services/api';
 import { parseMobileMeetingInfoResponse } from '../../utils/meetingJoinPresence';
 import { getReachParticipantDisplayName, sanitizeReachDisplayName } from '../../utils/reachDisplayName';
 import { formatMeetingTimeToLocal } from '../../utils/timeFormatting';
-import { REACH_CURRENT_MEETING_KEY, canonicalizeReachMeetingId, resumeLiveReachMeetingRoute } from '../../constants/reachMeeting';
+import {
+  REACH_CURRENT_MEETING_KEY,
+  canonicalizeReachMeetingId,
+  isLiveReachMeetingMounted,
+  resumeLiveReachMeetingRoute,
+} from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
 import { isValidEmail } from '../../utils/emailValidation';
 
@@ -627,30 +632,59 @@ export default function MeetingCallScreen() {
       const currentId = currentIdRaw ? canonicalizeReachMeetingId(currentIdRaw.trim()) : '';
       if (currentId) {
         const curNorm = normalizeMeetingIdForMerge(currentId);
-        const inOngoing = ongoing.some(
+        const fromList = uniqueMeetings.find(
           (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
         );
-        if (!inOngoing) {
-          const fromList = uniqueMeetings.find(
+        // Backend says ended/created — clear stale local "I'm in this call" key so
+        // Reach does not keep forcing an Active card after everyone left.
+        // If HMS is still mounted under the stack (user only minimized), keep the key.
+        if (fromList && fromList.status !== 'active' && !isLiveReachMeetingMounted(currentId)) {
+          AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+          console.log(
+            '📱 Cleared REACH_CURRENT_MEETING_KEY; backend status is',
+            fromList.status,
+            'for',
+            currentId
+          );
+        } else if (fromList && fromList.status !== 'active' && isLiveReachMeetingMounted(currentId)) {
+          // Minimized live call: still show an Active card even if list APIs lag.
+          const inOngoing = ongoing.some(
             (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
           );
-          if (fromList) {
-            ongoing = [{ ...fromList, status: 'active' as const }, ...ongoing];
-          } else {
+          if (!inOngoing) {
             ongoing = [
               {
-                id: currentId,
-                meetingId: currentId,
-                title: 'Active meeting',
-                host: 'You',
-                participants: 0,
-                startTime: '',
+                ...fromList,
                 status: 'active',
               },
               ...ongoing,
             ];
           }
-          console.log('📱 Included current meeting in active section:', currentId);
+        } else {
+          const inOngoing = ongoing.some(
+            (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
+          );
+          if (!inOngoing) {
+            if (fromList && fromList.status === 'active') {
+              ongoing = [fromList, ...ongoing];
+              console.log('📱 Included current meeting in active section:', currentId);
+            } else if (!fromList) {
+              // Unknown to list APIs but local key set (mid-join) — keep a resume card.
+              ongoing = [
+                {
+                  id: currentId,
+                  meetingId: currentId,
+                  title: 'Active meeting',
+                  host: 'You',
+                  participants: 0,
+                  startTime: '',
+                  status: 'active',
+                },
+                ...ongoing,
+              ];
+              console.log('📱 Included current meeting in active section:', currentId);
+            }
+          }
         }
       }
 
@@ -782,7 +816,8 @@ export default function MeetingCallScreen() {
     if (cleaned) q.set('userName', cleaned);
     if (nav.passcode) q.set('passcode', nav.passcode);
     if (nav.forceJoin) q.set('force_join', '1');
-    router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
+    // push keeps the Reach list under the call so swipe-minimize can leave HMS mounted.
+    router.push(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
   };
 
   /** Open HMS prejoin flow without calling mobile/join first — token + room entry happen on the meeting screen. */
@@ -796,7 +831,8 @@ export default function MeetingCallScreen() {
         if (currentCanon && meetingCanon && currentCanon === meetingCanon) {
           const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
           if (liveRoute) {
-            router.replace(liveRoute as any);
+            // Pop back to the already-mounted HMS screen (do not remount / rejoin).
+            router.navigate(liveRoute as any);
             return;
           }
           navigateToMeetingScreen({

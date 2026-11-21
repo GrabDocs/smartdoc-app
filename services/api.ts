@@ -354,6 +354,19 @@ function shouldSkipSessionExpiryOn401(url?: string): boolean {
   return false;
 }
 
+/** 404 / missing share: the invite was revoked or already removed. */
+export function fileShareRequestError(error: any, fallback: string): Error {
+  const status = error?.response?.status;
+  const body = error?.response?.data;
+  const text = String(body?.error || body?.message || '');
+  if (status === 404 || /not found/i.test(text)) {
+    const unavailable = new Error('This share is no longer available.');
+    (unavailable as Error & { code?: string }).code = 'share_unavailable';
+    return unavailable;
+  }
+  return new Error(text || fallback);
+}
+
 // Main API Service Class
 class ApiService {
   public client: AxiosInstance;
@@ -4536,7 +4549,7 @@ class ApiService {
       const response = await this.client.post(MOBILE_ENDPOINTS.FILE_SHARING_ACCEPT(shareId));
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Failed to accept share');
+      throw fileShareRequestError(error, 'Failed to accept share');
     }
   }
 
@@ -4546,7 +4559,7 @@ class ApiService {
       const response = await this.client.post(MOBILE_ENDPOINTS.FILE_SHARING_REJECT(shareId));
       return response.data;
     } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Failed to reject share');
+      throw fileShareRequestError(error, 'Failed to reject share');
     }
   }
 
