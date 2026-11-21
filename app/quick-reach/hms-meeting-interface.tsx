@@ -219,6 +219,8 @@ export default function HMSMeetingInterfaceScreen() {
     } catch {
       /* ignore */
     }
+    // Leave burns server-side JoinRequest; drop any local wait/approval state too.
+    AsyncStorage.removeItem('join_approval_waiting').catch(() => {});
   }, [meetingId]);
 
   const goToAppHome = useCallback(async () => {

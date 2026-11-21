@@ -906,6 +906,19 @@ export default function MeetingCallScreen() {
       }
     }
 
+    // Private / approval meetings: always collect credentials via join-meeting.
+    // Do not auto-forward list passcode — leave burns approval; rejoin must re-enter.
+    const needsPrivateGate =
+      meeting.passcode_required === true || meeting.require_join_approval === true;
+    const isHostOrOwner = isReachMeetingOwner(meeting, user?.id) || isReachMeetingHost(meeting, user?.id);
+
+    if (needsPrivateGate && !isHostOrOwner) {
+      const q = new URLSearchParams({ meeting_id: meeting.meetingId });
+      if (forceJoin) q.set('force_join', '1');
+      router.push(`/join-meeting?${q.toString()}` as any);
+      return;
+    }
+
     const openPrejoin = (passOverride?: string) => {
       const pass =
         (passOverride && passOverride.trim()) ||
