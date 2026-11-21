@@ -37,6 +37,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MeetingPresenceConfirmBridge } from '../../components/quick-reach/MeetingPresenceConfirmBridge';
+import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsManageModal';
 import { API_BASE_URL, HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
   REACH_CURRENT_MEETING_KEY,
@@ -169,7 +170,22 @@ export default function HMSMeetingInterfaceScreen() {
   const { showLimitError } = useLimitError();
   const navigation = useNavigation();
   const params = useLocalSearchParams();
-  const { meetingId, title, userName, passcode, passcode_token: passcodeToken, force_join: forceJoinParam, returnTo: returnToParam } = params;
+  const {
+    meetingId,
+    title,
+    userName,
+    passcode,
+    passcode_token: passcodeToken,
+    force_join: forceJoinParam,
+    returnTo: returnToParam,
+    join_request_id: joinRequestIdParam,
+  } = params;
+  const joinRequestIdFromRoute = (() => {
+    const raw = Array.isArray(joinRequestIdParam) ? joinRequestIdParam[0] : joinRequestIdParam;
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
   const forceJoinFromRoute =
     (() => {
       const f = forceJoinParam;
@@ -247,6 +263,9 @@ export default function HMSMeetingInterfaceScreen() {
   /** True once HMS reports room entry (before/without confirm). Allows heartbeat safety-net upsert. */
   const [inHmsRoom, setInHmsRoom] = useState(false);
   const inHmsRoomRef = useRef(false);
+  const [showJoinRequestsModal, setShowJoinRequestsModal] = useState(false);
+  const [pendingJoinRequestCount, setPendingJoinRequestCount] = useState(0);
+  const [canManageJoinRequests, setCanManageJoinRequests] = useState(false);
 
   useEffect(() => {
     presenceConfirmedRef.current = presenceConfirmed;
@@ -728,6 +747,60 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, [roomId, joinConfig, presenceConfirmed, applyRecordingSample]);
 
+  // Host join-approval: poll pending requests while in-call (web Prebuilt parity).
+  useEffect(() => {
+    if (!roomId || !presenceConfirmed || !user?.id || !meetingId) {
+      setCanManageJoinRequests(false);
+      setPendingJoinRequestCount(0);
+      return;
+    }
+    let cancelled = false;
+    let approvalEnabled: boolean | null = null;
+
+    const poll = async () => {
+      try {
+        if (approvalEnabled == null) {
+          try {
+            const info = await apiClient.getMeetingInfo(String(meetingId).trim());
+            const room =
+              (info as any)?.data?.room ||
+              (info as any)?.room ||
+              (info as any)?.data ||
+              info;
+            approvalEnabled = !!(
+              room?.require_join_approval || room?.requireJoinApproval
+            );
+          } catch {
+            approvalEnabled = false;
+          }
+        }
+        if (!approvalEnabled) {
+          if (!cancelled) {
+            setCanManageJoinRequests(false);
+            setPendingJoinRequestCount(0);
+          }
+          return;
+        }
+        const res = await apiClient.getJoinRequests(roomId);
+        if (cancelled) return;
+        setCanManageJoinRequests(true);
+        const list = Array.isArray(res?.join_requests) ? res.join_requests : [];
+        setPendingJoinRequestCount(list.length);
+      } catch {
+        if (cancelled) return;
+        // 403 / errors: user cannot manage (invitee) — hide UI
+        setCanManageJoinRequests(false);
+        setPendingJoinRequestCount(0);
+      }
+    };
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [roomId, presenceConfirmed, user?.id, meetingId]);
+
   // Cleanup on unmount (e.g., user swipes back). Do NOT call leave endpoint here.
   // Meeting must stay connected so user can return via active meeting card. Leave is only
   // called when user explicitly taps "Leave Meeting" and confirms (handleLeaveMeeting).
@@ -799,7 +872,15 @@ export default function HMSMeetingInterfaceScreen() {
       isMinimizingAwayRef.current = true;
       // Keep liveReachMeetingMounted true — this screen stays under the stack.
       void showMeetingNotification();
-      router.push(meetingExitPath as any);
+      // Seed the list with Live Meetings immediately (avoids a Recent/ended-only flash).
+      const q = new URLSearchParams({ resumeLive: '1' });
+      const mid = meetingId == null ? '' : Array.isArray(meetingId) ? String(meetingId[0]) : String(meetingId);
+      const ttl = title == null ? '' : Array.isArray(title) ? String(title[0]) : String(title);
+      if (mid) q.set('liveId', mid);
+      if (ttl) q.set('liveTitle', ttl);
+      const exit = String(meetingExitPath || DEFAULT_MEETING_EXIT_PATH);
+      const sep = exit.includes('?') ? '&' : '?';
+      router.push(`${exit}${sep}${q.toString()}` as any);
       // Allow a later explicit Leave to run the real leave path.
       setTimeout(() => {
         isMinimizingAwayRef.current = false;
@@ -808,7 +889,7 @@ export default function HMSMeetingInterfaceScreen() {
     }
     isNavigatingAwayRef.current = true;
     router.replace(meetingExitPath as any);
-  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification]);
+  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title]);
 
   const showPrejoinBack = !presenceConfirmed && !!meetingId;
 
@@ -1004,6 +1085,7 @@ export default function HMSMeetingInterfaceScreen() {
           join_intent: 'prepare',
           ...(rejoinGuestId ? { rejoin_guest_id: rejoinGuestId } : {}),
           ...(forceJoin ? { force_join: true } : {}),
+          ...(joinRequestIdFromRoute != null ? { join_request_id: joinRequestIdFromRoute } : {}),
           ...passcodePayload,
         });
       };
@@ -1092,6 +1174,25 @@ export default function HMSMeetingInterfaceScreen() {
         const errMsg = errData.message || errData.error || joinError?.message || 'Unknown error';
         if (status === 409 || isActiveMeetingConflict(joinError)) {
           setError('You are already in this meeting. Leave the other session and try again.');
+        } else if (
+          status === 403 &&
+          (errData.error_code === 'JOIN_APPROVAL_REQUIRED' ||
+            errData.errorCode === 'JOIN_APPROVAL_REQUIRED' ||
+            errData.join_request_id != null ||
+            errData.joinRequestId != null)
+        ) {
+          // Invitee/guest path: wait for host approval on join-meeting (web parity).
+          const q = new URLSearchParams({
+            meeting_id: String(meetingId || '').trim(),
+          });
+          if (passcodeToken) q.set('passcode_token', String(passcodeToken));
+          else if ((passcode as string)?.trim()) q.set('passcode', String(passcode).trim());
+          const nameForWait = displayUserName?.trim();
+          if (nameForWait) q.set('userName', nameForWait);
+          const jrid = errData.join_request_id ?? errData.joinRequestId;
+          if (jrid != null) q.set('join_request_id', String(jrid));
+          router.replace(`/join-meeting?${q.toString()}` as any);
+          return;
         } else if (status === 403) {
           setError(errMsg || 'This meeting requires host approval to join.');
         } else {
@@ -1591,6 +1692,44 @@ export default function HMSMeetingInterfaceScreen() {
             </View>
           </Modal>
 
+          {/* Host: pending join requests FAB above HMS native UI (only when pending) */}
+          {canManageJoinRequests &&
+          presenceConfirmed &&
+          !hmsError &&
+          pendingJoinRequestCount > 0 &&
+          !showJoinRequestsModal ? (
+            <Modal
+              visible
+              transparent
+              animationType="none"
+              statusBarTranslucent
+              onRequestClose={() => {}}
+            >
+              <View style={styles.joinApprovalFabOverlay} pointerEvents="box-none">
+                <TouchableOpacity
+                  style={styles.joinApprovalFab}
+                  onPress={() => setShowJoinRequestsModal(true)}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="people" size={22} color="#fff" />
+                  <View style={styles.joinApprovalBadge}>
+                    <Text style={styles.joinApprovalBadgeText}>
+                      {pendingJoinRequestCount > 9 ? '9+' : String(pendingJoinRequestCount)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </Modal>
+          ) : null}
+
+          <JoinRequestsManageModal
+            visible={showJoinRequestsModal}
+            videoCallId={roomId}
+            onClose={() => setShowJoinRequestsModal(false)}
+            pollWhileVisible
+            onCountChange={setPendingJoinRequestCount}
+          />
+
           {/* Network status overlay — rendered as a Modal so it appears above the HMS native UI.
               Shows a friendly banner instead of the raw "code: 1003" HMS error. */}
           <Modal
@@ -2032,6 +2171,43 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Network overlay styles
+  joinApprovalFabOverlay: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 56,
+    paddingRight: 16,
+  },
+  joinApprovalFab: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  joinApprovalBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  joinApprovalBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+  },
   networkOverlay: {
     flex: 1,
     justifyContent: 'flex-start',

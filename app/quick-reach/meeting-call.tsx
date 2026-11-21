@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -29,6 +29,7 @@ import { formatMeetingTimeToLocal } from '../../utils/timeFormatting';
 import {
   REACH_CURRENT_MEETING_KEY,
   canonicalizeReachMeetingId,
+  getLiveReachMeetingId,
   isLiveReachMeetingMounted,
   resumeLiveReachMeetingRoute,
 } from '../../constants/reachMeeting';
@@ -37,6 +38,7 @@ import { isValidEmail } from '../../utils/emailValidation';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsManageModal';
 
 function asPositiveInt(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
@@ -61,6 +63,8 @@ interface Meeting {
   passcode?: string;
   /** When true, user must supply passcode (not always present on list row). */
   passcode_required?: boolean;
+  /** Private meeting + host must approve joiners (web require_join_approval). */
+  require_join_approval?: boolean;
   roomUrl?: string;
   description?: string;
   duration?: number;
@@ -396,6 +400,8 @@ function mapRawToMeetingListRow(m: any, source: MeetingSource): MeetingListRow |
     passcode: raw.passcode || raw.password || undefined,
     passcode_required:
       raw.passcode_required === true || raw.passcodeRequired === true ? true : undefined,
+    require_join_approval:
+      raw.require_join_approval === true || raw.requireJoinApproval === true ? true : undefined,
     roomUrl: raw.roomUrl || raw.room_url || raw.url || undefined,
     description: raw.description || raw.meeting_description || undefined,
     duration:
@@ -459,8 +465,38 @@ function parseMeetingsArrayFromMobileResponse(meetingsResponse: any): any[] {
   return [];
 }
 
+function seedLiveMeetingCard(liveId: string, liveTitle?: string): Meeting {
+  const id = canonicalizeReachMeetingId(liveId) || String(liveId).trim();
+  return {
+    id,
+    meetingId: id,
+    title: (liveTitle && liveTitle.trim()) || 'Active meeting',
+    host: 'You',
+    participants: 0,
+    startTime: '',
+    status: 'active',
+  };
+}
+
 export default function MeetingCallScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    resumeLive?: string | string[];
+    liveId?: string | string[];
+    liveTitle?: string | string[];
+  }>();
+  const resumeLiveParam = Array.isArray(params.resumeLive) ? params.resumeLive[0] : params.resumeLive;
+  const liveIdParam = Array.isArray(params.liveId) ? params.liveId[0] : params.liveId;
+  const liveTitleParam = Array.isArray(params.liveTitle) ? params.liveTitle[0] : params.liveTitle;
+  const seededLiveId =
+    (liveIdParam && String(liveIdParam).trim()) ||
+    getLiveReachMeetingId() ||
+    '';
+  const comingFromLiveMeeting =
+    resumeLiveParam === '1' ||
+    resumeLiveParam === 'true' ||
+    Boolean(seededLiveId && isLiveReachMeetingMounted(seededLiveId));
+
   const { user, loading: authLoading, refreshSession } = useAuth();
   const colors = useThemeColors();
   const insets = useSafeAreaInsets();
@@ -472,9 +508,14 @@ export default function MeetingCallScreen() {
   
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [upcomingMeetings, setUpcomingMeetings] = useState<Meeting[]>([]);
-  const [ongoingMeetings, setOngoingMeetings] = useState<Meeting[]>([]);
+  const [ongoingMeetings, setOngoingMeetings] = useState<Meeting[]>(() =>
+    comingFromLiveMeeting && seededLiveId
+      ? [seedLiveMeetingCard(seededLiveId, liveTitleParam)]
+      : []
+  );
   const [assetPresenceMap, setAssetPresenceMap] = useState<Record<string, boolean>>({});
-  const [loading, setLoading] = useState(true);
+  // Skip the full-screen loader when returning from a live call — show Live Meetings immediately.
+  const [loading, setLoading] = useState(!comingFromLiveMeeting);
   const [refreshing, setRefreshing] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -490,6 +531,7 @@ export default function MeetingCallScreen() {
   const [inviteMessage, setInviteMessage] = useState('');
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
+  const [showJoinRequestsModal, setShowJoinRequestsModal] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isJoining, setIsJoining] = useState(false);
   const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
@@ -760,13 +802,14 @@ export default function MeetingCallScreen() {
     if (isAuthenticated && !hasLoadedOnce) {
       console.log('📱 Initial load triggered by authentication');
       setHasLoadedOnce(true);
-      loadMeetings();
+      // Keep Live Meetings visible while the rest of the list loads after minimize.
+      loadMeetings({ silent: comingFromLiveMeeting });
     } else if (!isAuthenticated) {
       setLoading(false);
     } else if (hasLoadedOnce) {
       console.log('📱 Skipping duplicate load - already loaded once');
     }
-  }, [isAuthenticated, hasLoadedOnce, loadMeetings]);
+  }, [isAuthenticated, hasLoadedOnce, loadMeetings, comingFromLiveMeeting]);
 
   // Reload meetings when screen comes into focus (e.g., after creating a meeting)
   // Use a ref to track last load time to prevent excessive reloads
@@ -781,10 +824,16 @@ export default function MeetingCallScreen() {
       if (isAuthenticated && hasLoadedOnce && (now - lastLoadTimeRef.current > RELOAD_DEBOUNCE_MS)) {
         console.log('📱 Screen focused - reloading meetings to show new meetings');
         lastLoadTimeRef.current = now;
-        loadMeetings();
+        // Silent when a live call is minimized under this list — avoid blanking Live Meetings.
+        loadMeetings({ silent: Boolean(getLiveReachMeetingId()) });
       }
     }, [isAuthenticated, hasLoadedOnce, loadMeetings])
   );
+
+  /** Header back goes to app Home — never pop into the live HMS screen underneath. */
+  const goHeaderBackToHome = useCallback(() => {
+    router.navigate('/(tabs)' as any);
+  }, [router]);
 
   const handleRefresh = useCallback(() => {
     console.log('📱 Manual refresh triggered');
@@ -2014,7 +2063,10 @@ export default function MeetingCallScreen() {
     return (
       <SafeAreaView style={dynamicStyles.container}>
         <View style={dynamicStyles.header}>
-          <AppBackButton />
+          <AppBackButton
+            onPress={goHeaderBackToHome}
+            accessibilityLabel="Back to home"
+          />
           <AppHeaderTitle>Meeting Call</AppHeaderTitle>
           <View style={dynamicStyles.headerSpacer} />
         </View>
@@ -2029,7 +2081,10 @@ export default function MeetingCallScreen() {
   return (
     <SafeAreaView style={dynamicStyles.container}>
       <View style={dynamicStyles.header}>
-        <AppBackButton />
+        <AppBackButton
+          onPress={goHeaderBackToHome}
+          accessibilityLabel="Back to home"
+        />
         <AppHeaderTitle>Meeting Call</AppHeaderTitle>
         <TouchableOpacity
           style={dynamicStyles.refreshButton}
@@ -2462,7 +2517,13 @@ export default function MeetingCallScreen() {
                 </View>
 
                 {/* Features Section */}
-                {(meetingInfoData?.enable_recording || meetingInfoData?.enable_transcription || meetingInfoData?.enable_meeting_summary) && (
+                {(meetingInfoData?.enable_recording ||
+                  meetingInfoData?.enable_transcription ||
+                  meetingInfoData?.enable_meeting_summary ||
+                  meetingInfoData?.require_join_approval ||
+                  infoMeeting.require_join_approval ||
+                  meetingInfoData?.passcode_required ||
+                  infoMeeting.passcode_required) && (
                   <View style={dynamicStyles.infoSection}>
                     <TouchableOpacity 
                       style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: featuresExpanded ? 8 : 0 }}
@@ -2478,17 +2539,27 @@ export default function MeetingCallScreen() {
                     </TouchableOpacity>
                     {featuresExpanded && (
                       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                        {meetingInfoData.enable_recording && (
+                        {(meetingInfoData?.passcode_required || infoMeeting.passcode_required) && (
+                          <View style={dynamicStyles.featureBadge}>
+                            <Text style={dynamicStyles.featureBadgeText}>Private</Text>
+                          </View>
+                        )}
+                        {(meetingInfoData?.require_join_approval || infoMeeting.require_join_approval) && (
+                          <View style={dynamicStyles.featureBadge}>
+                            <Text style={dynamicStyles.featureBadgeText}>Join Approval</Text>
+                          </View>
+                        )}
+                        {meetingInfoData?.enable_recording && (
                           <View style={dynamicStyles.featureBadge}>
                             <Text style={dynamicStyles.featureBadgeText}>Recording</Text>
                           </View>
                         )}
-                        {meetingInfoData.enable_transcription && (
+                        {meetingInfoData?.enable_transcription && (
                           <View style={dynamicStyles.featureBadge}>
                             <Text style={dynamicStyles.featureBadgeText}>Transcription</Text>
                           </View>
                         )}
-                        {meetingInfoData.enable_meeting_summary && (
+                        {meetingInfoData?.enable_meeting_summary && (
                           <View style={dynamicStyles.featureBadge}>
                             <Text style={dynamicStyles.featureBadgeText}>Summary</Text>
                           </View>
@@ -2497,6 +2568,45 @@ export default function MeetingCallScreen() {
                     )}
                   </View>
                 )}
+
+                {/* Host join-approval management (parity with web Reach hub) */}
+                {(() => {
+                  const needsApproval =
+                    !!(meetingInfoData?.require_join_approval || infoMeeting.require_join_approval);
+                  const videoCallId =
+                    asPositiveInt(meetingInfoData?.id) ??
+                    asPositiveInt(meetingInfoData?.video_call_id) ??
+                    asPositiveInt(infoMeeting.id);
+                  if (!needsApproval || videoCallId == null || !isReachMeetingHost(infoMeeting, user?.id)) {
+                    return null;
+                  }
+                  return (
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: colors.surface || colors.background,
+                        borderRadius: 10,
+                        paddingHorizontal: 14,
+                        paddingVertical: 14,
+                        marginBottom: 12,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                      onPress={() => setShowJoinRequestsModal(true)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Ionicons name="people" size={20} color="#7C3AED" />
+                        <Text style={{ fontSize: 16, fontWeight: '500', color: colors.text }}>
+                          Join request approvals
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                  );
+                })()}
 
                 {/* Host(s) - Can be single or multiple */}
                 <View style={dynamicStyles.infoCard}>
@@ -2594,6 +2704,17 @@ export default function MeetingCallScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      <JoinRequestsManageModal
+        visible={showJoinRequestsModal}
+        videoCallId={
+          asPositiveInt(meetingInfoData?.id) ??
+          asPositiveInt(meetingInfoData?.video_call_id) ??
+          asPositiveInt(infoMeeting?.id)
+        }
+        onClose={() => setShowJoinRequestsModal(false)}
+        pollWhileVisible
+      />
     </SafeAreaView>
   );
 }

@@ -3,6 +3,8 @@
  * Signed-in app users join immediately with their account display name.
  * Form only when passcode (no token) or host approval is required.
  */
+import 'react-native-url-polyfill/auto';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLimitError } from '../contexts/LimitErrorContext';
@@ -10,6 +12,8 @@ import { limitErrorFromCaught } from '../utils/limitErrorUtils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
+  AppStateStatus,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -20,12 +24,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { io, Socket } from 'socket.io-client';
 import {
   getReachParticipantDisplayName,
   sanitizeReachDisplayName,
 } from '../utils/reachDisplayName';
 import { resumeLiveReachMeetingRoute } from '../constants/reachMeeting';
+import { API_BASE_URL, STORAGE_KEYS } from '../constants/Config';
 import { apiClient } from '../services/api';
+import { secureStorage } from '../utils/storage';
 import { useAuth } from './context/auth';
 
 const JOIN_APPROVAL_WAITING_KEY = 'join_approval_waiting';
@@ -63,9 +70,17 @@ export default function JoinMeetingScreen() {
     passcode?: string;
     passcode_token?: string;
     returnTo?: string;
+    join_request_id?: string;
+    userName?: string;
   }>();
   const meetingId = params.meeting_id?.trim() || '';
   const returnTo = typeof params.returnTo === 'string' ? params.returnTo.trim() : '';
+  const joinRequestIdFromRoute = (() => {
+    const raw = params.join_request_id;
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
   const insets = useSafeAreaInsets();
   const { user, loading: authLoading } = useAuth();
 
@@ -85,7 +100,26 @@ export default function JoinMeetingScreen() {
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const waitingStartedAtRef = useRef<number>(0);
+  const passcodeRef = useRef('');
+  const participantNameRef = useRef('');
   const [restoreDone, setRestoreDone] = useState(false);
+  const [joiningAfterApproval, setJoiningAfterApproval] = useState(false);
+
+  // Mount-only — do not clear this when the restore effect re-runs (auth/user churn).
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    passcodeRef.current = passcode;
+  }, [passcode]);
+
+  useEffect(() => {
+    participantNameRef.current = participantName;
+  }, [participantName]);
 
   const goToAppHome = useCallback(() => {
     router.replace('/(tabs)' as any);
@@ -111,9 +145,19 @@ export default function JoinMeetingScreen() {
     []
   );
 
-  // Restore waiting state from AsyncStorage on mount (run before pre-check)
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  // Restore waiting state from route (HMS redirected after JOIN_APPROVAL_REQUIRED) or AsyncStorage
   useEffect(() => {
-    isMountedRef.current = true;
     let cancelled = false;
 
     const restore = async () => {
@@ -122,6 +166,42 @@ export default function JoinMeetingScreen() {
         return;
       }
       try {
+        // Prefer explicit join_request_id from navigation (already submitted / push approved).
+        if (joinRequestIdFromRoute != null) {
+          const nameFromRoute =
+            sanitizeReachDisplayName(params.userName || '') ||
+            getReachParticipantDisplayName(user) ||
+            '';
+          let pc = typeof params.passcode === 'string' ? params.passcode : '';
+          // Pull passcode from prior wait blob when push/deep link omitted it.
+          if (!pc) {
+            try {
+              const raw = await AsyncStorage.getItem(JOIN_APPROVAL_WAITING_KEY);
+              if (raw) {
+                const data = JSON.parse(raw);
+                if (data.meetingId === meetingId.trim() && data.passcode) {
+                  pc = String(data.passcode);
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+          if (cancelled) {
+            setRestoreDone(true);
+            return;
+          }
+          setJoinRequestId(joinRequestIdFromRoute);
+          if (nameFromRoute) setParticipantName(nameFromRoute);
+          if (pc) setPasscode(pc);
+          setCheckState('waiting');
+          setApprovalStatus('pending');
+          waitingStartedAtRef.current = Date.now();
+          persistWaitingState(joinRequestIdFromRoute, meetingId.trim(), pc, nameFromRoute);
+          setRestoreDone(true);
+          return;
+        }
+
         const raw = await AsyncStorage.getItem(JOIN_APPROVAL_WAITING_KEY);
         if (cancelled) {
           setRestoreDone(true);
@@ -150,9 +230,8 @@ export default function JoinMeetingScreen() {
     restore();
     return () => {
       cancelled = true;
-      isMountedRef.current = false;
     };
-  }, [meetingId]);
+  }, [meetingId, joinRequestIdFromRoute, params.userName, params.passcode, user, persistWaitingState]);
 
   // Pre-check when we have meetingId, restore has run, auth has hydrated, and not already in form/waiting
   useEffect(() => {
@@ -278,27 +357,69 @@ export default function JoinMeetingScreen() {
     showLimitError,
   ]);
 
-  const navigateToMeeting = useCallback(() => {
-    if (hasNavigatedRef.current || !isMountedRef.current) return;
-    const liveRoute = resumeLiveReachMeetingRoute(meetingId);
-    if (liveRoute) {
-      hasNavigatedRef.current = true;
-      clearPersistedWaiting();
-      router.replace(liveRoute as any);
-      return;
+  const navigateToMeeting = useCallback(async () => {
+    if (hasNavigatedRef.current) return false;
+
+    let pc = (passcodeRef.current || '').trim();
+    let name =
+      sanitizeReachDisplayName(participantNameRef.current) ||
+      getReachParticipantDisplayName(user) ||
+      '';
+    let approvedJoinRequestId = joinRequestId;
+    try {
+      const raw = await AsyncStorage.getItem(JOIN_APPROVAL_WAITING_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.meetingId === meetingId.trim()) {
+          if (!pc && data.passcode) pc = String(data.passcode).trim();
+          if (!name && data.participantName) {
+            name = sanitizeReachDisplayName(String(data.participantName)) || String(data.participantName);
+          }
+          if (approvedJoinRequestId == null && data.joinRequestId != null) {
+            const n = Number(data.joinRequestId);
+            if (Number.isFinite(n) && n > 0) approvedJoinRequestId = n;
+          }
+        }
+      }
+    } catch {
+      /* ignore */
     }
+
+    const liveRoute = resumeLiveReachMeetingRoute(meetingId);
     hasNavigatedRef.current = true;
     clearPersistedWaiting();
+    if (liveRoute) {
+      router.replace(liveRoute as any);
+      return true;
+    }
     const q = new URLSearchParams({ meetingId: meetingId.trim() });
     if (params.passcode_token) q.set('passcode_token', params.passcode_token);
-    else if (passcode.trim()) q.set('passcode', passcode.trim());
-    appendSanitizedUserName(
-      q,
-      sanitizeReachDisplayName(participantName) || getReachParticipantDisplayName(user)
-    );
+    else if (pc) q.set('passcode', pc);
+    appendSanitizedUserName(q, name || getReachParticipantDisplayName(user));
     appendReturnToParam(q, returnTo);
+    if (approvedJoinRequestId != null) q.set('join_request_id', String(approvedJoinRequestId));
     router.replace(`/quick-reach/hms-meeting-interface?${q.toString()}` as any);
-  }, [meetingId, passcode, participantName, params.passcode_token, returnTo, router, clearPersistedWaiting, user]);
+    return true;
+  }, [meetingId, params.passcode_token, returnTo, router, clearPersistedWaiting, user, joinRequestId]);
+
+  const enterMeetingAfterApproval = useCallback(async () => {
+    if (hasNavigatedRef.current) return;
+    setJoiningAfterApproval(true);
+    setApprovalStatus('approved');
+    try {
+      const ok = await navigateToMeeting();
+      if (!ok && isMountedRef.current) {
+        // Allow a manual retry if navigation was skipped.
+        hasNavigatedRef.current = false;
+        setJoiningAfterApproval(false);
+      }
+    } catch {
+      if (isMountedRef.current) {
+        hasNavigatedRef.current = false;
+        setJoiningAfterApproval(false);
+      }
+    }
+  }, [navigateToMeeting]);
 
   const submitJoinRequest = useCallback(async () => {
     const name =
@@ -314,7 +435,7 @@ export default function JoinMeetingScreen() {
     // Passcode-only (no host approval): join directly with the typed passcode.
     if (!requirements?.require_join_approval) {
       setErrorMessage('');
-      navigateToMeeting();
+      void navigateToMeeting();
       return;
     }
 
@@ -383,46 +504,31 @@ export default function JoinMeetingScreen() {
     showLimitError,
   ]);
 
-  // Poll for approval status when in waiting state
+  // Poll for approval status when in waiting state (fallback if socket misses the event)
   useEffect(() => {
     if (checkState !== 'waiting' || joinRequestId == null) return;
 
     const pollStatus = async () => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || hasNavigatedRef.current) return;
       try {
         const res = await apiClient.client.get(`/api/v1/video/join-request/${joinRequestId}/status`);
         const data = res?.data;
         if (!data?.success || !data?.join_request) return;
 
         const status = data.join_request.status;
-        setApprovalStatus(status);
-
         if (status === 'approved') {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
-          if (isMountedRef.current && !hasNavigatedRef.current) {
-            navigateToMeeting();
-          }
+          setApprovalStatus('approved');
+          stopPolling();
+          await enterMeetingAfterApproval();
         } else if (status === 'rejected') {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-            timeoutRef.current = null;
-          }
+          stopPolling();
           setRejectionMessage('Your join request was rejected by the meeting host. You can try again or contact the host.');
           setCheckState('rejected');
           setJoinRequestId(null);
           setApprovalStatus(null);
           clearPersistedWaiting();
+        } else {
+          setApprovalStatus(status);
         }
       } catch (_) {
         // continue polling
@@ -432,13 +538,104 @@ export default function JoinMeetingScreen() {
     pollStatus();
     pollIntervalRef.current = setInterval(pollStatus, POLL_INTERVAL_MS);
 
+    const onAppState = (next: AppStateStatus) => {
+      if (next === 'active') {
+        void pollStatus();
+      }
+    };
+    const appSub = AppState.addEventListener('change', onAppState);
+
     return () => {
+      appSub.remove();
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
     };
-  }, [checkState, joinRequestId, navigateToMeeting, clearPersistedWaiting]);
+  }, [checkState, joinRequestId, enterMeetingAfterApproval, clearPersistedWaiting, stopPolling]);
+
+  // Socket.IO realtime approval (web parity): join_request_{id} room + user room
+  useEffect(() => {
+    if (checkState !== 'waiting' || joinRequestId == null) return;
+
+    let cancelled = false;
+    let socket: Socket | null = null;
+
+    const handleRejected = () => {
+      stopPolling();
+      if (!isMountedRef.current || hasNavigatedRef.current) return;
+      setRejectionMessage(
+        'Your join request was rejected by the meeting host. You can try again or contact the host.'
+      );
+      setCheckState('rejected');
+      setJoinRequestId(null);
+      setApprovalStatus(null);
+      clearPersistedWaiting();
+    };
+
+    const handleApproved = () => {
+      if (!isMountedRef.current || hasNavigatedRef.current) return;
+      stopPolling();
+      void enterMeetingAfterApproval();
+    };
+
+    const connect = async () => {
+      const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN).catch(() => null);
+      if (cancelled) return;
+
+      const isLocalApi = /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(API_BASE_URL);
+      socket = io(API_BASE_URL, {
+        ...(token ? { auth: { token } } : {}),
+        transports: isLocalApi ? ['polling', 'websocket'] : ['websocket'],
+        upgrade: isLocalApi,
+        reconnection: true,
+        reconnectionDelay: 2000,
+        reconnectionDelayMax: 10000,
+        reconnectionAttempts: 10,
+        timeout: 20000,
+        path: '/socket.io/',
+      });
+
+      const joinRooms = () => {
+        if (!socket?.connected) return;
+        socket.emit('join_join_request_room', { join_request_id: joinRequestId });
+        const uid = user?.id != null ? Number(user.id) : NaN;
+        if (Number.isFinite(uid) && uid >= 0) {
+          socket.emit('authenticate', { user_id: uid });
+          socket.emit('join_user_room', { user_id: uid });
+        }
+      };
+
+      socket.on('connect', joinRooms);
+
+      socket.on('join_request_updated', (data: any) => {
+        const update = data?.update ?? data;
+        const updatedId = update?.join_request_id ?? update?.joinRequestId;
+        if (updatedId == null || Number(updatedId) !== Number(joinRequestId)) return;
+        const action = String(update?.action || update?.status || '').toLowerCase();
+        if (action === 'approved') handleApproved();
+        else if (action === 'rejected') handleRejected();
+      });
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+        socket = null;
+      }
+    };
+  }, [
+    checkState,
+    joinRequestId,
+    user?.id,
+    enterMeetingAfterApproval,
+    clearPersistedWaiting,
+    stopPolling,
+  ]);
 
   // Timeout when in waiting state (15 min)
   useEffect(() => {
@@ -448,11 +645,7 @@ export default function JoinMeetingScreen() {
     const remaining = Math.max(0, WAITING_TIMEOUT_MS - elapsed);
 
     timeoutRef.current = setTimeout(() => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      timeoutRef.current = null;
+      stopPolling();
       if (isMountedRef.current) {
         setCheckState('timeout');
         setJoinRequestId(null);
@@ -467,7 +660,7 @@ export default function JoinMeetingScreen() {
         timeoutRef.current = null;
       }
     };
-  }, [checkState, clearPersistedWaiting]);
+  }, [checkState, clearPersistedWaiting, stopPolling]);
 
   // Redirect when no meeting ID (e.g. invalid deep link)
   useEffect(() => {
@@ -568,18 +761,35 @@ export default function JoinMeetingScreen() {
   }
 
   if (checkState === 'waiting') {
+    const approved = approvalStatus === 'approved' || joiningAfterApproval;
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <View style={styles.waitingBox}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <Text style={styles.waitingTitle}>Waiting for approval</Text>
-          <Text style={styles.waitingMessage}>
-            Your join request has been submitted. The meeting host will be notified and should respond shortly.
+          <Text style={styles.waitingTitle}>
+            {approved ? 'Approved — joining…' : 'Waiting for approval'}
           </Text>
-          {approvalStatus === 'pending' && (
+          <Text style={styles.waitingMessage}>
+            {approved
+              ? 'The host approved your request. Opening the meeting now.'
+              : 'Your join request has been submitted. The meeting host will be notified and should respond shortly.'}
+          </Text>
+          {!approved && approvalStatus === 'pending' && (
             <View style={styles.pendingBadge}>
               <Text style={styles.pendingText}>Status: Pending approval</Text>
             </View>
+          )}
+          {approved && (
+            <TouchableOpacity
+              style={styles.primaryButton}
+              onPress={() => {
+                hasNavigatedRef.current = false;
+                void enterMeetingAfterApproval();
+              }}
+              disabled={joiningAfterApproval && hasNavigatedRef.current}
+            >
+              <Text style={styles.primaryButtonText}>Join meeting</Text>
+            </TouchableOpacity>
           )}
           <TouchableOpacity style={styles.backButton} onPress={goToAppHome}>
             <Text style={styles.backButtonText}>Go Back</Text>

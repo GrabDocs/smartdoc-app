@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     ScrollView,
     StyleSheet,
@@ -23,6 +24,11 @@ import { apiClient } from '../../services/api';
 import { setItemClients } from '../../services/clientsApi';
 import { extractLimitErrorData, getErrorResponseData, limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import { isValidEmail } from '../../utils/emailValidation';
+import {
+  loadMeetingWorkspaces,
+  MeetingWorkspaceOption,
+  pickDefaultMeetingWorkspaceId,
+} from './meetingFormShared';
 
 function asPositiveInt(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
@@ -78,10 +84,14 @@ export default function CreateMeetingScreen() {
     enableRecording: false,
     enableTranscription: false,
     isPrivate: false,
+    requireJoinApproval: false,
     participants: [] as string[]
   });
   const [newParticipant, setNewParticipant] = useState('');
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
+  const [workspaces, setWorkspaces] = useState<MeetingWorkspaceOption[]>([]);
+  const [workspaceId, setWorkspaceId] = useState<number | null>(null);
+  const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 
   useEffect(() => {
     const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
@@ -90,6 +100,29 @@ export default function CreateMeetingScreen() {
       setSelectedClientIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
     }
   }, [clientIdParam]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadMeetingWorkspaces()
+      .then((list) => {
+        if (cancelled) return;
+        setWorkspaces(list);
+        setWorkspaceId((prev) => prev ?? pickDefaultMeetingWorkspaceId(list));
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaces([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedWorkspaceName = useMemo(() => {
+    if (workspaceId == null) return 'Personal Meeting';
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return 'Workspace';
+    return ws.is_personal ? `${ws.name} (Default)` : ws.name;
+  }, [workspaceId, workspaces]);
 
   const createMeeting = async () => {
     if (!meetingData.title.trim()) {
@@ -102,37 +135,33 @@ export default function CreateMeetingScreen() {
       return;
     }
 
-    // Prepare meeting data for immediate creation
-    // Use mobile endpoint which properly handles title/roomName conversion to room_name
+    // Workspace meetings must not force from_reach_page (matches web + mobile create bridge).
+    const hasWorkspace = workspaceId != null;
     const meetingPayload = {
-      // Room information - include all variations for backend compatibility
       roomName: meetingData.title,
       room_name: meetingData.title,
       name: meetingData.title,
       title: meetingData.title,
-      
       description: meetingData.description,
-      
-      // Meeting settings
       isPrivate: meetingData.isPrivate,
       passcode: meetingData.isPrivate ? meetingData.passcode : undefined,
       passcode_required: meetingData.isPrivate,
+      require_join_approval: meetingData.isPrivate && meetingData.requireJoinApproval,
+      requireJoinApproval: meetingData.isPrivate && meetingData.requireJoinApproval,
       enableRecording: meetingData.enableRecording,
       enable_recording: meetingData.enableRecording,
       enableTranscription: meetingData.enableTranscription,
       enable_transcription: meetingData.enableTranscription,
-      
-      // Participants
+      enable_meeting_summary: meetingData.enableRecording,
       participants: meetingData.participants,
       invited_participants: meetingData.participants,
       invitees: meetingData.participants,
       participant_count: meetingData.participants.length,
-      
-      // Meeting metadata
+      workspace_id: hasWorkspace ? workspaceId : null,
       meeting_type: 'general',
       meeting_status: 'active',
       status: 'active',
-      from_reach_page: true,
+      from_reach_page: !hasWorkspace,
     };
 
     console.log('📱 Sending create meeting payload:', meetingPayload);
@@ -314,13 +343,19 @@ export default function CreateMeetingScreen() {
     }));
   };
 
-  const toggleFeature = (feature: 'enableRecording' | 'enableTranscription' | 'isPrivate') => {
-    setMeetingData(prev => ({
-      ...prev,
-      [feature]: !prev[feature],
-      // Clear passcode if making meeting public
-      ...(feature === 'isPrivate' && !prev.isPrivate ? { passcode: '' } : {})
-    }));
+  const toggleFeature = (
+    feature: 'enableRecording' | 'enableTranscription' | 'isPrivate' | 'requireJoinApproval'
+  ) => {
+    setMeetingData((prev) => {
+      if (feature === 'requireJoinApproval' && !prev.isPrivate) return prev;
+      const next = { ...prev, [feature]: !prev[feature] };
+      // Making public clears passcode + join approval (match web)
+      if (feature === 'isPrivate' && prev.isPrivate) {
+        next.passcode = '';
+        next.requireJoinApproval = false;
+      }
+      return next;
+    });
   };
 
   const dynamicStyles = useMemo(() => StyleSheet.create({
@@ -356,21 +391,84 @@ export default function CreateMeetingScreen() {
     },
     section: {
       backgroundColor: colors.card,
-      marginTop: 16,
+      marginTop: 10,
       borderRadius: 12,
-      padding: 16,
+      padding: 14,
     },
     sectionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 16,
     },
     sectionTitle: {
       fontSize: 16,
       fontWeight: '600',
       color: colors.text,
-      marginBottom: 14,
+      marginBottom: 10,
+    },
+    sectionTitleInline: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 0,
+    },
+    workspacePicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: colors.inputBackground || colors.card,
+    },
+    workspacePickerText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+      marginRight: 8,
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'flex-end',
+    },
+    modalSheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      maxHeight: '70%',
+      paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    },
+    modalSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalSheetTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    workspaceOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    workspaceOptionText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+      marginRight: 12,
     },
     inputGroup: {
       marginBottom: 16,
@@ -505,7 +603,12 @@ export default function CreateMeetingScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={dynamicStyles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={dynamicStyles.content}
+          contentContainerStyle={{ paddingBottom: 24 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Meeting Details */}
           <View style={dynamicStyles.section}>
             <Text style={dynamicStyles.sectionTitle}>Meeting Details</Text>
@@ -543,9 +646,109 @@ export default function CreateMeetingScreen() {
                 maxLength={500}
               />
             </View>
+
+            <View style={[dynamicStyles.inputGroup, { marginBottom: 0 }]}>
+              <Text style={dynamicStyles.label}>Workspace</Text>
+              <TouchableOpacity
+                style={dynamicStyles.workspacePicker}
+                onPress={() => setShowWorkspacePicker(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={dynamicStyles.workspacePickerText} numberOfLines={1}>
+                  {selectedWorkspaceName}
+                </Text>
+                <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* Features section hidden */}
+          {/* Features */}
+          <View style={dynamicStyles.section}>
+            <TouchableOpacity
+              style={[
+                dynamicStyles.sectionHeader,
+                featuresExpanded ? { marginBottom: 10 } : null,
+              ]}
+              onPress={() => setFeaturesExpanded(!featuresExpanded)}
+              activeOpacity={0.7}
+            >
+              <Text style={dynamicStyles.sectionTitleInline}>Features</Text>
+              <Ionicons
+                name={featuresExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
+                color="#007AFF"
+              />
+            </TouchableOpacity>
+
+            {featuresExpanded && (
+              <>
+                <TouchableOpacity
+                  style={dynamicStyles.featureRow}
+                  onPress={() => toggleFeature('enableRecording')}
+                >
+                  <View style={dynamicStyles.featureInfo}>
+                    <Text style={dynamicStyles.featureTitle}>Enable Recording</Text>
+                  </View>
+                  <View style={[dynamicStyles.checkbox, meetingData.enableRecording && dynamicStyles.checkboxChecked]}>
+                    {meetingData.enableRecording && <Ionicons name="checkmark" size={16} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={dynamicStyles.featureRow}
+                  onPress={() => toggleFeature('enableTranscription')}
+                >
+                  <View style={dynamicStyles.featureInfo}>
+                    <Text style={dynamicStyles.featureTitle}>Enable Transcription</Text>
+                  </View>
+                  <View style={[dynamicStyles.checkbox, meetingData.enableTranscription && dynamicStyles.checkboxChecked]}>
+                    {meetingData.enableTranscription && <Ionicons name="checkmark" size={16} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={dynamicStyles.featureRow}
+                  onPress={() => toggleFeature('isPrivate')}
+                >
+                  <View style={dynamicStyles.featureInfo}>
+                    <Text style={dynamicStyles.featureTitle}>Private Meeting (Requires Passcode)</Text>
+                  </View>
+                  <View style={[dynamicStyles.checkbox, meetingData.isPrivate && dynamicStyles.checkboxChecked]}>
+                    {meetingData.isPrivate && <Ionicons name="checkmark" size={16} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+
+                {meetingData.isPrivate && (
+                  <>
+                    <View style={[dynamicStyles.inputGroup, { marginBottom: 0, marginTop: 8 }]}>
+                      <Text style={dynamicStyles.label}>Passcode *</Text>
+                      <TextInput
+                        style={dynamicStyles.textInput}
+                        placeholder="Enter passcode"
+                        placeholderTextColor={colors.textSecondary}
+                        value={meetingData.passcode}
+                        onChangeText={(text) => setMeetingData(prev => ({ ...prev, passcode: text }))}
+                        secureTextEntry
+                        maxLength={20}
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      style={dynamicStyles.featureRow}
+                      onPress={() => toggleFeature('requireJoinApproval')}
+                    >
+                      <View style={dynamicStyles.featureInfo}>
+                        <Text style={dynamicStyles.featureTitle}>Require Join Approval</Text>
+                      </View>
+                      <View style={[dynamicStyles.checkbox, meetingData.requireJoinApproval && dynamicStyles.checkboxChecked]}>
+                        {meetingData.requireJoinApproval && <Ionicons name="checkmark" size={16} color="#fff" />}
+                      </View>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </>
+            )}
+          </View>
 
           {/* Participants */}
           <View style={dynamicStyles.section}>
@@ -580,6 +783,55 @@ export default function CreateMeetingScreen() {
             )}
           </View>
         </ScrollView>
+
+        <Modal
+          visible={showWorkspacePicker}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowWorkspacePicker(false)}
+        >
+          <TouchableOpacity
+            style={dynamicStyles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowWorkspacePicker(false)}
+          >
+            <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+              <View style={dynamicStyles.modalSheetHeader}>
+                <Text style={dynamicStyles.modalSheetTitle}>Select Workspace</Text>
+                <TouchableOpacity onPress={() => setShowWorkspacePicker(false)}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                <TouchableOpacity
+                  style={dynamicStyles.workspaceOption}
+                  onPress={() => {
+                    setWorkspaceId(null);
+                    setShowWorkspacePicker(false);
+                  }}
+                >
+                  <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
+                  {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+                </TouchableOpacity>
+                {workspaces.map((ws) => (
+                  <TouchableOpacity
+                    key={ws.id}
+                    style={dynamicStyles.workspaceOption}
+                    onPress={() => {
+                      setWorkspaceId(ws.id);
+                      setShowWorkspacePicker(false);
+                    }}
+                  >
+                    <Text style={dynamicStyles.workspaceOptionText}>
+                      {ws.name}{ws.is_personal ? ' (Default)' : ''}
+                    </Text>
+                    {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Action Buttons */}
         <View style={dynamicStyles.actionButtons}>

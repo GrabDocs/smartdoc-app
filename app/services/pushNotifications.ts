@@ -683,10 +683,17 @@ export function getNotificationScreen(data: Record<string, any>): string {
     }
     case 'join_request':
       return '/notifications';
-    case 'join_request_approved':
-      return data?.meeting_id != null
-        ? `/join-meeting?meeting_id=${encodeURIComponent(String(data.meeting_id))}`
-        : APP_HOME_FALLBACK;
+    case 'join_request_approved': {
+      if (data?.meeting_id == null) return APP_HOME_FALLBACK;
+      const q = new URLSearchParams({
+        meeting_id: String(data.meeting_id),
+      });
+      const jrid = data.join_request_id ?? data.joinRequestId;
+      if (jrid != null && String(jrid).trim() !== '') {
+        q.set('join_request_id', String(jrid));
+      }
+      return `/join-meeting?${q.toString()}`;
+    }
     case 'workspace_meeting_started':
     case 'chat_call_started':
     case 'meeting_started':

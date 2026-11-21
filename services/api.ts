@@ -287,7 +287,9 @@ const MOBILE_ENDPOINTS = {
   WORKSPACE_INVITATION_ACCEPT: (invitationId: number) => `/api/v1/web/workspaces/invitations/${invitationId}/accept`,
   WORKSPACE_INVITATION_REJECT: (invitationId: number) => `/api/v1/web/workspaces/invitations/${invitationId}/reject`,
 
-  // Meeting join requests (host approve/reject from notification – same as web)
+  // Meeting join requests (host list/approve/reject – same as web)
+  JOIN_REQUEST_LIST: (videoCallId: number) =>
+    `/api/v1/video/room/${videoCallId}/join-requests`,
   JOIN_REQUEST_APPROVE: (videoCallId: number, joinRequestId: number) =>
     `/api/v1/video/room/${videoCallId}/join-requests/${joinRequestId}/approve`,
   JOIN_REQUEST_REJECT: (videoCallId: number, joinRequestId: number) =>
@@ -4599,6 +4601,19 @@ class ApiService {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.message || 'Failed to reject workspace invitation');
+    }
+  }
+
+  async getJoinRequests(videoCallId: number): Promise<ApiResponse> {
+    try {
+      const response = await this.client.get(MOBILE_ENDPOINTS.JOIN_REQUEST_LIST(videoCallId));
+      return response.data;
+    } catch (error: any) {
+      throw new Error(
+        error.response?.data?.message ||
+          error.response?.data?.error ||
+          'Failed to load join requests',
+      );
     }
   }
 

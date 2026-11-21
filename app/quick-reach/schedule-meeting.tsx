@@ -26,6 +26,16 @@ import { isValidEmail } from '../../utils/emailValidation';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import {
+  combineLocalDateAndTime,
+  DEFAULT_MEETING_DURATION_MINUTES,
+  defaultScheduleDateTime,
+  durationLabel,
+  loadMeetingWorkspaces,
+  MEETING_DURATION_OPTIONS,
+  MeetingWorkspaceOption,
+  pickDefaultMeetingWorkspaceId,
+} from './meetingFormShared';
 
 function asPositiveInt(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.trunc(value);
@@ -74,29 +84,29 @@ export default function ScheduleMeetingScreen() {
   const colors = useThemeColors();
   const [loading, setLoading] = useState(false);
   const [selectedClientIds, setSelectedClientIds] = useState<number[]>([]);
-  // Default to 15 minutes ahead so "schedule now" isn't rejected as past by the API.
-  const [startDateTime, setStartDateTime] = useState(() => new Date(Date.now() + 15 * 60 * 1000));
-  const [endDateTime, setEndDateTime] = useState(() => new Date(Date.now() + 75 * 60 * 1000));
-  const [meetingData, setMeetingData] = useState(() => {
-    const start = new Date(Date.now() + 15 * 60 * 1000);
-    const end = new Date(Date.now() + 75 * 60 * 1000);
-    return {
-      title: '',
-      description: '',
-      startTime: start.toISOString(),
-      endTime: end.toISOString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      passcode: '',
+  // Match web: separate date, time, duration (not start/end datetime).
+  const [meetingDate, setMeetingDate] = useState(() => defaultScheduleDateTime());
+  const [meetingTime, setMeetingTime] = useState(() => defaultScheduleDateTime());
+  const [durationMinutes, setDurationMinutes] = useState(DEFAULT_MEETING_DURATION_MINUTES);
+  const [meetingData, setMeetingData] = useState({
+    title: '',
+    description: '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    passcode: '',
       enableRecording: false,
       enableTranscription: false,
       isPrivate: false,
+      requireJoinApproval: false,
       participants: [] as string[],
-    };
   });
   const [newParticipant, setNewParticipant] = useState('');
-  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
+  const [workspaces, setWorkspaces] = useState<MeetingWorkspaceOption[]>([]);
+  const [workspaceId, setWorkspaceId] = useState<number | null>(null);
+  const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
 
   useEffect(() => {
     const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
@@ -106,70 +116,64 @@ export default function ScheduleMeetingScreen() {
     }
   }, [clientIdParam]);
 
+  useEffect(() => {
+    let cancelled = false;
+    loadMeetingWorkspaces()
+      .then((list) => {
+        if (cancelled) return;
+        setWorkspaces(list);
+        setWorkspaceId((prev) => prev ?? pickDefaultMeetingWorkspaceId(list));
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaces([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedWorkspaceName = useMemo(() => {
+    if (workspaceId == null) return 'Personal Meeting';
+    const ws = workspaces.find((w) => w.id === workspaceId);
+    if (!ws) return 'Workspace';
+    return ws.is_personal ? `${ws.name} (Default)` : ws.name;
+  }, [workspaceId, workspaces]);
+
   /** Return a valid Date for DateTimePicker; never pass Invalid Date (causes picker not to display). */
   const getValidDate = (d: Date | undefined): Date => {
     if (d != null && !Number.isNaN(d.getTime())) return d;
     return new Date();
   };
 
-  /** Android: open date then time with imperative API to avoid dismiss('datetime') crash (library has no pickers['datetime']). */
-  const openStartDatePickerAndroid = () => {
-    const value = getValidDate(startDateTime);
-    const minDate = getValidDate(new Date());
+  const scheduledStart = useMemo(
+    () => combineLocalDateAndTime(meetingDate, meetingTime),
+    [meetingDate, meetingTime]
+  );
+
+  const openDatePickerAndroid = () => {
     DateTimePickerAndroid.open({
-      value,
+      value: getValidDate(meetingDate),
       mode: 'date',
-      minimumDate: minDate,
+      minimumDate: getValidDate(new Date()),
       onChange: (event, date) => {
         if (event?.type !== 'set' || !date) return;
-        DateTimePickerAndroid.open({
-          value: date,
-          mode: 'time',
-          onChange: (event2, time) => {
-            if (event2?.type !== 'set' || !time) return;
-            const combined = new Date(date);
-            combined.setHours(time.getHours(), time.getMinutes(), time.getSeconds(), time.getMilliseconds());
-            const now = new Date();
-            if (combined < now) {
-              Alert.alert('Invalid Date', 'Please select a future date and time for the meeting.');
-              return;
-            }
-            setStartDateTime(combined);
-            setMeetingData(prev => ({ ...prev, startTime: combined.toISOString() }));
-            const newEnd = new Date(combined.getTime() + 60 * 60 * 1000);
-            setEndDateTime(newEnd);
-            setMeetingData(prev => ({ ...prev, endTime: newEnd.toISOString() }));
-          },
-        });
+        setMeetingDate(date);
       },
     });
   };
 
-  /** Android: open date then time with imperative API to avoid dismiss('datetime') crash. */
-  const openEndDatePickerAndroid = () => {
-    const value = getValidDate(endDateTime);
-    const minDate = getValidDate(startDateTime);
+  const openTimePickerAndroid = () => {
     DateTimePickerAndroid.open({
-      value,
-      mode: 'date',
-      minimumDate: minDate,
-      onChange: (event, date) => {
-        if (event?.type !== 'set' || !date) return;
-        DateTimePickerAndroid.open({
-          value: date,
-          mode: 'time',
-          onChange: (event2, time) => {
-            if (event2?.type !== 'set' || !time) return;
-            const combined = new Date(date);
-            combined.setHours(time.getHours(), time.getMinutes(), time.getSeconds(), time.getMilliseconds());
-            if (combined <= startDateTime) {
-              Alert.alert('Invalid Time', 'End time must be after start time. Please select a later date and time.');
-              return;
-            }
-            setEndDateTime(combined);
-            setMeetingData(prev => ({ ...prev, endTime: combined.toISOString() }));
-          },
-        });
+      value: getValidDate(meetingTime),
+      mode: 'time',
+      onChange: (event, time) => {
+        if (event?.type !== 'set' || !time) return;
+        const next = combineLocalDateAndTime(meetingDate, time);
+        if (next.getTime() < Date.now()) {
+          Alert.alert('Invalid Time', 'Please select a future date and time for the meeting.');
+          return;
+        }
+        setMeetingTime(time);
       },
     });
   };
@@ -180,8 +184,8 @@ export default function ScheduleMeetingScreen() {
       return;
     }
 
-    if (!meetingData.startTime) {
-      Alert.alert('Error', 'Please select a start date/time');
+    if (scheduledStart.getTime() < Date.now()) {
+      Alert.alert('Invalid Time', 'Please select a future date and time for the meeting.');
       return;
     }
 
@@ -190,61 +194,45 @@ export default function ScheduleMeetingScreen() {
       return;
     }
 
-    // Prepare meeting data — field names must match backend schedule_meeting()
-    const durationMinutes = Math.max(
-      1,
-      Math.round((endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60))
-    );
+    // Match web Reach: scheduled_time + duration_minutes + timezone (backend derives end).
+    const scheduledIso = scheduledStart.toISOString();
     const meetingPayload = {
-      // Room information
       roomName: meetingData.title,
       room_name: meetingData.title,
       name: meetingData.title,
       title: meetingData.title,
-      
       description: meetingData.description,
-      
-      // Date and time information
-      start_time: startDateTime.toISOString(),
-      end_time: endDateTime.toISOString(),
-      startTime: startDateTime.toISOString(),
-      endTime: endDateTime.toISOString(),
-      scheduled_time: startDateTime.toISOString(),
-      scheduled_at: startDateTime.toISOString(),
-      
+      scheduled_time: scheduledIso,
+      scheduled_at: scheduledIso,
       timezone: meetingData.timezone,
       duration_minutes: durationMinutes,
       meeting_duration_minutes: durationMinutes,
-      
-      // Meeting settings (snake_case is what the backend reads)
       isPrivate: meetingData.isPrivate,
       passcode: meetingData.isPrivate ? meetingData.passcode : undefined,
       passcode_required: meetingData.isPrivate,
+      require_join_approval: meetingData.isPrivate && meetingData.requireJoinApproval,
+      requireJoinApproval: meetingData.isPrivate && meetingData.requireJoinApproval,
       enableRecording: meetingData.enableRecording,
       enable_recording: meetingData.enableRecording,
       enableTranscription: meetingData.enableTranscription,
       enable_transcription: meetingData.enableTranscription,
-      
-      // Participants — backend schedule_meeting() expects `invitees`
+      enable_meeting_summary: meetingData.enableRecording,
       participants: meetingData.participants,
       invited_participants: meetingData.participants,
       invitees: meetingData.participants,
       participant_count: meetingData.participants.length,
-      
-      // Email integration with Resend
+      workspace_id: workspaceId,
       sendEmailInvites: true,
       send_email_invites: true,
       email_invites: true,
       notify_participants: true,
       use_resend: true,
       email_provider: 'resend',
-      
-      // Meeting metadata
       meeting_type: 'general',
       meeting_status: 'scheduled',
       status: 'scheduled',
       max_participants: 10,
-      from_reach_page: true,
+      from_reach_page: workspaceId == null,
     };
 
     console.log('📱 Sending meeting payload:', JSON.stringify(meetingPayload, null, 2));
@@ -400,47 +388,30 @@ export default function ScheduleMeetingScreen() {
     }
   };
 
-  const onStartDateChange = (event: any, selectedDate?: Date) => {
-    // On Android, native picker sends 'set' (confirm) or 'dismissed' (cancel); hide picker when done
+  const onDateChange = (event: any, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
-      setShowStartDatePicker(false);
+      setShowDatePicker(false);
       const confirmed = event && (event as { type?: string }).type === 'set';
       if (!confirmed || !selectedDate) return;
     }
     if (selectedDate) {
-      // Prevent selecting past dates
-      const now = new Date();
-      if (selectedDate < now) {
-        Alert.alert('Invalid Date', 'Please select a future date and time for the meeting.');
-        return;
-      }
-      
-      setStartDateTime(selectedDate);
-      setMeetingData(prev => ({ ...prev, startTime: selectedDate.toISOString() }));
-      
-      // Auto-update end time to be 1 hour after start time
-      const newEndTime = new Date(selectedDate.getTime() + 60 * 60 * 1000);
-      setEndDateTime(newEndTime);
-      setMeetingData(prev => ({ ...prev, endTime: newEndTime.toISOString() }));
+      setMeetingDate(selectedDate);
     }
   };
 
-  const onEndDateChange = (event: any, selectedDate?: Date) => {
-    // On Android, native picker sends 'set' (confirm) or 'dismissed' (cancel); hide picker when done
+  const onTimeChange = (event: any, selectedTime?: Date) => {
     if (Platform.OS === 'android') {
-      setShowEndDatePicker(false);
+      setShowTimePicker(false);
       const confirmed = event && (event as { type?: string }).type === 'set';
-      if (!confirmed || !selectedDate) return;
+      if (!confirmed || !selectedTime) return;
     }
-    if (selectedDate) {
-      // Prevent selecting end time before or equal to start time
-      if (selectedDate <= startDateTime) {
-        Alert.alert('Invalid Time', 'End time must be after start time. Please select a later date and time.');
+    if (selectedTime) {
+      const next = combineLocalDateAndTime(meetingDate, selectedTime);
+      if (next.getTime() < Date.now()) {
+        Alert.alert('Invalid Time', 'Please select a future date and time for the meeting.');
         return;
       }
-      
-      setEndDateTime(selectedDate);
-      setMeetingData(prev => ({ ...prev, endTime: selectedDate.toISOString() }));
+      setMeetingTime(selectedTime);
     }
   };
 
@@ -472,13 +443,18 @@ export default function ScheduleMeetingScreen() {
     }));
   };
 
-  const toggleFeature = (feature: 'enableRecording' | 'enableTranscription' | 'isPrivate') => {
-    setMeetingData(prev => ({
-      ...prev,
-      [feature]: !prev[feature],
-      // Clear passcode if making meeting public
-      ...(feature === 'isPrivate' && !prev.isPrivate ? { passcode: '' } : {})
-    }));
+  const toggleFeature = (
+    feature: 'enableRecording' | 'enableTranscription' | 'isPrivate' | 'requireJoinApproval'
+  ) => {
+    setMeetingData((prev) => {
+      if (feature === 'requireJoinApproval' && !prev.isPrivate) return prev;
+      const next = { ...prev, [feature]: !prev[feature] };
+      if (feature === 'isPrivate' && prev.isPrivate) {
+        next.passcode = '';
+        next.requireJoinApproval = false;
+      }
+      return next;
+    });
   };
 
   const dynamicStyles = useMemo(() => StyleSheet.create({
@@ -529,23 +505,90 @@ export default function ScheduleMeetingScreen() {
     },
     section: {
       backgroundColor: colors.card,
-      marginTop: 16,
+      marginTop: 10,
       borderRadius: 12,
-      padding: 16,
+      padding: 14,
     },
     sectionTitle: {
       fontSize: 16,
       fontWeight: '600',
       color: colors.text,
+      marginBottom: 10,
+    },
+    sectionTitleInline: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
+      marginBottom: 0,
     },
     sectionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: 16,
     },
     inputGroup: {
-      marginBottom: 16,
+      marginBottom: 12,
+    },
+    rowFields: {
+      flexDirection: 'row',
+      gap: 10,
+    },
+    halfField: {
+      flex: 1,
+      marginBottom: 12,
+    },
+    workspacePicker: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      backgroundColor: colors.inputBackground || colors.card,
+    },
+    workspacePickerText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+      marginRight: 8,
+    },
+    modalSheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 16,
+      borderTopRightRadius: 16,
+      maxHeight: '70%',
+      paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    },
+    modalSheetHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    modalSheetTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: colors.text,
+    },
+    workspaceOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    workspaceOptionText: {
+      flex: 1,
+      fontSize: 16,
+      color: colors.text,
+      marginRight: 12,
     },
     label: {
       fontSize: 14,
@@ -732,7 +775,12 @@ export default function ScheduleMeetingScreen() {
           </FeedbackTouchable>
         </View>
 
-        <ScrollView style={dynamicStyles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={dynamicStyles.content}
+          contentContainerStyle={{ paddingBottom: 24 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Meeting Details */}
           <View style={dynamicStyles.section}>
             <View style={dynamicStyles.inputGroup}>
@@ -769,57 +817,81 @@ export default function ScheduleMeetingScreen() {
               />
             </View>
 
-            {/* Start Date/Time */}
             <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>Start Date & Time *</Text>
-              <TouchableOpacity 
-                style={dynamicStyles.datePickerContainer}
-                onPress={() => {
-                  if (Platform.OS === 'android') {
-                    openStartDatePickerAndroid();
-                  } else {
-                    setShowStartDatePicker(true);
-                    setShowEndDatePicker(false);
-                  }
-                }}
+              <Text style={dynamicStyles.label}>Workspace</Text>
+              <TouchableOpacity
+                style={dynamicStyles.workspacePicker}
+                onPress={() => setShowWorkspacePicker(true)}
+                activeOpacity={0.7}
               >
-                <Text style={dynamicStyles.datePickerLabel}>
-                  {startDateTime.toLocaleString([], { 
-                    month: 'short', 
-                    day: 'numeric', 
-                    year: 'numeric',
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
+                <Text style={dynamicStyles.workspacePickerText} numberOfLines={1}>
+                  {selectedWorkspaceName}
                 </Text>
-                <Ionicons name="calendar-outline" size={20} color="#007AFF" />
+                <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
 
-            {/* End Date/Time */}
-            <View style={dynamicStyles.inputGroup}>
-              <Text style={dynamicStyles.label}>End Date & Time *</Text>
-              <TouchableOpacity 
+            {/* Date / Time / Duration — matches web Reach schedule */}
+            <View style={dynamicStyles.rowFields}>
+              <View style={[dynamicStyles.inputGroup, dynamicStyles.halfField]}>
+                <Text style={dynamicStyles.label}>Date *</Text>
+                <TouchableOpacity
+                  style={dynamicStyles.datePickerContainer}
+                  onPress={() => {
+                    if (Platform.OS === 'android') {
+                      openDatePickerAndroid();
+                    } else {
+                      setShowDatePicker(true);
+                      setShowTimePicker(false);
+                    }
+                  }}
+                >
+                  <Text style={dynamicStyles.datePickerLabel}>
+                    {meetingDate.toLocaleDateString([], {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={18} color="#007AFF" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={[dynamicStyles.inputGroup, dynamicStyles.halfField]}>
+                <Text style={dynamicStyles.label}>Time *</Text>
+                <TouchableOpacity
+                  style={dynamicStyles.datePickerContainer}
+                  onPress={() => {
+                    if (Platform.OS === 'android') {
+                      openTimePickerAndroid();
+                    } else {
+                      setShowTimePicker(true);
+                      setShowDatePicker(false);
+                    }
+                  }}
+                >
+                  <Text style={dynamicStyles.datePickerLabel}>
+                    {meetingTime.toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                  <Ionicons name="time-outline" size={18} color="#007AFF" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={[dynamicStyles.inputGroup, { marginBottom: 0 }]}>
+              <Text style={dynamicStyles.label}>Duration (minutes)</Text>
+              <TouchableOpacity
                 style={dynamicStyles.datePickerContainer}
-                onPress={() => {
-                  if (Platform.OS === 'android') {
-                    openEndDatePickerAndroid();
-                  } else {
-                    setShowEndDatePicker(true);
-                    setShowStartDatePicker(false);
-                  }
-                }}
+                onPress={() => setShowDurationPicker(true)}
+                activeOpacity={0.7}
               >
                 <Text style={dynamicStyles.datePickerLabel}>
-                  {endDateTime.toLocaleString([], { 
-                    month: 'short', 
-                    day: 'numeric', 
-                    year: 'numeric',
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                  })}
+                  {durationLabel(durationMinutes)}
                 </Text>
-                <Ionicons name="calendar-outline" size={20} color="#007AFF" />
+                <Ionicons name="chevron-down" size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -827,11 +899,14 @@ export default function ScheduleMeetingScreen() {
           {/* Features - Collapsible */}
           <View style={dynamicStyles.section}>
             <TouchableOpacity 
-              style={dynamicStyles.sectionHeader}
+              style={[
+                dynamicStyles.sectionHeader,
+                featuresExpanded ? { marginBottom: 10 } : null,
+              ]}
               onPress={() => setFeaturesExpanded(!featuresExpanded)}
               activeOpacity={0.7}
             >
-              <Text style={dynamicStyles.sectionTitle}>Features</Text>
+              <Text style={dynamicStyles.sectionTitleInline}>Features</Text>
               <Ionicons 
                 name={featuresExpanded ? "chevron-up" : "chevron-down"} 
                 size={20} 
@@ -878,18 +953,32 @@ export default function ScheduleMeetingScreen() {
                 </TouchableOpacity>
 
                 {meetingData.isPrivate && (
-                  <View style={dynamicStyles.inputGroup}>
-                    <Text style={dynamicStyles.label}>Passcode *</Text>
-                    <TextInput
-                      style={dynamicStyles.textInput}
-                      placeholder="Enter passcode"
-                      placeholderTextColor={colors.textSecondary}
-                      value={meetingData.passcode}
-                      onChangeText={(text) => setMeetingData(prev => ({ ...prev, passcode: text }))}
-                      secureTextEntry
-                      maxLength={20}
-                    />
-                  </View>
+                  <>
+                    <View style={[dynamicStyles.inputGroup, { marginBottom: 0, marginTop: 8 }]}>
+                      <Text style={dynamicStyles.label}>Passcode *</Text>
+                      <TextInput
+                        style={dynamicStyles.textInput}
+                        placeholder="Enter passcode"
+                        placeholderTextColor={colors.textSecondary}
+                        value={meetingData.passcode}
+                        onChangeText={(text) => setMeetingData(prev => ({ ...prev, passcode: text }))}
+                        secureTextEntry
+                        maxLength={20}
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      style={dynamicStyles.featureRow}
+                      onPress={() => toggleFeature('requireJoinApproval')}
+                    >
+                      <View style={dynamicStyles.featureInfo}>
+                        <Text style={dynamicStyles.featureTitle}>Require Join Approval</Text>
+                      </View>
+                      <View style={[dynamicStyles.checkbox, meetingData.requireJoinApproval && dynamicStyles.checkboxChecked]}>
+                        {meetingData.requireJoinApproval && <Ionicons name="checkmark" size={16} color="#fff" />}
+                      </View>
+                    </TouchableOpacity>
+                  </>
                 )}
               </>
             )}
@@ -928,21 +1017,70 @@ export default function ScheduleMeetingScreen() {
             )}
           </View>
         </ScrollView>
+
+        <Modal
+          visible={showWorkspacePicker}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowWorkspacePicker(false)}
+        >
+          <TouchableOpacity
+            style={dynamicStyles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowWorkspacePicker(false)}
+          >
+            <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+              <View style={dynamicStyles.modalSheetHeader}>
+                <Text style={dynamicStyles.modalSheetTitle}>Select Workspace</Text>
+                <TouchableOpacity onPress={() => setShowWorkspacePicker(false)}>
+                  <Ionicons name="close" size={22} color={colors.textSecondary} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView>
+                <TouchableOpacity
+                  style={dynamicStyles.workspaceOption}
+                  onPress={() => {
+                    setWorkspaceId(null);
+                    setShowWorkspacePicker(false);
+                  }}
+                >
+                  <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
+                  {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+                </TouchableOpacity>
+                {workspaces.map((ws) => (
+                  <TouchableOpacity
+                    key={ws.id}
+                    style={dynamicStyles.workspaceOption}
+                    onPress={() => {
+                      setWorkspaceId(ws.id);
+                      setShowWorkspacePicker(false);
+                    }}
+                  >
+                    <Text style={dynamicStyles.workspaceOptionText}>
+                      {ws.name}{ws.is_personal ? ' (Default)' : ''}
+                    </Text>
+                    {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </KeyboardAvoidingView>
 
-      {/* Start Date/Time Picker: Android uses imperative API (no component mount = no dismiss crash); iOS uses Modal with spinner */}
-      {showStartDatePicker ? (
+      {/* Date picker (iOS); Android uses imperative API */}
+      {showDatePicker ? (
         <Modal
           visible={true}
           animationType="fade"
           transparent={true}
           statusBarTranslucent
-          onRequestClose={() => setShowStartDatePicker(false)}
+          onRequestClose={() => setShowDatePicker(false)}
         >
           <TouchableOpacity
             style={dynamicStyles.modalOverlay}
             activeOpacity={1}
-            onPress={() => setShowStartDatePicker(false)}
+            onPress={() => setShowDatePicker(false)}
           >
             <TouchableOpacity
               style={dynamicStyles.modalContainer}
@@ -950,20 +1088,20 @@ export default function ScheduleMeetingScreen() {
               onPress={(e) => e.stopPropagation()}
             >
               <View style={dynamicStyles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
                   <Text style={dynamicStyles.modalCancelButton}>Cancel</Text>
                 </TouchableOpacity>
-                <Text style={dynamicStyles.modalTitle}>Select Start Date & Time</Text>
-                <TouchableOpacity onPress={() => setShowStartDatePicker(false)}>
+                <Text style={dynamicStyles.modalTitle}>Select Date</Text>
+                <TouchableOpacity onPress={() => setShowDatePicker(false)}>
                   <Text style={dynamicStyles.doneButton}>Done</Text>
                 </TouchableOpacity>
               </View>
               <View style={dynamicStyles.modalContent}>
                 <DateTimePicker
-                  value={getValidDate(startDateTime)}
-                  mode="datetime"
+                  value={getValidDate(meetingDate)}
+                  mode="date"
                   display="spinner"
-                  onChange={onStartDateChange}
+                  onChange={onDateChange}
                   style={dynamicStyles.modalDatePicker}
                   textColor={colors.text}
                   accentColor="#007AFF"
@@ -975,19 +1113,19 @@ export default function ScheduleMeetingScreen() {
         </Modal>
       ) : null}
 
-      {/* End Date/Time Picker: Android uses imperative API (no component mount = no dismiss crash); iOS uses Modal with spinner */}
-      {showEndDatePicker ? (
+      {/* Time picker (iOS) */}
+      {showTimePicker ? (
         <Modal
           visible={true}
           animationType="fade"
           transparent={true}
           statusBarTranslucent
-          onRequestClose={() => setShowEndDatePicker(false)}
+          onRequestClose={() => setShowTimePicker(false)}
         >
           <TouchableOpacity
             style={dynamicStyles.modalOverlay}
             activeOpacity={1}
-            onPress={() => setShowEndDatePicker(false)}
+            onPress={() => setShowTimePicker(false)}
           >
             <TouchableOpacity
               style={dynamicStyles.modalContainer}
@@ -995,30 +1133,68 @@ export default function ScheduleMeetingScreen() {
               onPress={(e) => e.stopPropagation()}
             >
               <View style={dynamicStyles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <TouchableOpacity onPress={() => setShowTimePicker(false)}>
                   <Text style={dynamicStyles.modalCancelButton}>Cancel</Text>
                 </TouchableOpacity>
-                <Text style={dynamicStyles.modalTitle}>Select End Date & Time</Text>
-                <TouchableOpacity onPress={() => setShowEndDatePicker(false)}>
+                <Text style={dynamicStyles.modalTitle}>Select Time</Text>
+                <TouchableOpacity onPress={() => setShowTimePicker(false)}>
                   <Text style={dynamicStyles.doneButton}>Done</Text>
                 </TouchableOpacity>
               </View>
               <View style={dynamicStyles.modalContent}>
                 <DateTimePicker
-                  value={getValidDate(endDateTime)}
-                  mode="datetime"
+                  value={getValidDate(meetingTime)}
+                  mode="time"
                   display="spinner"
-                  onChange={onEndDateChange}
+                  onChange={onTimeChange}
                   style={dynamicStyles.modalDatePicker}
                   textColor={colors.text}
                   accentColor="#007AFF"
-                  minimumDate={getValidDate(startDateTime)}
                 />
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
         </Modal>
       ) : null}
+
+      <Modal
+        visible={showDurationPicker}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setShowDurationPicker(false)}
+      >
+        <TouchableOpacity
+          style={dynamicStyles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowDurationPicker(false)}
+        >
+          <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
+            <View style={dynamicStyles.modalSheetHeader}>
+              <Text style={dynamicStyles.modalSheetTitle}>Duration (minutes)</Text>
+              <TouchableOpacity onPress={() => setShowDurationPicker(false)}>
+                <Ionicons name="close" size={22} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+              {MEETING_DURATION_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={dynamicStyles.workspaceOption}
+                  onPress={() => {
+                    setDurationMinutes(opt.value);
+                    setShowDurationPicker(false);
+                  }}
+                >
+                  <Text style={dynamicStyles.workspaceOptionText}>{opt.label}</Text>
+                  {durationMinutes === opt.value && (
+                    <Ionicons name="checkmark" size={18} color="#007AFF" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }

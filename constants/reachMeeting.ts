@@ -43,6 +43,11 @@ export function isLiveReachMeetingMounted(meetingId: unknown): boolean {
   return Boolean(id && liveReachMeetingMounted && id === liveReachMeetingId);
 }
 
+/** Current live Reach meeting id while HMS is mounted (including minimized). */
+export function getLiveReachMeetingId(): string {
+  return liveReachMeetingMounted ? liveReachMeetingId : '';
+}
+
 /**
  * Route to stay on the live call. Also marks the current HMS instance to skip leave if
  * Expo remounts anyway (so the shared guest row is not deleted).
