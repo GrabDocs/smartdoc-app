@@ -455,7 +455,7 @@ export default function JoinMeetingScreen() {
         ...(params.passcode_token ? { passcode_token: params.passcode_token } : (pc ? { passcode: pc } : {})),
       });
 
-      // Unexpected 2xx (approval waived) — HMS screen runs prepare again as the canonical join path.
+      // 2xx here means meeting host/creator (approval waived). Invitees get 403 + wait.
       clearPersistedWaiting();
       hasNavigatedRef.current = true;
       const q = new URLSearchParams({ meetingId: meetingId.trim() });

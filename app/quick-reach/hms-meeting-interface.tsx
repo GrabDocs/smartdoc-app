@@ -37,8 +37,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MeetingPresenceConfirmBridge } from '../../components/quick-reach/MeetingPresenceConfirmBridge';
+import { MeetingHmsReconnectBridge } from '../../components/quick-reach/MeetingHmsReconnectBridge';
 import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsManageModal';
-import { API_BASE_URL, HMS_IOS_SCREENSHARE } from '../../constants/Config';
+import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
   REACH_CURRENT_MEETING_KEY,
   canonicalizeReachMeetingId,
@@ -302,11 +303,36 @@ export default function HMSMeetingInterfaceScreen() {
   /** True when user backs/swipes to the list while still in a live call (not an explicit leave). */
   const isMinimizingAwayRef = useRef(false);
 
-  // Network connectivity monitoring — shown as a friendly overlay instead of the raw HMS error
+  // HMS media reconnect overlay — only when the call itself is reconnecting (matches web).
+  // Backend /health failures are silent; heartbeats stay on their own interval.
   const [isNetworkDown, setIsNetworkDown] = useState(false);
   const [showReconnected, setShowReconnected] = useState(false);
-  const networkPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const reconnectedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleHmsReconnecting = useCallback(() => {
+    setShowReconnected(false);
+    if (reconnectedTimerRef.current) {
+      clearTimeout(reconnectedTimerRef.current);
+      reconnectedTimerRef.current = null;
+    }
+    setIsNetworkDown(true);
+  }, []);
+
+  const handleHmsReconnected = useCallback(() => {
+    setIsNetworkDown(false);
+    setShowReconnected(true);
+    if (reconnectedTimerRef.current) clearTimeout(reconnectedTimerRef.current);
+    reconnectedTimerRef.current = setTimeout(() => setShowReconnected(false), 3000);
+    // Quiet presence refresh after media recovers (no user-facing banner for API health).
+    if (roomIdRef.current && presenceConfirmedRef.current) {
+      apiClient
+        .sendMeetingHeartbeat(roomIdRef.current, {
+          guestId: guestIdRef.current ?? undefined,
+          participantName: joinConfirmContextRef.current.displayName || undefined,
+        })
+        .catch(() => {});
+    }
+  }, []);
 
   // In-meeting dismissable banners (recording started, peer joined)
   const [bannerQueue, setBannerQueue] = useState<
@@ -349,57 +375,11 @@ export default function HMSMeetingInterfaceScreen() {
     setJoinSoundReady(true);
   }, [joinConfig]);
 
-  // Network connectivity monitor — poll the backend health endpoint every 5 s during a live call.
-  // When the connection drops we show our own friendly banner (which renders above the HMS native UI
-  // via a transparent Modal). When it recovers, we flash "Reconnected" for 3 s then hide the banner.
   useEffect(() => {
-    // Only monitor after confirmed presence (prejoin HMS UI should not show call-level overlays)
-    if (!joinConfig || Platform.OS === 'web' || !HMSPrebuilt || !presenceConfirmed) return;
-
-    const checkConnectivity = async () => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
-      try {
-        await fetch(`${API_BASE_URL}/health`, {
-          method: 'HEAD',
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        // Connection restored
-        setIsNetworkDown(prev => {
-          if (prev) {
-            // Was offline — flash "Reconnected" banner for 3 s
-            setShowReconnected(true);
-            if (reconnectedTimerRef.current) clearTimeout(reconnectedTimerRef.current);
-            reconnectedTimerRef.current = setTimeout(() => setShowReconnected(false), 3000);
-            // Re-ping heartbeat after reconnect (confirm not needed for same token/session)
-            if (roomIdRef.current && presenceConfirmedRef.current) {
-              apiClient
-                .sendMeetingHeartbeat(roomIdRef.current, {
-                  guestId: guestIdRef.current ?? undefined,
-                  participantName: joinConfirmContextRef.current.displayName || undefined,
-                })
-                .catch(() => {});
-            }
-          }
-          return false;
-        });
-      } catch {
-        clearTimeout(timeout);
-        setIsNetworkDown(true);
-      }
-    };
-
-    // Initial check after a short delay (give HMS time to settle)
-    const initialDelay = setTimeout(checkConnectivity, 3000);
-    networkPollRef.current = setInterval(checkConnectivity, 5000);
-
     return () => {
-      clearTimeout(initialDelay);
-      if (networkPollRef.current) clearInterval(networkPollRef.current);
       if (reconnectedTimerRef.current) clearTimeout(reconnectedTimerRef.current);
     };
-  }, [joinConfig, presenceConfirmed]);
+  }, []);
 
   // Room-kit HMSSDK.build reads `global.joinConfig` before mount; portrait lock aligns camera preview.
   // Cap wait so a slow orientation API cannot delay HMS/camera past ~400ms.
@@ -1611,6 +1591,11 @@ export default function HMSMeetingInterfaceScreen() {
             onLocalPeerName={handleLocalPeerName}
             onConnectionStuck={handleConnectionStuck}
           />
+          <MeetingHmsReconnectBridge
+            enabled={!!joinConfig && !!presenceConfirmed && !hmsError}
+            onReconnecting={handleHmsReconnecting}
+            onReconnected={handleHmsReconnected}
+          />
           {HMSPrebuilt && joinSoundReady && (
             <MeetingJoinSound enabled={!!authToken && !!meetingId && !hmsError} onPeerJoined={handlePeerJoined} />
           )}
@@ -1732,8 +1717,7 @@ export default function HMSMeetingInterfaceScreen() {
             onCountChange={setPendingJoinRequestCount}
           />
 
-          {/* Network status overlay — rendered as a Modal so it appears above the HMS native UI.
-              Shows a friendly banner instead of the raw "code: 1003" HMS error. */}
+          {/* HMS reconnect overlay — only when media session is reconnecting (not backend /health). */}
           <Modal
             visible={(isNetworkDown || showReconnected) && !!joinConfig && !!presenceConfirmed && !hmsError}
             transparent

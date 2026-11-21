@@ -104,7 +104,8 @@ class PushNotificationService {
           type === 'chat_message' ||
           type === 'workspace_meeting_started' ||
           type === 'chat_call_started' ||
-          type === 'meeting_started';
+          type === 'meeting_started' ||
+          type === 'meeting_status_changed';
         return {
           shouldShowAlert: !suppressOsBanner,
           shouldPlaySound: !suppressOsBanner,
@@ -517,6 +518,9 @@ export const REACH_MEETING_STARTED_TYPES = [
   'chat_call_started',
   'meeting_started',
 ] as const;
+
+/** RN DeviceEventEmitter name — Reach list listens to refresh on status flips. */
+export const MEETING_STATUS_CHANGED_EVENT = 'grabdocs:meeting_status_changed';
 
 export function isReachMeetingStartedNotificationType(type: unknown): boolean {
   return (

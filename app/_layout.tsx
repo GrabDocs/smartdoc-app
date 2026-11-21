@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, AppState, findNodeHandle, Linking, LogBox, Platform, Pressable, StyleSheet } from 'react-native';
+import { AccessibilityInfo, AppState, DeviceEventEmitter, findNodeHandle, Linking, LogBox, Platform, Pressable, StyleSheet } from 'react-native';
 import 'react-native-url-polyfill/auto';
 import { errorLogger } from '../services/errorLogger';
 
@@ -62,7 +62,7 @@ import PersistentBottomNavigation from './components/PersistentBottomNavigation'
 import UpdateRequiredScreen from './components/UpdateRequiredScreen';
 import { AuthProvider, useAuth } from './context/auth';
 import { LimitErrorProvider } from '../contexts/LimitErrorContext';
-import { getNotificationScreen, parseNotificationPath, initializePushNotifications, pushNotificationService, isJoinRequestNotificationAction, executeJoinRequestNotificationAction, isEmailReplyNotificationAction, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, getReachMeetingJoinPath } from './services/pushNotifications';
+import { getNotificationScreen, parseNotificationPath, initializePushNotifications, pushNotificationService, isJoinRequestNotificationAction, executeJoinRequestNotificationAction, isEmailReplyNotificationAction, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, getReachMeetingJoinPath, MEETING_STATUS_CHANGED_EVENT } from './services/pushNotifications';
 import ReachMeetingStartedBanner from './components/ReachMeetingStartedBanner';
 import IncomingShareBridge from '../components/incoming/IncomingShareBridge';
 import { canonicalizeReachMeetingId, REACH_CURRENT_MEETING_KEY } from '../constants/reachMeeting';
@@ -172,6 +172,7 @@ function RootLayoutNav() {
   );
 
   // Foreground push: show OTA-style banner when a workspace/chat meeting starts.
+  // Also emit meeting_status_changed so the Reach list can refresh immediately.
   useEffect(() => {
     if (!user) {
       setMeetingStartedBanner(null);
@@ -184,6 +185,11 @@ function RootLayoutNav() {
         const content = notification.request.content;
         const data = (content.data || {}) as Record<string, unknown>;
         const type = data.type ?? data.action_type;
+
+        if (type === 'meeting_status_changed' || isReachMeetingStartedNotificationType(type)) {
+          DeviceEventEmitter.emit(MEETING_STATUS_CHANGED_EVENT, data);
+        }
+
         if (!isReachMeetingStartedNotificationType(type)) return;
         const joinPath = getReachMeetingJoinPath(data as Record<string, any>);
         const rawMid = data.meeting_id ?? data.meetingId;

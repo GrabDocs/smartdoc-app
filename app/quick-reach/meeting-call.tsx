@@ -6,6 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    AppState,
+    AppStateStatus,
+    DeviceEventEmitter,
     FlatList,
     Keyboard,
     KeyboardAvoidingView,
@@ -17,6 +20,10 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { io, Socket } from 'socket.io-client';
+import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
+import { secureStorage } from '../../utils/storage';
+import { MEETING_STATUS_CHANGED_EVENT } from '../services/pushNotifications';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
 import ClientContextStrip from '../../components/clients/ClientContextStrip';
@@ -829,6 +836,112 @@ export default function MeetingCallScreen() {
       }
     }, [isAuthenticated, hasLoadedOnce, loadMeetings])
   );
+
+  const applyMeetingStatusPayload = useCallback((data: Record<string, any> | null | undefined) => {
+    if (!data) return;
+    const roomId = data.room_id ?? data.video_call_id ?? data.id;
+    const meetingId = data.meeting_id ?? data.meetingId;
+    const nextStatus = String(data.status || data.meeting_status || '').toLowerCase();
+    if (!nextStatus) return;
+
+    setMeetings((prev) =>
+      prev.map((m) => {
+        const idMatch =
+          (roomId != null && String(m.id) === String(roomId)) ||
+          (meetingId != null &&
+            (String(m.meetingId || '') === String(meetingId) ||
+              String(m.id) === String(meetingId)));
+        if (!idMatch) return m;
+        return {
+          ...m,
+          status: nextStatus as Meeting['status'],
+          startTime: data.started_at ? String(data.started_at) : m.startTime,
+          endTime: data.ended_at != null ? String(data.ended_at) : m.endTime,
+        };
+      })
+    );
+
+    const now = Date.now();
+    if (now - lastLoadTimeRef.current > RELOAD_DEBOUNCE_MS) {
+      lastLoadTimeRef.current = now;
+      void loadMeetings({ silent: true });
+    }
+  }, [loadMeetings]);
+
+  // Push / silent data: refresh list when another device starts or ends a meeting
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const sub = DeviceEventEmitter.addListener(
+      MEETING_STATUS_CHANGED_EVENT,
+      (payload) => applyMeetingStatusPayload(payload as Record<string, any>),
+    );
+    return () => sub.remove();
+  }, [isAuthenticated, applyMeetingStatusPayload]);
+
+  // Socket.IO: real-time meeting_status_changed while this screen is mounted
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+
+    let cancelled = false;
+    let socket: Socket | null = null;
+
+    const connect = async () => {
+      const token = await secureStorage.getItem(STORAGE_KEYS.AUTH_TOKEN).catch(() => null);
+      if (cancelled) return;
+
+      const isLocalApi = /localhost|127\.0\.0\.1|192\.168\.|10\.\d+\./.test(API_BASE_URL);
+      socket = io(API_BASE_URL, {
+        ...(token ? { auth: { token } } : {}),
+        transports: isLocalApi ? ['polling', 'websocket'] : ['websocket'],
+        upgrade: isLocalApi,
+        reconnection: true,
+        reconnectionDelay: 2000,
+        reconnectionDelayMax: 10000,
+        reconnectionAttempts: 10,
+        timeout: 20000,
+        path: '/socket.io/',
+      });
+
+      const joinUserRoom = () => {
+        if (!socket?.connected) return;
+        const uid = Number(user.id);
+        if (!Number.isFinite(uid) || uid < 0) return;
+        socket.emit('authenticate', { user_id: uid });
+        socket.emit('join_user_room', { user_id: uid });
+      };
+
+      socket.on('connect', joinUserRoom);
+      socket.on('meeting_status_changed', (payload: Record<string, any>) => {
+        applyMeetingStatusPayload(payload);
+      });
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      if (socket) {
+        socket.removeAllListeners();
+        socket.disconnect();
+        socket = null;
+      }
+    };
+  }, [isAuthenticated, user?.id, applyMeetingStatusPayload]);
+
+  // Refresh when returning from background (covers missed socket while suspended)
+  useEffect(() => {
+    if (!isAuthenticated || !hasLoadedOnce) return;
+    const onAppState = (next: AppStateStatus) => {
+      if (next !== 'active') return;
+      const now = Date.now();
+      if (now - lastLoadTimeRef.current > RELOAD_DEBOUNCE_MS) {
+        lastLoadTimeRef.current = now;
+        void loadMeetings({ silent: true });
+      }
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [isAuthenticated, hasLoadedOnce, loadMeetings]);
 
   /** Header back goes to app Home — never pop into the live HMS screen underneath. */
   const goHeaderBackToHome = useCallback(() => {
@@ -2293,6 +2406,7 @@ export default function MeetingCallScreen() {
                     placeholderTextColor={colors.textLight}
                     value={meetingPassword}
                     onChangeText={setMeetingPassword}
+                    keyboardType="numeric"
                     secureTextEntry
                     autoCapitalize="none"
                   />
@@ -2418,6 +2532,19 @@ export default function MeetingCallScreen() {
                   <Text style={dynamicStyles.infoLabel}>Title</Text>
                   <Text style={dynamicStyles.infoValue}>{infoMeeting.title}</Text>
                 </View>
+
+                {(meetingInfoData?.workspace_name ||
+                  meetingInfoData?.workspace?.name ||
+                  meetingInfoData?.workspaceName) ? (
+                  <View style={dynamicStyles.infoSection}>
+                    <Text style={dynamicStyles.infoLabel}>Workspace</Text>
+                    <Text style={dynamicStyles.infoValue} numberOfLines={2}>
+                      {meetingInfoData?.workspace_name ||
+                        meetingInfoData?.workspace?.name ||
+                        meetingInfoData?.workspaceName}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {(() => {
                   const videoCallId =
