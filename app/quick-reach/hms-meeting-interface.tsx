@@ -45,6 +45,7 @@ import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
   REACH_CURRENT_MEETING_KEY,
   REACH_MEETING_NOTIFICATION_ID,
+  HMS_ROOM_JOINED_EVENT,
   LEAVE_REACH_MEETING_EVENT,
   canonicalizeReachMeetingId,
   reachGuestIdStorageKey,
@@ -1541,6 +1542,20 @@ export default function HMSMeetingInterfaceScreen() {
       clearTimeout(t2);
     };
   }, [joinConfig, authToken, presenceConfirmed, inHmsRoom, handleHmsEnteredForPresenceConfirm]);
+
+  // Room Kit ON_JOIN (patched emit) — the definitive "tapped Join Now and in the room" signal.
+  // Unlocks logo minimize + tip immediately; peer-update bridge remains a fallback.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = DeviceEventEmitter.addListener(HMS_ROOM_JOINED_EVENT, () => {
+      inHmsRoomRef.current = true;
+      setInHmsRoom(true);
+      if (!presenceConfirmedRef.current && !presenceConfirmSentRef.current) {
+        void handleHmsEnteredForPresenceConfirm();
+      }
+    });
+    return () => sub.remove();
+  }, [handleHmsEnteredForPresenceConfirm]);
 
   // Preview/prejoin also emits local peer name — update display name only; do not treat as joined.
   const handleLocalPeerNameWithRoom = useCallback(

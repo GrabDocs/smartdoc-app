@@ -4,6 +4,9 @@ export const REACH_CURRENT_MEETING_KEY = 'reach_current_meeting_id';
 /** Local sticky notification id for minimized / backgrounded Reach calls ("Tap to return"). */
 export const REACH_MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
 
+/** DeviceEventEmitter: emitted by patched Room Kit ON_JOIN (user tapped Join and is in the room). */
+export const HMS_ROOM_JOINED_EVENT = 'grabdocs:hms_room_joined';
+
 /**
  * DeviceEventEmitter: list asks the mounted HMS screen to leave without returning first.
  * Payload: `{ meetingId: string }`.

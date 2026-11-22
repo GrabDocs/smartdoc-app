@@ -1,3 +1,25 @@
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
+index 8085154..c66bd46 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
+@@ -9,6 +9,7 @@ import {
+ import React, { useCallback, useEffect, useRef, useState } from 'react';
+ import {
+   Alert,
++  DeviceEventEmitter,
+   Keyboard,
+   PermissionsAndroid,
+   Platform,
+@@ -363,6 +364,9 @@ export const HMSRoomSetup = () => {
+         startHLSStreaming();
+       }
+       dispatch(changeMeetingState(MeetingState.IN_MEETING));
++      // GrabDocs: app-level "user tapped Join and is in the room" signal. A second ON_JOIN
++      // subscriber would break this one, so the app listens to this event instead.
++      DeviceEventEmitter.emit('grabdocs:hms_room_joined');
+     };
+ 
+     hmsInstance.addEventListener(
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx
 new file mode 100644
 index 0000000..89f5c5a
