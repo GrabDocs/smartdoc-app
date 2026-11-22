@@ -648,7 +648,7 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..d1dec87 100644
+index 4d107f0..0116369 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 @@ -1,176 +1,180 @@
@@ -853,15 +853,6 @@ index 4d107f0..d1dec87 100644
 +    useCanPublishVideo,
 +    useHMSActions,
 +} from './hooks-sdk';
-+import {
-+    selectChatLayoutConfig,
-+    selectConferencingScreenConfig,
-+    selectIsHLSViewer,
-+    selectLayoutConfigForRole,
-+    selectShouldGoLive,
-+    selectVideoTileLayoutConfig,
-+} from './hooks-util-selectors';
-+import { getRoomLayout } from './modules/HMSManager';
  import {
 -  createPeerTrackNodeUniqueId,
 -  degradeOrRestorePeerTrackNodes,
@@ -871,6 +862,15 @@ index 4d107f0..d1dec87 100644
 -  removePeerTrackNodesWithTrack,
 -  replacePeerTrackNodes,
 -  replacePeerTrackNodesWithTrack,
++    selectChatLayoutConfig,
++    selectConferencingScreenConfig,
++    selectIsHLSViewer,
++    selectLayoutConfigForRole,
++    selectShouldGoLive,
++    selectVideoTileLayoutConfig,
++} from './hooks-util-selectors';
++import { getRoomLayout } from './modules/HMSManager';
++import {
 +    createPeerTrackNodeUniqueId,
 +    degradeOrRestorePeerTrackNodes,
 +    peerTrackNodeExistForPeer,
@@ -932,14 +932,14 @@ index 4d107f0..d1dec87 100644
  import type { ChatState, HMSPrebuiltProps, PinnedMessage } from './types';
  import { MeetingState, NotificationTypes } from './types';
 -import type { ImageStyle, StyleProp, TextStyle, ViewStyle } from 'react-native';
--import {
+ import {
 -  BackHandler,
 -  InteractionManager,
 -  Keyboard,
 -  Platform,
 -} from 'react-native';
 -import { NavigationContext } from '@react-navigation/native';
- import {
+-import {
 -  useIsLandscapeOrientation,
 -  useIsPortraitOrientation,
 +    useIsLandscapeOrientation,
@@ -1051,35 +1051,33 @@ index 4d107f0..d1dec87 100644
      numerator,
      denominator,
      autoEnterPipMode,
-@@ -2258,6 +2280,27 @@ export const useShouldGoLive = () => {
+@@ -2258,6 +2280,25 @@ export const useShouldGoLive = () => {
    return shouldGoLive;
  };
  
-+/** Native leave/endRoom can hang after 100ms has already accepted the leave. */
-+const HMS_ROOM_EXIT_TIMEOUT_MS = 2500;
-+
-+function withHmsExitTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-+  return new Promise((resolve, reject) => {
-+    const timer = setTimeout(() => {
-+      reject(new Error('HMS room exit timed out'));
-+    }, ms);
-+    promise.then(
-+      (value) => {
-+        clearTimeout(timer);
-+        resolve(value);
-+      },
-+      (error) => {
-+        clearTimeout(timer);
-+        reject(error);
-+      }
-+    );
-+  });
++/**
++ * Native leave/endRoom often never resolves after minimize/return (both iOS and
++ * Android). GrabDocs leave must not wait on it — fire native leave in the
++ * background, then always destroy + onLeave so the app can call /leave and unmount.
++ */
++function kickOffNativeHmsLeave(
++  work: () => Promise<unknown>,
++  label: string
++): void {
++  Promise.resolve()
++    .then(work)
++    .then((result) => {
++      console.log(`${label} Success: `, result);
++    })
++    .catch((error) => {
++      console.log(`${label} Error: `, error);
++    });
 +}
 +
  export const useLeaveMethods = () => {
    const navigation = useContext(NavigationContext);
    const hmsInstance = useHMSInstance();
-@@ -2266,29 +2309,10 @@ export const useLeaveMethods = () => {
+@@ -2266,29 +2307,10 @@ export const useLeaveMethods = () => {
  
    const destroy = useCallback(
      (reason: Parameters<OnLeaveHandler>[0]) => {
@@ -1113,7 +1111,7 @@ index 4d107f0..d1dec87 100644
          const onLeave = reduxStore.getState().user.onLeave;
  
          if (typeof onLeave === 'function') {
-@@ -2305,15 +2329,18 @@ export const useLeaveMethods = () => {
+@@ -2305,15 +2327,18 @@ export const useLeaveMethods = () => {
            // Otherwise default action is to show "Meeting Ended" screen
            dispatch(changeMeetingState(MeetingState.MEETING_ENDED));
          }
@@ -1138,52 +1136,50 @@ index 4d107f0..d1dec87 100644
        }
      },
      [hmsInstance]
-@@ -2327,12 +2354,20 @@ export const useLeaveMethods = () => {
+@@ -2326,13 +2351,12 @@ export const useLeaveMethods = () => {
+           console.log('Stop HLS Streaming Error: ', error);
          });
        }
++      // Best-effort only — never await. Unmount finishes cleanup.
++      kickOffNativeHmsLeave(() => hmsInstance.leave(), 'Leave');
        try {
 -        const d = await hmsInstance.leave();
-+        const d = await withHmsExitTimeout(
-+          hmsInstance.leave(),
-+          HMS_ROOM_EXIT_TIMEOUT_MS
-+        );
-         console.log('Leave Success: ', d);
--        await destroy(reason);
+-        console.log('Leave Success: ', d);
+         await destroy(reason);
        } catch (e) {
-         console.log(`Leave Room Error: ${e}`);
+-        console.log(`Leave Room Error: ${e}`);
 -        Toast.showWithGravity(`Leave Room Error: ${e}`, Toast.LONG, Toast.TOP);
-+      }
-+      // Always continue. leave() often never resolves on iOS after 100ms
-+      // has already recorded peer.leave, so onLeave never ran.
-+      try {
-+        await destroy(reason);
-+      } catch (e) {
 +        console.log(`Destroy after leave Error: ${e}`);
        }
      },
      [destroy, hmsInstance]
-@@ -2355,12 +2390,19 @@ export const useLeaveMethods = () => {
+@@ -2340,7 +2364,7 @@ export const useLeaveMethods = () => {
+ 
+   const prebuiltCleanUp = useCallback(async () => {
+     try {
+-      await hmsInstance.leave();
++      kickOffNativeHmsLeave(() => hmsInstance.leave(), 'Leave');
+       await hmsInstance.destroy();
+       dispatch(clearStore());
+     } catch (error) {
+@@ -2354,12 +2378,14 @@ export const useLeaveMethods = () => {
+ 
    const endRoom = useCallback(
      async (reason: OnLeaveReason) => {
++      kickOffNativeHmsLeave(
++        () => hmsInstance.endRoom('Host ended the room'),
++        'EndRoom'
++      );
        try {
 -        const d = await hmsInstance.endRoom('Host ended the room');
-+        const d = await withHmsExitTimeout(
-+          hmsInstance.endRoom('Host ended the room'),
-+          HMS_ROOM_EXIT_TIMEOUT_MS
-+        );
-         console.log('EndRoom Success: ', d);
--        await destroy(reason);
+-        console.log('EndRoom Success: ', d);
+         await destroy(reason);
        } catch (e) {
-         console.log('EndRoom Error: ', e);
-       }
-+      try {
-+        await destroy(reason);
-+      } catch (e) {
+-        console.log('EndRoom Error: ', e);
 +        console.log(`Destroy after endRoom Error: ${e}`);
-+      }
+       }
      },
      [destroy, hmsInstance]
-   );
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts
 new file mode 100644
 index 0000000..638b2de

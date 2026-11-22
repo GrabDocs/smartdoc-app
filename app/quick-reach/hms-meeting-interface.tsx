@@ -296,12 +296,10 @@ export default function HMSMeetingInterfaceScreen() {
   /** Leave API only after confirm — no ActiveParticipant row exists before that. */
   const leaveConfirmedReachSession = useCallback(async () => {
     // Snapshot before any await. Callers clear presenceConfirmedRef immediately
-    // so the screen can close; reading the ref later skipped the leave API and
-    // left the meeting active.
-    // Heartbeat can create the participant row before confirm succeeds. Leave
-    // must still run in that case or the meeting stays active after exit.
-    const shouldNotify =
-      (presenceConfirmedRef.current || inHmsRoomRef.current) && !!meetingId;
+    // so the screen can close; reading the ref later skipped the leave API.
+    // Do not leave on in-room alone. Confirm never finishing means this user
+    // has no attendance row, and a leave with zero participants ends the meeting.
+    const shouldNotify = presenceConfirmedRef.current && !!meetingId;
     const roomId = roomIdRef.current ?? undefined;
     const guestId = guestIdRef.current ?? undefined;
     const id = meetingId ? String(meetingId).trim() : '';
@@ -341,10 +339,9 @@ export default function HMSMeetingInterfaceScreen() {
       clearInterval(heartbeatIntervalRef.current);
       heartbeatIntervalRef.current = null;
     }
-    const leaving = leaveConfirmedReachSession();
+    await leaveConfirmedReachSession();
     presenceConfirmedRef.current = false;
     inHmsRoomRef.current = false;
-    void leaving;
     exitMeetingScreen(() => router.replace('/(tabs)' as any));
   }, [router, leaveConfirmedReachSession, meetingId, exitMeetingScreen]);
 
@@ -588,33 +585,42 @@ export default function HMSMeetingInterfaceScreen() {
 
     // Another HMS instance already owns this live call (minimized under the stack).
     // A fresh mount has no authToken — never fall through to an empty catch-all UI.
-    // Pop back to the live screen; if that fails, re-join as recovery.
-    if (isLiveReachMeetingMounted(meetingId)) {
+    // Pop back to the live screen. Never remount HMSPrebuilt here: Android HMSSDK is a
+    // singleton and a second preview() throws "[PREVIEW]: preview has already been started".
+    if (isLiveReachMeetingMounted(meetingId) && !ownsLiveMeetingRef.current) {
       const liveRoute = resumeLiveReachMeetingRoute(meetingId);
       if (liveRoute) {
         joinInitStartedRef.current = true;
         // This is a duplicate HMS screen. Pop back to the earlier one that owns the call;
         // navigating by name would resolve to this (current) screen and stay here.
-        const stackState = navigation.getState();
-        const selfIndex = stackState?.routes.findIndex((r) => r.key === route.key) ?? -1;
-        let liveIndex = -1;
-        if (stackState && selfIndex > 0) {
-          for (let i = selfIndex - 1; i >= 0; i--) {
-            if (stackState.routes[i].name === route.name) {
-              liveIndex = i;
-              break;
+        const popToLiveOwner = () => {
+          const stackState = navigation.getState();
+          const selfIndex = stackState?.routes.findIndex((r) => r.key === route.key) ?? -1;
+          let liveIndex = -1;
+          if (stackState && selfIndex > 0) {
+            for (let i = selfIndex - 1; i >= 0; i--) {
+              if (stackState.routes[i].name === route.name) {
+                liveIndex = i;
+                break;
+              }
             }
           }
-        }
-        if (liveIndex >= 0) {
-          const popCount = selfIndex - liveIndex;
-          exitMeetingScreen(() => navigation.dispatch(StackActions.pop(popCount)));
-        } else {
-          router.dismissTo(liveRoute as any);
-        }
+          if (liveIndex >= 0) {
+            const popCount = selfIndex - liveIndex;
+            exitMeetingScreen(() => navigation.dispatch(StackActions.pop(popCount)));
+          } else {
+            exitMeetingScreen(() => router.dismissTo(liveRoute as any));
+          }
+        };
+        popToLiveOwner();
         const failSafe = setTimeout(() => {
           if (!isMountedRef.current) return;
-          // Still mounted without a token → navigate did not reveal the live screen.
+          // Still a duplicate under a live owner — retry dismiss only. Do not start preview again.
+          if (isLiveReachMeetingMounted(meetingId) && !ownsLiveMeetingRef.current) {
+            popToLiveOwner();
+            return;
+          }
+          // Live owner gone (process killed / stack cleared) — safe to prepare a new session.
           void initializePrebuiltInterface();
         }, 500);
         return () => {
@@ -623,9 +629,6 @@ export default function HMSMeetingInterfaceScreen() {
           joinInitStartedRef.current = false;
         };
       }
-      joinInitStartedRef.current = true;
-      void initializePrebuiltInterface();
-      return;
     }
 
     joinInitStartedRef.current = true;
@@ -1024,13 +1027,14 @@ export default function HMSMeetingInterfaceScreen() {
   // Native iOS edge-swipe cannot do this safely (peek → bounce → leave loop). Gesture is
   // disabled while in-call; Android back + in-call chevron call this instead.
   const isScreenFocused = useIsFocused();
-  const goBackToApp = useCallback(() => {
+  const goBackToApp = useCallback((opts?: { fromLogo?: boolean }) => {
     // Minimize as soon as we're in the HMS room (inHmsRoom), not only after GrabDocs confirm.
     if (presenceConfirmed || inHmsRoom) {
-      // List is on top — ignore back/logo while this screen is covered.
+      // List/Home on top — ignore hardware back while this screen is covered.
+      // Logo taps may still arrive when useIsFocused lags after list→Home→return; trust those.
       // Do not also require callMinimized; that state can stay true after return and
       // swallow the next logo tap.
-      if (!isScreenFocused || isMinimizingAwayRef.current) return;
+      if ((!opts?.fromLogo && !isScreenFocused) || isMinimizingAwayRef.current) return;
       isMinimizingAwayRef.current = true;
       setCallMinimized(true);
       // Keep liveReachMeetingMounted true — this screen stays under the stack.
@@ -1113,7 +1117,8 @@ export default function HMSMeetingInterfaceScreen() {
     if (inHmsRoomRef.current || presenceConfirmedRef.current) {
       AsyncStorage.setItem(reachMinimizeLogoUsedKey(), '1').catch(() => {});
     }
-    goBackToApp();
+    // fromLogo: overlay received the press — do not drop it if useIsFocused is stale.
+    goBackToApp({ fromLogo: true });
   }, [goBackToApp]);
 
   const visibleJoinRequests = pendingJoinRequests.filter(
@@ -1309,6 +1314,20 @@ export default function HMSMeetingInterfaceScreen() {
     try {
       setIsLoading(true);
       setError(null);
+
+      // Duplicate route under a minimized live call — never start a second Android preview.
+      if (
+        meetingId &&
+        isLiveReachMeetingMounted(meetingId) &&
+        !ownsLiveMeetingRef.current
+      ) {
+        setIsLoading(false);
+        const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+        if (liveRoute) {
+          exitMeetingScreen(() => router.dismissTo(liveRoute as any));
+        }
+        return;
+      }
 
       // Check permissions BEFORE initializing HMS
       if (Platform.OS !== 'web' && permissionsGranted === false) {
@@ -1675,10 +1694,9 @@ export default function HMSMeetingInterfaceScreen() {
           /* ignore */
         }
         clearLiveReachMeeting(meetingId);
-        const leaving = leaveConfirmedReachSession();
+        await leaveConfirmedReachSession();
         presenceConfirmedRef.current = false;
         inHmsRoomRef.current = false;
-        void leaving;
         setPresenceConfirmed(false);
         setInHmsRoom(false);
       } catch (error: any) {
@@ -2212,38 +2230,32 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Explicit Leave / End, prejoin cancel, or host ended the room.
-                        // Navigate immediately. Waiting on the leave API (or on HMS leave())
-                        // is what left this screen spinning.
-                        isNavigatingAwayRef.current = true;
-                        if (pipFallbackTimerRef.current) {
-                          clearTimeout(pipFallbackTimerRef.current);
-                          pipFallbackTimerRef.current = null;
+                        // List Leave already ran performLeaveMeeting — do not double-leave.
+                        if (isNavigatingAwayRef.current) {
+                          return;
                         }
-                        if (heartbeatIntervalRef.current) {
-                          clearInterval(heartbeatIntervalRef.current);
-                          heartbeatIntervalRef.current = null;
-                        }
-                        dismissMeetingNotification();
-                        const leaving = leaveConfirmedReachSession();
-                        presenceConfirmedRef.current = false;
-                        inHmsRoomRef.current = false;
-                        setPresenceConfirmed(false);
-                        setInHmsRoom(false);
-                        void leaving.catch((error: any) => {
-                          console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
-                        });
 
-                        if (!isMountedRef.current) return;
-                        exitMeetingScreen(() => router.replace(meetingExitPath as any));
+                        // Prejoin cancel (HMS back) — never joined; no leave API.
+                        if (!presenceConfirmedRef.current) {
+                          exitMeetingScreen(() => router.replace(meetingExitPath as any));
+                          return;
+                        }
+
+                        // Same path as list Leave: /leave then unmount. Native HMS leave
+                        // was already kicked off in the background by Room Kit.
+                        void performLeaveMeeting();
                       }}
                       style={hmsProps.style}
                       // Note: React Native HMSPrebuilt does NOT support onJoin callback
                       // The component will automatically join when mounted with valid token/roomCode
                       // We use a timeout to detect if join fails silently
                     />
-                    {/* Absolute overlay (not Modal): logo minimize + tip. box-none so HMS stays tappable. */}
-                    {inCallChrome && isScreenFocused ? (
+                    {/* Absolute overlay (not Modal): logo minimize + tip. box-none so HMS stays tappable.
+                        Keep mounted for the whole in-call session — gating on isScreenFocused hid it
+                        after list→Home→return when focus lagged. Native stack covers this view when
+                        another route is on top; logo onPress uses fromLogo so a stale focus flag
+                        cannot swallow the tap. */}
+                    {inCallChrome ? (
                       <View style={styles.inCallFabOverlay} pointerEvents="box-none">
                         <TouchableOpacity
                           style={styles.logoMinimizeHit}

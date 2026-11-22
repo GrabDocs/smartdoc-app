@@ -68,6 +68,7 @@ import IncomingShareBridge from '../components/incoming/IncomingShareBridge';
 import {
   canonicalizeReachMeetingId,
   hasLiveReachMeetingMounted,
+  resumeLiveReachMeetingRoute,
   REACH_CURRENT_MEETING_KEY,
   REACH_MEETING_NOTIFICATION_ID,
 } from '../constants/reachMeeting';
@@ -456,6 +457,27 @@ function RootLayoutNav() {
 
   const navigateFromNotificationData = useCallback(
     (data: Record<string, unknown>) => {
+      // Minimized-call "Tap to return": pop back to the mounted HMS screen.
+      // router.push would mount a second HMSPrebuilt and Android throws preview-already-started.
+      const notifType = String(data?.type ?? '');
+      const meetingIdForResume =
+        data?.meetingId != null
+          ? String(data.meetingId)
+          : data?.meeting_id != null
+            ? String(data.meeting_id)
+            : '';
+      if (notifType === 'meeting_minimized' && meetingIdForResume) {
+        const live = resumeLiveReachMeetingRoute(meetingIdForResume);
+        if (live) {
+          try {
+            router.dismissTo(live as any);
+            return;
+          } catch {
+            // Fall through to path-based navigation if dismissTo is unavailable.
+          }
+        }
+      }
+
       const path = getNotificationScreen(data as Record<string, any>);
       try {
         const { pathname, params } = parseNotificationPath(path);

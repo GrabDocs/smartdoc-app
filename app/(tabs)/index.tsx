@@ -40,7 +40,11 @@ import {
   hasOnlyDefaultAppsOn,
   QUICK_ACTION_APP_KEY_SET,
 } from '../../utils/visibleApps';
-import { REACH_CURRENT_MEETING_KEY } from '../../constants/reachMeeting';
+import {
+  getLiveReachMeetingId,
+  REACH_CURRENT_MEETING_KEY,
+  resumeLiveReachMeetingRoute,
+} from '../../constants/reachMeeting';
 import { NotificationsInboxContent } from '../components/NotificationsInboxContent';
 import { ProfileMenuPopover } from '../components/ProfileMenuPopover';
 import { UploadOptionsModal } from '../components/UploadOptionsModal';
@@ -721,9 +725,19 @@ function DashboardScreen() {
       case 'signatures':
         router.push('/signatures' as any);
         break;
-      case 'meeting-call':
-        router.push('/quick-reach/meeting-call');
+      case 'meeting-call': {
+        // If a call is minimized under the stack, return to it — do not push a new HMS screen.
+        // dismissTo pops the Home that was pushed on top of quick-reach and lands on the
+        // live HMS route (meeting-call is trimmed when leaving the list via header back).
+        const liveId = getLiveReachMeetingId();
+        const liveRoute = liveId ? resumeLiveReachMeetingRoute(liveId) : null;
+        if (liveRoute) {
+          router.dismissTo(liveRoute as any);
+        } else {
+          router.push('/quick-reach/meeting-call');
+        }
         break;
+      }
       case 'calendar':
         navigatePrimaryShell(router, '/calendar');
         break;

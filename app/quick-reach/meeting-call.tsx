@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { CommonActions } from '@react-navigation/native';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -491,6 +492,7 @@ function seedLiveMeetingCard(liveId: string, liveTitle?: string): Meeting {
 
 export default function MeetingCallScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{
     resumeLive?: string | string[];
     liveId?: string | string[];
@@ -996,10 +998,39 @@ export default function MeetingCallScreen() {
     return () => sub.remove();
   }, [isAuthenticated, hasLoadedOnce, loadMeetings]);
 
-  /** Header back goes to app Home — never pop into the live HMS screen underneath. */
+  /**
+   * Header back goes to app Home — never pop into the live HMS screen underneath.
+   *
+   * Expo Router 6 `navigate('/(tabs)')` pushes another Home on the root stack (it does not
+   * pop quick-reach), which keeps WebRTC mounted. If we leave this meeting-call route on
+   * top of HMS inside quick-reach, returning from Home via dismissTo can land on a second
+   * HMS screen (no inHmsRoom → GrabDocs logo overlay never mounts). Drop meeting-call from
+   * the buried stack so Home sits directly above the live HMS route.
+   */
   const goHeaderBackToHome = useCallback(() => {
+    if (hasLiveReachMeetingMounted()) {
+      const parent = navigation.getParent();
+      // Cover with Home first so trimming the buried stack does not flash the call UI.
+      router.push('/(tabs)' as any);
+      const parentState = parent?.getState?.() as
+        | { routes: { name: string }[]; index: number }
+        | undefined;
+      if (parent && parentState?.routes?.length) {
+        const hmsIdx = parentState.routes.findIndex((r) => r.name === 'hms-meeting-interface');
+        if (hmsIdx >= 0 && (hmsIdx < parentState.routes.length - 1 || parentState.index !== hmsIdx)) {
+          parent.dispatch(
+            CommonActions.reset({
+              ...parentState,
+              routes: parentState.routes.slice(0, hmsIdx + 1),
+              index: hmsIdx,
+            }),
+          );
+        }
+      }
+      return;
+    }
     router.navigate('/(tabs)' as any);
-  }, [router]);
+  }, [router, navigation]);
 
   const handleRefresh = useCallback(() => {
     console.log('📱 Manual refresh triggered');
@@ -1045,17 +1076,12 @@ export default function MeetingCallScreen() {
         const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
         if (liveRoute) {
           // Pop back to the already-mounted HMS screen (do not remount / rejoin).
-          // navigate would push a second HMS screen with no in-call chrome.
+          // navigate/push would mount a second HMSPrebuilt → Android preview-already-started.
           router.dismissTo(liveRoute as any);
           return;
         }
-        navigateToMeetingScreen({
-          meetingId: meeting.meetingId,
-          title: meeting.title,
-          passcode:
-            (meeting.passcode && String(meeting.passcode).trim()) || undefined,
-          forceJoin: true,
-        });
+        // Live id is set but resume route missing — still do not remount HMS on Android.
+        // Pushing a fresh meeting screen while native preview/session is alive causes 5002.
         return;
       }
       const canJoin = await assertCanJoinAnotherMeeting(meeting.meetingId);
@@ -1142,9 +1168,12 @@ export default function MeetingCallScreen() {
       const liveRoute = resumeLiveReachMeetingRoute(savedMeetingId);
       if (liveRoute) {
         setShowJoinModal(false);
+        // dismissTo only — never push a second HMS while the call is still mounted.
         router.dismissTo(liveRoute as any);
         return;
       }
+      setShowJoinModal(false);
+      return;
     }
     const canJoin = await assertCanJoinAnotherMeeting(savedMeetingId);
     if (!canJoin) return;

@@ -739,13 +739,14 @@ export function getNotificationScreen(data: Record<string, any>): string {
     case 'meeting_minimized': {
       if (data?.meetingId) {
         const live = resumeLiveReachMeetingRoute(data.meetingId);
+        // Prefer the exact mounted live route so callers can dismissTo it.
+        // Do not invent a fresh hms-meeting-interface URL while a call is live —
+        // push would remount HMS and Android errors with preview-already-started.
         if (live) return live;
-        const params = new URLSearchParams({ meetingId: String(data.meetingId) });
-        if (data?.title) params.set('title', String(data.title));
-        if (data?.userName) params.set('userName', String(data.userName));
-        return `/quick-reach/hms-meeting-interface?${params.toString()}`;
+        // No mounted session — send to the list; user can rejoin intentionally.
+        return '/quick-reach/meeting-call';
       }
-      return '/quick-reach/hms-meeting-interface';
+      return '/quick-reach/meeting-call';
     }
     case 'agentic':
       return APP_HOME_FALLBACK;
