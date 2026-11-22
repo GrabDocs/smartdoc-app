@@ -70,6 +70,8 @@ import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 
 const MEETING_NOTIFICATION_ID = REACH_MEETING_NOTIFICATION_ID;
+/** Room Kit Header: paddingTop 8 + content 42 + paddingBottom 16 (Header.tsx HEADER_HEIGHT). */
+const ROOM_KIT_HEADER_HEIGHT = 66;
 /**
  * Tip “used” flag — scoped per OTA updateId so a new update shows the tip again until
  * the user minimizes via the logo once on that build.
@@ -2206,10 +2208,7 @@ export default function HMSMeetingInterfaceScreen() {
                     {inCallChrome && !callMinimized ? (
                       <View style={styles.inCallFabOverlay} pointerEvents="box-none">
                         <TouchableOpacity
-                          style={[
-                            styles.logoMinimizeHit,
-                            { top: Math.max(insets.top, 12) + 2 },
-                          ]}
+                          style={styles.logoMinimizeHit}
                           onPress={minimizeToMeetingList}
                           activeOpacity={1}
                           accessibilityLabel="Minimize meeting"
@@ -2219,7 +2218,7 @@ export default function HMSMeetingInterfaceScreen() {
                           <View
                             style={[
                               styles.minimizeTipBanner,
-                              { top: Math.max(insets.top, 12) + 52 },
+                              { top: ROOM_KIT_HEADER_HEIGHT + 4 },
                             ]}
                             pointerEvents="auto"
                           >
@@ -2242,8 +2241,8 @@ export default function HMSMeetingInterfaceScreen() {
                               styles.joinApprovalBanner,
                               {
                                 top:
-                                  Math.max(insets.top, 12) +
-                                  52 +
+                                  ROOM_KIT_HEADER_HEIGHT +
+                                  4 +
                                   (showMinimizeTip ? 64 : 0),
                               },
                             ]}
@@ -2283,7 +2282,7 @@ export default function HMSMeetingInterfaceScreen() {
                           <View
                             style={[
                               styles.inCallFabRow,
-                              { paddingTop: Math.max(insets.top, 12) + 8 },
+                              { paddingTop: ROOM_KIT_HEADER_HEIGHT + 4 },
                             ]}
                             pointerEvents="box-none"
                           >
@@ -2584,11 +2583,14 @@ const styles = StyleSheet.create({
     zIndex: 20,
     elevation: 20,
   },
+  // Covers Room Kit's header logo box. The overlay already sits below the notch (our
+  // SafeAreaView), so offsets are relative to the header — never add insets.top here.
   logoMinimizeHit: {
     position: 'absolute',
-    left: 8,
-    width: 132,
-    height: 44,
+    top: 0,
+    left: 0,
+    width: 160,
+    height: ROOM_KIT_HEADER_HEIGHT,
     zIndex: 22,
     elevation: 22,
   },
