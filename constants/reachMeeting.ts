@@ -49,6 +49,14 @@ export function getLiveReachMeetingId(): string {
 }
 
 /**
+ * True when this device is currently in the given meeting (HMS mounted / minimized).
+ * Distinct from meeting list status === 'active' (room is live for anyone).
+ */
+export function isUserInReachMeeting(meetingId: unknown): boolean {
+  return isLiveReachMeetingMounted(meetingId);
+}
+
+/**
  * Route to stay on the live call. Also marks the current HMS instance to skip leave if
  * Expo remounts anyway (so the shared guest row is not deleted).
  *

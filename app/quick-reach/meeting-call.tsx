@@ -37,7 +37,10 @@ import {
   REACH_CURRENT_MEETING_KEY,
   canonicalizeReachMeetingId,
   getLiveReachMeetingId,
+  hasLiveReachMeetingMounted,
   isLiveReachMeetingMounted,
+  isUserInReachMeeting,
+  clearLiveReachMeeting,
   resumeLiveReachMeetingRoute,
 } from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
@@ -546,6 +549,8 @@ export default function MeetingCallScreen() {
   /** True when GET /api/v1/video/invited-meetings fails (own list may still show). */
   const [invitedLoadFailed, setInvitedLoadFailed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  /** Meeting id this device is currently in (HMS mounted); distinct from list status=active. */
+  const [inCallMeetingId, setInCallMeetingId] = useState(() => getLiveReachMeetingId());
 
   // Use keyboard height for padding so join modal stays above keyboard on both Android and iOS
   useEffect(() => {
@@ -679,28 +684,26 @@ export default function MeetingCallScreen() {
       let ongoing = uniqueMeetings.filter((m: Meeting) => m.status === 'active');
       const currentIdRaw = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
       const currentId = currentIdRaw ? canonicalizeReachMeetingId(currentIdRaw.trim()) : '';
-      if (currentId) {
+      // Presence = HMS mounted (including minimized). List status=active is unrelated.
+      // Clear a stale storage key whenever the user is not actually in a call, even if
+      // the room is still active for others — otherwise join is blocked forever.
+      if (currentId && !isLiveReachMeetingMounted(currentId)) {
+        AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+        console.log(
+          '📱 Cleared stale REACH_CURRENT_MEETING_KEY (not in call) for',
+          currentId
+        );
+      } else if (currentId && isLiveReachMeetingMounted(currentId)) {
         const curNorm = normalizeMeetingIdForMerge(currentId);
         const fromList = uniqueMeetings.find(
           (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
         );
-        // Backend says ended/created — clear stale local "I'm in this call" key so
-        // Reach does not keep forcing an Active card after everyone left.
-        // If HMS is still mounted under the stack (user only minimized), keep the key.
-        if (fromList && fromList.status !== 'active' && !isLiveReachMeetingMounted(currentId)) {
-          AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
-          console.log(
-            '📱 Cleared REACH_CURRENT_MEETING_KEY; backend status is',
-            fromList.status,
-            'for',
-            currentId
-          );
-        } else if (fromList && fromList.status !== 'active' && isLiveReachMeetingMounted(currentId)) {
-          // Minimized live call: still show an Active card even if list APIs lag.
-          const inOngoing = ongoing.some(
-            (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
-          );
-          if (!inOngoing) {
+        const inOngoing = ongoing.some(
+          (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
+        );
+        if (!inOngoing) {
+          if (fromList) {
+            // Minimized live call: keep a Live card even if list APIs lag on status.
             ongoing = [
               {
                 ...fromList,
@@ -708,37 +711,27 @@ export default function MeetingCallScreen() {
               },
               ...ongoing,
             ];
+          } else {
+            ongoing = [
+              {
+                id: currentId,
+                meetingId: currentId,
+                title: 'Active meeting',
+                host: 'You',
+                participants: 0,
+                startTime: '',
+                status: 'active',
+              },
+              ...ongoing,
+            ];
           }
-        } else {
-          const inOngoing = ongoing.some(
-            (m: Meeting) => normalizeMeetingIdForMerge(m.meetingId || m.id) === curNorm
-          );
-          if (!inOngoing) {
-            if (fromList && fromList.status === 'active') {
-              ongoing = [fromList, ...ongoing];
-              console.log('📱 Included current meeting in active section:', currentId);
-            } else if (!fromList) {
-              // Unknown to list APIs but local key set (mid-join) — keep a resume card.
-              ongoing = [
-                {
-                  id: currentId,
-                  meetingId: currentId,
-                  title: 'Active meeting',
-                  host: 'You',
-                  participants: 0,
-                  startTime: '',
-                  status: 'active',
-                },
-                ...ongoing,
-              ];
-              console.log('📱 Included current meeting in active section:', currentId);
-            }
-          }
+          console.log('📱 Included in-call meeting in active section:', currentId);
         }
       }
 
       setUpcomingMeetings(sortMeetingsNewestFirst(upcoming));
       setOngoingMeetings(sortMeetingsNewestFirst(ongoing));
+      setInCallMeetingId(getLiveReachMeetingId());
 
       try {
         const ar = await apiClient.getMeetingAssets();
@@ -825,6 +818,7 @@ export default function MeetingCallScreen() {
   
   useFocusEffect(
     useCallback(() => {
+      setInCallMeetingId(getLiveReachMeetingId());
       // Only reload if user is authenticated and we've already loaded once
       // Add debounce to prevent excessive reloads when quickly switching screens
       const now = Date.now();
@@ -836,6 +830,35 @@ export default function MeetingCallScreen() {
       }
     }, [isAuthenticated, hasLoadedOnce, loadMeetings])
   );
+
+  /** One-at-a-time gate: only block when HMS is actually mounted for a different meeting. */
+  const assertCanJoinAnotherMeeting = useCallback(async (targetMeetingId: string): Promise<boolean> => {
+    const targetCanon = canonicalizeReachMeetingId(targetMeetingId);
+    const liveId = getLiveReachMeetingId();
+    if (liveId && targetCanon && liveId !== targetCanon) {
+      Alert.alert(
+        'Already in a meeting',
+        'You can only be in one meeting at a time. Please leave the current meeting first, then join this one.',
+        [{ text: 'OK', style: 'cancel' }]
+      );
+      return false;
+    }
+    // Stale storage key after leave — clear so list status=active cannot block joins.
+    if (!hasLiveReachMeetingMounted()) {
+      try {
+        const currentRaw = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
+        if (currentRaw) {
+          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
+        }
+      } catch {
+        /* ignore */
+      }
+      setInCallMeetingId('');
+    } else {
+      setInCallMeetingId(liveId);
+    }
+    return true;
+  }, []);
 
   const applyMeetingStatusPayload = useCallback((data: Record<string, any> | null | undefined) => {
     if (!data) return;
@@ -986,37 +1009,26 @@ export default function MeetingCallScreen() {
   const joinMeeting = async (meeting: Meeting, forceJoin: boolean = false) => {
     if (isJoining) return;
     if (!forceJoin) {
-      try {
-        const currentRaw = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
-        const currentCanon = currentRaw ? canonicalizeReachMeetingId(currentRaw.trim()) : '';
-        const meetingCanon = canonicalizeReachMeetingId(meeting.meetingId);
-        if (currentCanon && meetingCanon && currentCanon === meetingCanon) {
-          const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
-          if (liveRoute) {
-            // Pop back to the already-mounted HMS screen (do not remount / rejoin).
-            router.navigate(liveRoute as any);
-            return;
-          }
-          navigateToMeetingScreen({
-            meetingId: meeting.meetingId,
-            title: meeting.title,
-            passcode:
-              (meeting.passcode && String(meeting.passcode).trim()) || undefined,
-            forceJoin: true,
-          });
+      const meetingCanon = canonicalizeReachMeetingId(meeting.meetingId);
+      const liveId = getLiveReachMeetingId();
+      if (liveId && meetingCanon && liveId === meetingCanon) {
+        const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
+        if (liveRoute) {
+          // Pop back to the already-mounted HMS screen (do not remount / rejoin).
+          router.navigate(liveRoute as any);
           return;
         }
-        if (currentCanon && meetingCanon && currentCanon !== meetingCanon) {
-          Alert.alert(
-            'Already in a meeting',
-            'You can only be in one meeting at a time. Please leave the current meeting first, then join this one.',
-            [{ text: 'OK', style: 'cancel' }]
-          );
-          return;
-        }
-      } catch {
-        /* ignore storage errors */
+        navigateToMeetingScreen({
+          meetingId: meeting.meetingId,
+          title: meeting.title,
+          passcode:
+            (meeting.passcode && String(meeting.passcode).trim()) || undefined,
+          forceJoin: true,
+        });
+        return;
       }
+      const canJoin = await assertCanJoinAnotherMeeting(meeting.meetingId);
+      if (!canJoin) return;
     }
 
     // Private / approval meetings: always collect credentials via join-meeting.
@@ -1093,21 +1105,18 @@ export default function MeetingCallScreen() {
       return;
     }
     const savedMeetingId = meetingId.trim();
-    try {
-      const currentRaw = await AsyncStorage.getItem(REACH_CURRENT_MEETING_KEY);
-      const currentCanon = currentRaw ? canonicalizeReachMeetingId(currentRaw.trim()) : '';
-      const targetCanon = canonicalizeReachMeetingId(savedMeetingId);
-      if (currentCanon && targetCanon && currentCanon !== targetCanon) {
-        Alert.alert(
-          'Already in a meeting',
-          'You can only be in one meeting at a time. Please leave the current meeting first, then join this one.',
-          [{ text: 'OK', style: 'cancel' }]
-        );
+    const liveId = getLiveReachMeetingId();
+    const targetCanon = canonicalizeReachMeetingId(savedMeetingId);
+    if (liveId && targetCanon && liveId === targetCanon) {
+      const liveRoute = resumeLiveReachMeetingRoute(savedMeetingId);
+      if (liveRoute) {
+        setShowJoinModal(false);
+        router.navigate(liveRoute as any);
         return;
       }
-    } catch {
-      /* ignore storage errors */
     }
+    const canJoin = await assertCanJoinAnotherMeeting(savedMeetingId);
+    if (!canJoin) return;
     setIsJoining(true);
     const savedPassword = meetingPassword.trim();
     try {
@@ -1144,6 +1153,8 @@ export default function MeetingCallScreen() {
             Toast.show({ type: 'info', text1: 'Ending meeting...', visibilityTime: 2000 });
             const clearCurrentMeetingKey = () => {
               AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+              clearLiveReachMeeting(meeting.meetingId || meeting.id);
+              setInCallMeetingId('');
             };
             try {
               const response = await apiClient.endMeeting(roomId);
@@ -1666,6 +1677,9 @@ export default function MeetingCallScreen() {
     statusOngoing: {
       backgroundColor: '#34C759',
     },
+    statusInCall: {
+      backgroundColor: '#0A7C45',
+    },
     statusScheduled: {
       backgroundColor: '#007AFF',
     },
@@ -1976,7 +1990,26 @@ export default function MeetingCallScreen() {
     },
   }), [colors]);
 
-  const renderMeetingCard = ({ item }: { item: Meeting }) => (
+  const renderMeetingCard = ({ item }: { item: Meeting }) => {
+    const userInThisCall =
+      Boolean(inCallMeetingId) &&
+      (isUserInReachMeeting(item.meetingId) ||
+        normalizeMeetingIdForMerge(item.meetingId || item.id) ===
+          normalizeMeetingIdForMerge(inCallMeetingId));
+    const statusLabel = userInThisCall
+      ? 'IN CALL'
+      : String(item.status || 'created').toUpperCase();
+    const statusStyle = userInThisCall
+      ? dynamicStyles.statusInCall
+      : item.status === 'active'
+        ? dynamicStyles.statusOngoing
+        : item.status === 'ended'
+          ? dynamicStyles.statusEnded
+          : item.status === 'created'
+            ? dynamicStyles.statusCreated
+            : dynamicStyles.statusScheduled;
+
+    return (
     <TouchableOpacity
       style={dynamicStyles.meetingCard}
       onPress={() => {
@@ -1992,7 +2025,10 @@ export default function MeetingCallScreen() {
         const canDelete = canDeleteReachMeetingFromList(item, user?.id);
         const buttons = [
           { text: 'Cancel', style: 'cancel' as const },
-          { text: 'Join Meeting', onPress: () => { if (!isJoining) joinMeeting(item); } },
+          {
+            text: userInThisCall ? 'Return to Meeting' : 'Join Meeting',
+            onPress: () => { if (!isJoining) joinMeeting(item); },
+          },
           { text: 'View Assets', onPress: () => viewMeetingAssets(item) },
           ...(canEnd ? [{ text: 'End Meeting', style: 'destructive' as const, onPress: () => endMeeting(item) }] : []),
           ...(canDelete
@@ -2014,18 +2050,8 @@ export default function MeetingCallScreen() {
     >
       <View style={dynamicStyles.meetingHeader}>
         <Text style={dynamicStyles.meetingTitle} numberOfLines={1}>{item.title}</Text>
-        <View 
-          style={[
-            dynamicStyles.statusBadge, 
-            item.status === 'active' ? dynamicStyles.statusOngoing : 
-            item.status === 'ended' ? dynamicStyles.statusEnded :
-            item.status === 'created' ? dynamicStyles.statusCreated :
-            dynamicStyles.statusScheduled
-          ]}
-        >
-          <Text style={dynamicStyles.statusText}>
-            {item.status.toUpperCase()}
-          </Text>
+        <View style={[dynamicStyles.statusBadge, statusStyle]}>
+          <Text style={dynamicStyles.statusText}>{statusLabel}</Text>
         </View>
       </View>
       
@@ -2147,7 +2173,8 @@ export default function MeetingCallScreen() {
         ) : null}
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   const filteredOngoingMeetings = useMemo(
     () => ongoingMeetings.filter((m) => meetingMatchesSearch(m, searchQuery)),

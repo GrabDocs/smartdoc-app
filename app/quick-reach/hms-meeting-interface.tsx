@@ -64,6 +64,8 @@ import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 
 const MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
+/** Shown once: tap GrabDocs logo to minimize (edge swipe is disabled in-call). */
+const REACH_MINIMIZE_TIP_SEEN_KEY = 'reach_minimize_logo_tip_seen';
 
 // HMS package - enabled for local testing
 // All HMS functionality is handled via backend API calls
@@ -219,6 +221,7 @@ export default function HMSMeetingInterfaceScreen() {
    */
   const isMinimizingAwayRef = useRef(false);
   const [callMinimized, setCallMinimized] = useState(false);
+  const [showMinimizeTip, setShowMinimizeTip] = useState(false);
   const [exitAllowed, setExitAllowed] = useState(false);
   const pendingExitRef = useRef<(() => void) | null>(null);
 
@@ -245,6 +248,14 @@ export default function HMSMeetingInterfaceScreen() {
 
   /** Leave API only after confirm — no ActiveParticipant row exists before that. */
   const leaveConfirmedReachSession = useCallback(async () => {
+    // Always drop local "I'm in this call" markers so list status=active cannot block
+    // joining another meeting after this leave.
+    try {
+      await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
+    } catch {
+      /* ignore */
+    }
+    clearLiveReachMeeting(meetingId);
     if (!presenceConfirmedRef.current || !meetingId) return;
     try {
       await apiClient.leaveReachMeeting(String(meetingId).trim(), {
@@ -921,17 +932,45 @@ export default function HMSMeetingInterfaceScreen() {
     } as any);
   }, [navigation, presenceConfirmed]);
 
-  const showPrejoinBack = !presenceConfirmed && !!meetingId;
+  // One-time tip: edge swipe won't minimize — tap the GrabDocs logo instead.
+  useEffect(() => {
+    if (!presenceConfirmed || callMinimized) {
+      setShowMinimizeTip(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(REACH_MINIMIZE_TIP_SEEN_KEY);
+        if (!cancelled && !seen) setShowMinimizeTip(true);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [presenceConfirmed, callMinimized]);
+
+  const dismissMinimizeTip = useCallback(() => {
+    setShowMinimizeTip(false);
+    AsyncStorage.setItem(REACH_MINIMIZE_TIP_SEEN_KEY, '1').catch(() => {});
+  }, []);
+
+  const minimizeToMeetingList = useCallback(() => {
+    dismissMinimizeTip();
+    goBackToApp();
+  }, [dismissMinimizeTip, goBackToApp]);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !meetingId) return;
     const handler = () => {
-      goBackToApp();
+      minimizeToMeetingList();
       return true;
     };
     const subscription = BackHandler.addEventListener('hardwareBackPress', handler);
     return () => subscription.remove();
-  }, [meetingId, goBackToApp]);
+  }, [meetingId, minimizeToMeetingList]);
 
   // Prejoin only: intercept swipe/back cancel. In-call gesture is off (see setOptions above).
   usePreventRemove(!!meetingId && !presenceConfirmed && !exitAllowed, () => {
@@ -1722,48 +1761,71 @@ export default function HMSMeetingInterfaceScreen() {
             </View>
           </Modal>
 
-          {/* In-call minimize: edge swipe is disabled; chevron pushes list without leaving HMS. */}
+          {/* In-call: logo tap = minimize (swipe disabled). Join-approval FAB top-right when pending. */}
           {presenceConfirmed && !hmsError && !callMinimized ? (
             <Modal
               visible
               transparent
               animationType="none"
               statusBarTranslucent
-              onRequestClose={goBackToApp}
+              onRequestClose={minimizeToMeetingList}
             >
-              <View style={styles.minimizeOverlay} pointerEvents="box-none">
-                <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
-              </View>
-            </Modal>
-          ) : null}
-
-          {/* Host: pending join requests FAB above HMS native UI (only when pending) */}
-          {canManageJoinRequests &&
-          presenceConfirmed &&
-          !callMinimized &&
-          !hmsError &&
-          pendingJoinRequestCount > 0 &&
-          !showJoinRequestsModal ? (
-            <Modal
-              visible
-              transparent
-              animationType="none"
-              statusBarTranslucent
-              onRequestClose={() => {}}
-            >
-              <View style={styles.joinApprovalFabOverlay} pointerEvents="box-none">
+              <View style={styles.inCallFabOverlay} pointerEvents="box-none">
+                {/* Invisible hit target over GrabDocs logo (top-left). */}
                 <TouchableOpacity
-                  style={styles.joinApprovalFab}
-                  onPress={() => setShowJoinRequestsModal(true)}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="people" size={22} color="#fff" />
-                  <View style={styles.joinApprovalBadge}>
-                    <Text style={styles.joinApprovalBadgeText}>
-                      {pendingJoinRequestCount > 9 ? '9+' : String(pendingJoinRequestCount)}
+                  style={[
+                    styles.logoMinimizeHit,
+                    { top: Math.max(insets.top, 12) + 2 },
+                  ]}
+                  onPress={minimizeToMeetingList}
+                  activeOpacity={1}
+                  accessibilityLabel="Minimize meeting"
+                  accessibilityHint="Returns to the meeting list without leaving the call"
+                />
+                {showMinimizeTip ? (
+                  <View
+                    style={[
+                      styles.minimizeTipBanner,
+                      { top: Math.max(insets.top, 12) + 52 },
+                    ]}
+                    pointerEvents="box-none"
+                  >
+                    <Text style={styles.minimizeTipText}>
+                      Tap the GrabDocs logo to return to meetings. The call stays connected.
                     </Text>
+                    <TouchableOpacity
+                      onPress={dismissMinimizeTip}
+                      hitSlop={10}
+                      accessibilityLabel="Dismiss tip"
+                    >
+                      <Ionicons name="close" size={18} color="#fff" />
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
+                ) : null}
+                {canManageJoinRequests &&
+                pendingJoinRequestCount > 0 &&
+                !showJoinRequestsModal ? (
+                  <View
+                    style={[
+                      styles.inCallFabRow,
+                      { paddingTop: Math.max(insets.top, 12) + 8 },
+                    ]}
+                  >
+                    <TouchableOpacity
+                      style={styles.joinApprovalFab}
+                      onPress={() => setShowJoinRequestsModal(true)}
+                      activeOpacity={0.85}
+                      accessibilityLabel="Join request approvals"
+                    >
+                      <Ionicons name="people" size={22} color="#fff" />
+                      <View style={styles.joinApprovalBadge}>
+                        <Text style={styles.joinApprovalBadgeText}>
+                          {pendingJoinRequestCount > 9 ? '9+' : String(pendingJoinRequestCount)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </View>
             </Modal>
           ) : null}
@@ -1918,6 +1980,11 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
+                        // Swipe/back minimize — stay in the call; do not clear presence or hit leave API.
+                        if (isMinimizingAwayRef.current) {
+                          return;
+                        }
+
                         // Prejoin cancel (HMS back) — never joined; no leave API.
                         if (!presenceConfirmed) {
                           if (!isNavigatingAwayRef.current) {
@@ -1927,7 +1994,6 @@ export default function HMSMeetingInterfaceScreen() {
                         }
 
                         // Explicit Leave (HMS UI) or real disconnect (host ended / kicked).
-                        // Never treat in-app minimize as leave — that path must not reach here.
                         try {
                           await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
                         } catch {
@@ -1941,23 +2007,6 @@ export default function HMSMeetingInterfaceScreen() {
                         }
 
                         if (!isMountedRef.current) return;
-
-                        if (isMinimizingAwayRef.current) {
-                          // User is already on the list — drop this hidden call screen only.
-                          const routeKey = route.key;
-                          exitMeetingScreen(() =>
-                            navigation.dispatch((state: any) => {
-                              const routes = state.routes.filter((r: any) => r.key !== routeKey);
-                              return CommonActions.reset({
-                                ...state,
-                                routes,
-                                index: Math.max(0, routes.length - 1),
-                              });
-                            })
-                          );
-                          return;
-                        }
-
                         exitMeetingScreen(() => router.replace(meetingExitPath as any));
                       }}
                       style={hmsProps.style}
@@ -2229,15 +2278,42 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Network overlay styles
-  minimizeOverlay: {
+  inCallFabOverlay: {
     flex: 1,
   },
-  joinApprovalFabOverlay: {
+  logoMinimizeHit: {
+    position: 'absolute',
+    left: 8,
+    width: 132,
+    height: 44,
+    zIndex: 2,
+  },
+  minimizeTipBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(20, 20, 20, 0.92)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    zIndex: 3,
+  },
+  minimizeTipText: {
     flex: 1,
-    justifyContent: 'flex-start',
-    alignItems: 'flex-end',
-    paddingTop: 56,
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  inCallFabRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
     paddingRight: 16,
+    gap: 10,
   },
   joinApprovalFab: {
     width: 48,
