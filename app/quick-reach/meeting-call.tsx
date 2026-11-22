@@ -317,15 +317,41 @@ function isUpcomingMeeting(meeting: Meeting, now: Date): boolean {
   return startTime > now;
 }
 
-/** Recent: ended, or a scheduled meeting whose start time has passed and is not live. */
+/** Recent list: last 30 days, then capped to 10 newest after sort/search. */
+const RECENT_MEETING_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const RECENT_MEETING_MAX_COUNT = 10;
+
+/** Best available timestamp for “how recent is this meeting”. */
+function meetingRecencyMs(meeting: Meeting): number {
+  return (
+    toMillis(meeting.endTime) ||
+    toMillis(meeting.startTime) ||
+    toMillis(meeting.scheduledAt) ||
+    toMillis(meeting.createdAt) ||
+    0
+  );
+}
+
+/**
+ * Recent: ended (or past-scheduled, not live) within the last 30 days.
+ * Older ended meetings are excluded even though status remains `ended`.
+ */
 function isRecentMeeting(meeting: Meeting, now: Date): boolean {
-  if (meeting.status === 'ended') return true;
   if (meeting.status === 'active') return false;
+  const nowMs = now.getTime();
+  const cutoff = nowMs - RECENT_MEETING_MAX_AGE_MS;
+
+  if (meeting.status === 'ended') {
+    const t = meetingRecencyMs(meeting);
+    return t > 0 && t >= cutoff && t <= nowMs;
+  }
+
   const scheduled = meetingScheduledIso(meeting);
   if (!scheduled) return false;
   const startTime = new Date(scheduled);
   if (isNaN(startTime.getTime())) return false;
-  return startTime <= now;
+  const startMs = startTime.getTime();
+  return startMs <= nowMs && startMs >= cutoff;
 }
 
 function sortMeetingsNewestFirst(meetings: Meeting[]): Meeting[] {
@@ -2291,7 +2317,7 @@ export default function MeetingCallScreen() {
   const filteredRecentMeetings = useMemo(() => {
     const now = new Date();
     const recent = sortMeetingsNewestFirst(meetings.filter((m) => isRecentMeeting(m, now)));
-    return recent.filter((m) => meetingMatchesSearch(m, searchQuery));
+    return recent.filter((m) => meetingMatchesSearch(m, searchQuery)).slice(0, RECENT_MEETING_MAX_COUNT);
   }, [meetings, searchQuery]);
 
   const hasSearchQuery = searchQuery.trim().length > 0;

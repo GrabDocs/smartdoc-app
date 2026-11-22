@@ -648,7 +648,7 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..0116369 100644
+index 4d107f0..a972689 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 @@ -1,176 +1,180 @@
@@ -853,6 +853,15 @@ index 4d107f0..0116369 100644
 +    useCanPublishVideo,
 +    useHMSActions,
 +} from './hooks-sdk';
++import {
++    selectChatLayoutConfig,
++    selectConferencingScreenConfig,
++    selectIsHLSViewer,
++    selectLayoutConfigForRole,
++    selectShouldGoLive,
++    selectVideoTileLayoutConfig,
++} from './hooks-util-selectors';
++import { getRoomLayout } from './modules/HMSManager';
  import {
 -  createPeerTrackNodeUniqueId,
 -  degradeOrRestorePeerTrackNodes,
@@ -862,15 +871,6 @@ index 4d107f0..0116369 100644
 -  removePeerTrackNodesWithTrack,
 -  replacePeerTrackNodes,
 -  replacePeerTrackNodesWithTrack,
-+    selectChatLayoutConfig,
-+    selectConferencingScreenConfig,
-+    selectIsHLSViewer,
-+    selectLayoutConfigForRole,
-+    selectShouldGoLive,
-+    selectVideoTileLayoutConfig,
-+} from './hooks-util-selectors';
-+import { getRoomLayout } from './modules/HMSManager';
-+import {
 +    createPeerTrackNodeUniqueId,
 +    degradeOrRestorePeerTrackNodes,
 +    peerTrackNodeExistForPeer,
@@ -932,14 +932,14 @@ index 4d107f0..0116369 100644
  import type { ChatState, HMSPrebuiltProps, PinnedMessage } from './types';
  import { MeetingState, NotificationTypes } from './types';
 -import type { ImageStyle, StyleProp, TextStyle, ViewStyle } from 'react-native';
- import {
+-import {
 -  BackHandler,
 -  InteractionManager,
 -  Keyboard,
 -  Platform,
 -} from 'react-native';
 -import { NavigationContext } from '@react-navigation/native';
--import {
+ import {
 -  useIsLandscapeOrientation,
 -  useIsPortraitOrientation,
 +    useIsLandscapeOrientation,
@@ -1077,7 +1077,7 @@ index 4d107f0..0116369 100644
  export const useLeaveMethods = () => {
    const navigation = useContext(NavigationContext);
    const hmsInstance = useHMSInstance();
-@@ -2266,29 +2307,10 @@ export const useLeaveMethods = () => {
+@@ -2266,33 +2307,16 @@ export const useLeaveMethods = () => {
  
    const destroy = useCallback(
      (reason: Parameters<OnLeaveHandler>[0]) => {
@@ -1111,7 +1111,14 @@ index 4d107f0..0116369 100644
          const onLeave = reduxStore.getState().user.onLeave;
  
          if (typeof onLeave === 'function') {
-@@ -2305,15 +2327,18 @@ export const useLeaveMethods = () => {
+-          dispatch(changeMeetingState(MeetingState.EXITED));
++          // Do NOT dispatch EXITED here. EXITED renders an empty View (blank
++          // screen) while the app awaits /leave + navigate. Keep the last
++          // meeting frame until the host unmounts the prebuilt.
+           onLeave(reason);
+         } else if (
+           navigation &&
+@@ -2305,15 +2329,18 @@ export const useLeaveMethods = () => {
            // Otherwise default action is to show "Meeting Ended" screen
            dispatch(changeMeetingState(MeetingState.MEETING_ENDED));
          }
@@ -1136,7 +1143,7 @@ index 4d107f0..0116369 100644
        }
      },
      [hmsInstance]
-@@ -2326,13 +2351,12 @@ export const useLeaveMethods = () => {
+@@ -2326,13 +2353,12 @@ export const useLeaveMethods = () => {
            console.log('Stop HLS Streaming Error: ', error);
          });
        }
@@ -1153,7 +1160,7 @@ index 4d107f0..0116369 100644
        }
      },
      [destroy, hmsInstance]
-@@ -2340,7 +2364,7 @@ export const useLeaveMethods = () => {
+@@ -2340,7 +2366,7 @@ export const useLeaveMethods = () => {
  
    const prebuiltCleanUp = useCallback(async () => {
      try {
@@ -1162,7 +1169,7 @@ index 4d107f0..0116369 100644
        await hmsInstance.destroy();
        dispatch(clearStore());
      } catch (error) {
-@@ -2354,12 +2378,14 @@ export const useLeaveMethods = () => {
+@@ -2354,12 +2380,14 @@ export const useLeaveMethods = () => {
  
    const endRoom = useCallback(
      async (reason: OnLeaveReason) => {

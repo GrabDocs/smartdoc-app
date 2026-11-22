@@ -2241,9 +2241,14 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Same path as list Leave: /leave then unmount. Native HMS leave
-                        // was already kicked off in the background by Room Kit.
-                        void performLeaveMeeting();
+                        // Same path as list Leave: await /leave, then unmount.
+                        // Room Kit must not sit on EXITED blank while this runs.
+                        void performLeaveMeeting().catch((error: any) => {
+                          console.error('⚠️ [LEAVE] performLeaveMeeting failed:', error);
+                          exitMeetingScreen(() =>
+                            router.replace(meetingExitPath as any),
+                          );
+                        });
                       }}
                       style={hmsProps.style}
                       // Note: React Native HMSPrebuilt does NOT support onJoin callback
