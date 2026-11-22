@@ -17,7 +17,13 @@ export default function QuickReachLayout() {
       <Stack.Screen name="schedule-meeting" />
       <Stack.Screen
         name="hms-meeting-interface"
-        options={{ freezeOnBlur: false, gestureEnabled: true }}
+        options={{
+          freezeOnBlur: false,
+          // Off from first paint (prejoin + in-call). Enabling after token load is too late —
+          // edge-swipe can pop HMS and crash the call.
+          gestureEnabled: false,
+          fullScreenGestureEnabled: false,
+        }}
       />
     </Stack>
   );

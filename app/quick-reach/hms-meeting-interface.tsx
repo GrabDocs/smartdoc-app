@@ -1017,18 +1017,19 @@ export default function HMSMeetingInterfaceScreen() {
     return unsubscribe;
   }, [navigation, dismissMeetingNotification]);
 
-  // HMS on screen (prejoin or in-call): disable native swipe so iOS cannot peek/pop WebRTC.
-  // Prejoin cancel uses the back chevron; in-call minimize uses the logo hit target.
+  // HMS on screen (prejoin or in-call). Logo tip / minimize chrome only after Join.
   const hmsScreenActive = Boolean(joinConfig && authToken && !hmsError);
   /** Past HMS Join only — never show logo tip / in-call overlays on prejoin. */
   const inCallChrome = Boolean(hmsScreenActive && inHmsRoom);
 
-  useEffect(() => {
+  // Keep swipe-back off for the whole meeting route (prejoin + in-call). Layout also defaults
+  // this off; reinforce here so a later option merge cannot turn it back on.
+  useLayoutEffect(() => {
     navigation.setOptions({
-      gestureEnabled: !hmsScreenActive,
-      fullScreenGestureEnabled: !hmsScreenActive,
+      gestureEnabled: false,
+      fullScreenGestureEnabled: false,
     } as any);
-  }, [navigation, hmsScreenActive]);
+  }, [navigation]);
 
   // Tip each join until logo minimize once — resets for each OTA (new Updates.updateId).
   useEffect(() => {
@@ -1106,8 +1107,9 @@ export default function HMSMeetingInterfaceScreen() {
     return () => subscription.remove();
   }, [meetingId, minimizeToMeetingList]);
 
-  // If a remove still somehow starts (prejoin), route it through goBackToApp.
-  usePreventRemove(!!meetingId && !hmsScreenActive && !exitAllowed, () => {
+  // Block stack pops for the whole meeting screen (prejoin + in-call) until we exit intentionally.
+  // Swipe/back must not tear down HMS; goBackToApp minimizes in-call or leaves prejoin cleanly.
+  usePreventRemove(!!meetingId && !exitAllowed, () => {
     if (isNavigatingAwayRef.current) return;
     goBackToApp();
   });
