@@ -44,6 +44,7 @@ import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsMa
 import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
   REACH_CURRENT_MEETING_KEY,
+  REACH_MEETING_NOTIFICATION_ID,
   LEAVE_REACH_MEETING_EVENT,
   canonicalizeReachMeetingId,
   reachGuestIdStorageKey,
@@ -67,7 +68,7 @@ import { MeetingJoinSound } from '../components/MeetingJoinSound';
 import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 
-const MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
+const MEETING_NOTIFICATION_ID = REACH_MEETING_NOTIFICATION_ID;
 /**
  * Tip “used” flag — scoped per OTA updateId so a new update shows the tip again until
  * the user minimizes via the logo once on that build.
@@ -308,6 +309,10 @@ export default function HMSMeetingInterfaceScreen() {
   }, [meetingId]);
 
   const goToAppHome = useCallback(async () => {
+    // Stop sticky meeting notification immediately; leave API still needs presenceConfirmedRef.
+    isNavigatingAwayRef.current = true;
+    notificationDisplayedRef.current = false;
+    Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
     try {
       await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
     } catch {
@@ -315,6 +320,8 @@ export default function HMSMeetingInterfaceScreen() {
     }
     clearLiveReachMeeting(meetingId);
     await leaveConfirmedReachSession();
+    presenceConfirmedRef.current = false;
+    inHmsRoomRef.current = false;
     exitMeetingScreen(() => router.replace('/(tabs)' as any));
   }, [router, leaveConfirmedReachSession, meetingId, exitMeetingScreen]);
 
@@ -918,10 +925,9 @@ export default function HMSMeetingInterfaceScreen() {
         joinGroupTimerRef.current = null;
       }
 
-      // Dismiss meeting notification on unmount
-      if (Platform.OS === 'android') {
-        Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
-      }
+      // Always clear the sticky "In GrabDocs meeting" notification when this screen dies.
+      Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
+      notificationDisplayedRef.current = false;
 
       // Deactivate keep-awake
       deactivateKeepAwake();
@@ -933,8 +939,16 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, []);
 
+  const dismissMeetingNotification = useCallback(() => {
+    notificationDisplayedRef.current = false;
+    Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
+  }, []);
+
   // Show "In meeting" notification only (no in-app bubble). Used when PiP fallback is needed.
   const showMeetingNotification = useCallback(async () => {
+    // Never re-post after leave / while exiting — stale AppState timers used to keep this alive.
+    if (isNavigatingAwayRef.current) return;
+    if (!presenceConfirmedRef.current && !inHmsRoomRef.current) return;
     try {
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('meeting', {
@@ -997,15 +1011,17 @@ export default function HMSMeetingInterfaceScreen() {
     const unsubscribe = navigation.addListener('focus', () => {
       isMinimizingAwayRef.current = false;
       setCallMinimized(false);
+      // User is back in the call UI — clear the "tap to return" notification.
+      dismissMeetingNotification();
     });
     return unsubscribe;
-  }, [navigation]);
+  }, [navigation, dismissMeetingNotification]);
 
   // HMS on screen (prejoin or in-call): disable native swipe so iOS cannot peek/pop WebRTC.
   // Prejoin cancel uses the back chevron; in-call minimize uses the logo hit target.
   const hmsScreenActive = Boolean(joinConfig && authToken && !hmsError);
-  /** Past HMS Join — logo minimize + tip (not only after GrabDocs confirm, which can lag ~20s). */
-  const inCallChrome = Boolean(hmsScreenActive && (inHmsRoom || presenceConfirmed));
+  /** Past HMS Join only — never show logo tip / in-call overlays on prejoin. */
+  const inCallChrome = Boolean(hmsScreenActive && inHmsRoom);
 
   useEffect(() => {
     navigation.setOptions({
@@ -1122,9 +1138,19 @@ export default function HMSMeetingInterfaceScreen() {
   const HMS_PIP_SETTLE_MS = 500;   // let HMS enter PiP, then we check/enter
   const NOTIFICATION_FALLBACK_MS = 2500; // if still no PiP, show notification
   useEffect(() => {
+    const stillInLiveCall = () =>
+      Boolean(
+        authToken &&
+          meetingId &&
+          presenceConfirmedRef.current &&
+          !isNavigatingAwayRef.current &&
+          isLiveReachMeetingMounted(meetingId),
+      );
+
     const handleAppStateChange = (nextState: AppStateStatus) => {
       if (nextState === 'background' || nextState === 'inactive') {
-        if (!authToken || !meetingId || !presenceConfirmed) return;
+        // Use refs so a leave that already cleared presence cannot re-post the sticky notif.
+        if (!stillInLiveCall()) return;
 
         // Always restart the timer so rapid state changes (inactive→background) don't
         // double-fire — the last event wins.
@@ -1134,6 +1160,7 @@ export default function HMSMeetingInterfaceScreen() {
           // Android path — two-stage fallback.
           pipFallbackTimerRef.current = setTimeout(() => {
             pipFallbackTimerRef.current = null;
+            if (!stillInLiveCall()) return;
             // Stage 1 (500 ms): enter PiP if HMS did not already do so.
             // GrabDocsPipModule guards against re-entry: if already in PiP it returns
             // true immediately without resetting the video surface.
@@ -1141,8 +1168,9 @@ export default function HMSMeetingInterfaceScreen() {
               if (!entered) {
                 // Stage 2: PiP truly unavailable — show notification.
                 setTimeout(() => {
+                  if (!stillInLiveCall()) return;
                   pipModule.isInPipMode?.().then((inPip: boolean) => {
-                    if (!inPip && authToken && meetingId && presenceConfirmed) {
+                    if (!inPip && stillInLiveCall()) {
                       showMeetingNotification();
                     }
                   }).catch(() => {});
@@ -1154,9 +1182,10 @@ export default function HMSMeetingInterfaceScreen() {
           // iOS path — HMS handles PiP, we only show notification as last resort.
           pipFallbackTimerRef.current = setTimeout(() => {
             pipFallbackTimerRef.current = null;
+            if (!stillInLiveCall()) return;
             showMeetingNotification();
           }, NOTIFICATION_FALLBACK_MS);
-        } else {
+        } else if (stillInLiveCall()) {
           // Web / unsupported — just notify.
           showMeetingNotification();
         }
@@ -1165,13 +1194,10 @@ export default function HMSMeetingInterfaceScreen() {
           clearTimeout(pipFallbackTimerRef.current);
           pipFallbackTimerRef.current = null;
         }
-        if (notificationDisplayedRef.current) {
-          Notifications.dismissNotificationAsync(MEETING_NOTIFICATION_ID).catch(() => {});
-          notificationDisplayedRef.current = false;
-        }
+        dismissMeetingNotification();
         // Prejoin or in-call: restore play-and-record after OS / other-app interruptions.
         // Do not remount HMS — that drops active calls.
-        if (authToken && meetingId) {
+        if (authToken && meetingId && presenceConfirmedRef.current) {
           void restoreHmsCallAudioMode();
         }
       }
@@ -1184,7 +1210,7 @@ export default function HMSMeetingInterfaceScreen() {
         pipFallbackTimerRef.current = null;
       }
     };
-  }, [authToken, meetingId, presenceConfirmed, showMeetingNotification, pipEnabled, pipModule]);
+  }, [authToken, meetingId, showMeetingNotification, dismissMeetingNotification, pipEnabled, pipModule]);
 
   // Screen wake lock: activate when in meeting
   useEffect(() => {
@@ -1484,40 +1510,34 @@ export default function HMSMeetingInterfaceScreen() {
     }
   }, []);
 
-  // Fallback confirm when useHMSPeerUpdates never fires (common for solo joiners on Room Kit).
-  // Keep these modest: too early can confirm while still on HMS prejoin; too late blocks logo minimize.
+  // Fallback confirm only after a real room-entry signal set inHmsRoom. Never timer-confirm
+  // from prejoin — that showed the logo tip early and Modals blocked Join Now.
   useEffect(() => {
-    if (!joinConfig || !authToken || presenceConfirmed || Platform.OS === 'web') return;
+    if (!joinConfig || !authToken || presenceConfirmed || !inHmsRoom || Platform.OS === 'web') {
+      return;
+    }
 
     const attemptFallbackConfirm = () => {
-      if (presenceConfirmedRef.current) return;
+      if (presenceConfirmedRef.current || !inHmsRoomRef.current) return;
       presenceConfirmSentRef.current = false;
       void handleHmsEnteredForPresenceConfirm();
     };
 
-    const t1 = setTimeout(attemptFallbackConfirm, 4000);
-    const t2 = setTimeout(attemptFallbackConfirm, 10000);
-    const t3 = setTimeout(attemptFallbackConfirm, 20000);
+    const t1 = setTimeout(attemptFallbackConfirm, 2000);
+    const t2 = setTimeout(attemptFallbackConfirm, 8000);
 
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
-      clearTimeout(t3);
     };
-  }, [joinConfig, authToken, presenceConfirmed, handleHmsEnteredForPresenceConfirm]);
+  }, [joinConfig, authToken, presenceConfirmed, inHmsRoom, handleHmsEnteredForPresenceConfirm]);
 
-  // Local peer name from Room Kit usually means we're past Join — unlock logo minimize immediately.
+  // Preview/prejoin also emits local peer name — update display name only; do not treat as joined.
   const handleLocalPeerNameWithRoom = useCallback(
     (name: string) => {
       handleLocalPeerName(name);
-      if (!inHmsRoomRef.current) {
-        setInHmsRoom(true);
-      }
-      if (!presenceConfirmedRef.current && !presenceConfirmSentRef.current) {
-        void handleHmsEnteredForPresenceConfirm();
-      }
     },
-    [handleLocalPeerName, handleHmsEnteredForPresenceConfirm]
+    [handleLocalPeerName]
   );
 
   // Prejoin preview and post-join media both need a play-and-record session.
@@ -1566,6 +1586,15 @@ export default function HMSMeetingInterfaceScreen() {
   const performLeaveMeeting = useCallback(
     async (opts?: { stayOnList?: boolean }) => {
       try {
+        // Block AppState/PiP from re-posting "Tap to return" before leave API finishes.
+        // Keep presenceConfirmedRef true until leaveConfirmedReachSession runs.
+        isNavigatingAwayRef.current = true;
+        if (pipFallbackTimerRef.current) {
+          clearTimeout(pipFallbackTimerRef.current);
+          pipFallbackTimerRef.current = null;
+        }
+        dismissMeetingNotification();
+
         if (heartbeatIntervalRef.current) {
           clearInterval(heartbeatIntervalRef.current);
           heartbeatIntervalRef.current = null;
@@ -1577,6 +1606,10 @@ export default function HMSMeetingInterfaceScreen() {
         }
         clearLiveReachMeeting(meetingId);
         await leaveConfirmedReachSession();
+        presenceConfirmedRef.current = false;
+        inHmsRoomRef.current = false;
+        setPresenceConfirmed(false);
+        setInHmsRoom(false);
       } catch (error: any) {
         console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
       }
@@ -1601,6 +1634,7 @@ export default function HMSMeetingInterfaceScreen() {
     [
       meetingId,
       leaveConfirmedReachSession,
+      dismissMeetingNotification,
       exitMeetingScreen,
       route.key,
       navigation,
@@ -1937,22 +1971,9 @@ export default function HMSMeetingInterfaceScreen() {
             </View>
           </Modal>
 
-          {/* HMS prejoin: swipe is off — show cancel chevron until we're actually in the room. */}
-          {hmsScreenActive && !inCallChrome && !callMinimized ? (
-            <Modal
-              visible
-              transparent
-              animationType="none"
-              statusBarTranslucent
-              onRequestClose={goBackToApp}
-            >
-              <View style={styles.inCallFabOverlay} pointerEvents="box-none">
-                <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
-              </View>
-            </Modal>
-          ) : null}
+          {/* Prejoin: HMS Room Kit owns the back chevron — no GrabDocs overlay (it blocked Join Now). */}
 
-          {/* In-call: logo tap = minimize. Join-approval FAB top-right when pending. */}
+          {/* In-call only: logo tap = minimize. Join-approval FAB top-right when pending. */}
           {inCallChrome && !callMinimized ? (
             <Modal
               visible
@@ -2237,6 +2258,12 @@ export default function HMSMeetingInterfaceScreen() {
                         }
 
                         // Explicit Leave (HMS UI) or real disconnect (host ended / kicked).
+                        isNavigatingAwayRef.current = true;
+                        if (pipFallbackTimerRef.current) {
+                          clearTimeout(pipFallbackTimerRef.current);
+                          pipFallbackTimerRef.current = null;
+                        }
+                        dismissMeetingNotification();
                         try {
                           await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
                         } catch {
@@ -2248,6 +2275,10 @@ export default function HMSMeetingInterfaceScreen() {
                         } catch (error: any) {
                           console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
                         }
+                        presenceConfirmedRef.current = false;
+                        inHmsRoomRef.current = false;
+                        setPresenceConfirmed(false);
+                        setInHmsRoom(false);
 
                         if (!isMountedRef.current) return;
                         exitMeetingScreen(() => router.replace(meetingExitPath as any));

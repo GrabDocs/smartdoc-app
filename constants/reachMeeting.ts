@@ -1,6 +1,9 @@
 /** AsyncStorage key: set while user is connected to a Reach (HMS) call; cleared on leave/end. */
 export const REACH_CURRENT_MEETING_KEY = 'reach_current_meeting_id';
 
+/** Local sticky notification id for minimized / backgrounded Reach calls ("Tap to return"). */
+export const REACH_MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
+
 /**
  * DeviceEventEmitter: list asks the mounted HMS screen to leave without returning first.
  * Payload: `{ meetingId: string }`.

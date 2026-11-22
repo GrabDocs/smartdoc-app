@@ -65,7 +65,12 @@ import { LimitErrorProvider } from '../contexts/LimitErrorContext';
 import { getNotificationScreen, parseNotificationPath, initializePushNotifications, pushNotificationService, isJoinRequestNotificationAction, executeJoinRequestNotificationAction, isEmailReplyNotificationAction, getEmailReplyComposeScreen, isReachMeetingStartedNotificationType, getReachMeetingJoinPath, MEETING_STATUS_CHANGED_EVENT } from './services/pushNotifications';
 import ReachMeetingStartedBanner from './components/ReachMeetingStartedBanner';
 import IncomingShareBridge from '../components/incoming/IncomingShareBridge';
-import { canonicalizeReachMeetingId, REACH_CURRENT_MEETING_KEY } from '../constants/reachMeeting';
+import {
+  canonicalizeReachMeetingId,
+  hasLiveReachMeetingMounted,
+  REACH_CURRENT_MEETING_KEY,
+  REACH_MEETING_NOTIFICATION_ID,
+} from '../constants/reachMeeting';
 
 // Prevent the splash screen from auto-hiding (ignore if native splash not ready yet)
 SplashScreen.preventAutoHideAsync().catch((err) => {
@@ -276,10 +281,17 @@ function RootLayoutNav() {
     };
 
     void checkUnreadMeetingStarted();
+    // Safety net: clear sticky "In GrabDocs meeting / Tap to return" when no call is live.
+    if (!hasLiveReachMeetingMounted()) {
+      Notifications.dismissNotificationAsync(REACH_MEETING_NOTIFICATION_ID).catch(() => {});
+    }
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         void checkUnreadMeetingStarted();
         void clearMeetingStartedBannerIfJoined();
+        if (!hasLiveReachMeetingMounted()) {
+          Notifications.dismissNotificationAsync(REACH_MEETING_NOTIFICATION_ID).catch(() => {});
+        }
       }
     });
     return () => sub.remove();

@@ -56,8 +56,10 @@ function isRoomEntryPeerUpdate(data: {
   peer?: { peerID?: string; isLocal?: boolean };
 } | undefined): boolean {
   if (!data) return false;
-  if (data.peer?.isLocal === true) return true;
   const t = (data.type ?? '').toUpperCase();
+  // Do NOT treat bare `peer.isLocal` as room entry — preview/prejoin emits local peer
+  // name/metadata updates and that was flipping the app into in-call chrome early,
+  // covering Join Now with a Modal and confirming presence before the user joined.
   if (
     t === 'ROOM_JOINED' ||
     t === 'PEER_LIST_UPDATED' ||
@@ -66,8 +68,11 @@ function isRoomEntryPeerUpdate(data: {
   ) {
     return true;
   }
-  // Remote peer joined — we are also in the room.
+  // Local or remote peer joined the room (not preview).
   if (t === 'PEER_JOINED' && data.peer) return true;
+  if (data.peer?.isLocal === true && (t.includes('JOIN') || t === 'PEER_JOINED')) {
+    return true;
+  }
   return false;
 }
 
