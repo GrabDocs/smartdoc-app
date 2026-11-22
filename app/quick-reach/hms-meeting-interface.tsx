@@ -6,7 +6,7 @@ import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
-import { useNavigation } from '@react-navigation/native';
+import { CommonActions, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
@@ -170,6 +170,7 @@ export default function HMSMeetingInterfaceScreen() {
   const router = useRouter();
   const { showLimitError } = useLimitError();
   const navigation = useNavigation();
+  const route = useRoute();
   const params = useLocalSearchParams();
   const {
     meetingId,
@@ -208,6 +209,37 @@ export default function HMSMeetingInterfaceScreen() {
   const presenceConfirmedRef = useRef(false);
   const hmsJoinRetryRef = useRef(0);
   const hmsRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  /** Set right before an intentional exit so the swipe/back guard lets this route be removed. */
+  const isNavigatingAwayRef = useRef(false);
+  /**
+   * True while the user has minimized the live call to the list (HMS stays mounted underneath).
+   * Stays true until this screen is focused again — never reset on a timer.
+   */
+  const isMinimizingAwayRef = useRef(false);
+  const [exitAllowed, setExitAllowed] = useState(false);
+  const pendingExitRef = useRef<(() => void) | null>(null);
+
+  /** Lift the swipe/back guard, then run the navigation once React has re-rendered. */
+  const exitMeetingScreen = useCallback((navigate: () => void) => {
+    isNavigatingAwayRef.current = true;
+    pendingExitRef.current = navigate;
+    setExitAllowed(true);
+  }, []);
+
+  useEffect(() => {
+    if (!exitAllowed || !pendingExitRef.current) return;
+    const navigate = pendingExitRef.current;
+    pendingExitRef.current = null;
+    navigate();
+  }, [exitAllowed]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   /** Leave API only after confirm — no ActiveParticipant row exists before that. */
   const leaveConfirmedReachSession = useCallback(async () => {
@@ -232,8 +264,8 @@ export default function HMSMeetingInterfaceScreen() {
     }
     clearLiveReachMeeting(meetingId);
     await leaveConfirmedReachSession();
-    router.replace('/(tabs)' as any);
-  }, [router, leaveConfirmedReachSession, meetingId]);
+    exitMeetingScreen(() => router.replace('/(tabs)' as any));
+  }, [router, leaveConfirmedReachSession, meetingId, exitMeetingScreen]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -299,9 +331,6 @@ export default function HMSMeetingInterfaceScreen() {
     startedWithForceJoin: false,
   });
   const presenceConfirmSentRef = useRef(false);
-  const isNavigatingAwayRef = useRef(false);
-  /** True when user backs/swipes to the list while still in a live call (not an explicit leave). */
-  const isMinimizingAwayRef = useRef(false);
 
   // HMS media reconnect overlay — only when the call itself is reconnecting (matches web).
   // Backend /health failures are silent; heartbeats stay on their own interval.
@@ -863,15 +892,18 @@ export default function HMSMeetingInterfaceScreen() {
       const exit = String(meetingExitPath || DEFAULT_MEETING_EXIT_PATH);
       const sep = exit.includes('?') ? '&' : '?';
       router.push(`${exit}${sep}${q.toString()}` as any);
-      // Allow a later explicit Leave to run the real leave path.
-      setTimeout(() => {
-        isMinimizingAwayRef.current = false;
-      }, 750);
       return;
     }
-    isNavigatingAwayRef.current = true;
-    router.replace(meetingExitPath as any);
-  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title]);
+    exitMeetingScreen(() => router.replace(meetingExitPath as any));
+  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen]);
+
+  // Returning to the call (Active card pops back here) ends the minimized state.
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      isMinimizingAwayRef.current = false;
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const showPrejoinBack = !presenceConfirmed && !!meetingId;
 
@@ -886,15 +918,13 @@ export default function HMSMeetingInterfaceScreen() {
   }, [meetingId, goBackToApp]);
 
   // Route swipe-back to the meeting list (prejoin cancel or in-call minimize).
-  useEffect(() => {
-    if (!meetingId) return;
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      if (isNavigatingAwayRef.current) return;
-      e.preventDefault();
-      goBackToApp();
-    });
-    return unsubscribe;
-  }, [navigation, meetingId, goBackToApp]);
+  // usePreventRemove sets preventNativeDismiss on iOS, so the native swipe snaps back instead of
+  // popping this screen (a plain beforeRemove listener cannot stop the native gesture — the old
+  // list flashed and HMS unmounted, which ran the leave path).
+  usePreventRemove(!!meetingId && !exitAllowed, () => {
+    if (isNavigatingAwayRef.current) return;
+    goBackToApp();
+  });
 
   // PiP strategy (both platforms):
   //
@@ -1173,7 +1203,7 @@ export default function HMSMeetingInterfaceScreen() {
           if (nameForWait) q.set('userName', nameForWait);
           const jrid = errData.join_request_id ?? errData.joinRequestId;
           if (jrid != null) q.set('join_request_id', String(jrid));
-          router.replace(`/join-meeting?${q.toString()}` as any);
+          exitMeetingScreen(() => router.replace(`/join-meeting?${q.toString()}` as any));
           return;
         } else if (status === 403) {
           setError(errMsg || 'This meeting requires host approval to join.');
@@ -1378,7 +1408,7 @@ export default function HMSMeetingInterfaceScreen() {
               console.error('⚠️ [LEAVE] Continuing with navigation despite error');
             }
             // Navigate back to origin (Reach list, or Calendar when joined from calendar)
-            router.replace(meetingExitPath as any);
+            exitMeetingScreen(() => router.replace(meetingExitPath as any));
           }
         }
       ]
@@ -1859,20 +1889,16 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Swipe/back to list while in-call — keep REACH_CURRENT_MEETING_KEY so user can return.
-                        if (isMinimizingAwayRef.current) {
-                          return;
-                        }
-
                         // Prejoin cancel (HMS back) — never joined; no leave API.
                         if (!presenceConfirmed) {
                           if (!isNavigatingAwayRef.current) {
-                            isNavigatingAwayRef.current = true;
-                            router.replace(meetingExitPath as any);
+                            exitMeetingScreen(() => router.replace(meetingExitPath as any));
                           }
                           return;
                         }
 
+                        // Swipe no longer unmounts HMS, so onLeave here is an explicit HMS leave or a
+                        // real disconnect (host ended the room, removed from call).
                         try {
                           await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
                         } catch {
@@ -1885,8 +1911,25 @@ export default function HMSMeetingInterfaceScreen() {
                           console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
                         }
 
-                        isNavigatingAwayRef.current = true;
-                        router.replace(meetingExitPath as any);
+                        if (!isMountedRef.current) return;
+
+                        if (isMinimizingAwayRef.current) {
+                          // User is on the list — drop this hidden call screen without moving them.
+                          const routeKey = route.key;
+                          exitMeetingScreen(() =>
+                            navigation.dispatch((state: any) => {
+                              const routes = state.routes.filter((r: any) => r.key !== routeKey);
+                              return CommonActions.reset({
+                                ...state,
+                                routes,
+                                index: Math.max(0, routes.length - 1),
+                              });
+                            })
+                          );
+                          return;
+                        }
+
+                        exitMeetingScreen(() => router.replace(meetingExitPath as any));
                       }}
                       style={hmsProps.style}
                       // Note: React Native HMSPrebuilt does NOT support onJoin callback

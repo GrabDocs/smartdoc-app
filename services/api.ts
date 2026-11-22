@@ -4604,7 +4604,9 @@ class ApiService {
     }
   }
 
-  async getJoinRequests(videoCallId: number): Promise<ApiResponse> {
+  async getJoinRequests(
+    videoCallId: number,
+  ): Promise<ApiResponse & { join_requests?: any[] }> {
     try {
       const response = await this.client.get(MOBILE_ENDPOINTS.JOIN_REQUEST_LIST(videoCallId));
       return response.data;
