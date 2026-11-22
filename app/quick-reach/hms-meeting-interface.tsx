@@ -1032,23 +1032,30 @@ export default function HMSMeetingInterfaceScreen() {
     } as any);
   }, [navigation]);
 
-  // Tip each join until logo minimize once — resets for each OTA (new Updates.updateId).
+  // Tip after join until logo minimize once — resets for each OTA (new Updates.updateId).
+  // Auto-dismiss so a leftover banner cannot sit over the call UI.
   useEffect(() => {
     if (!inCallChrome || callMinimized) {
       setShowMinimizeTip(false);
       return;
     }
     let cancelled = false;
+    let autoHide: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       try {
         const used = await AsyncStorage.getItem(reachMinimizeLogoUsedKey());
-        if (!cancelled && !used) setShowMinimizeTip(true);
+        if (cancelled || used) return;
+        setShowMinimizeTip(true);
+        autoHide = setTimeout(() => {
+          if (!cancelled) setShowMinimizeTip(false);
+        }, 6000);
       } catch {
         /* ignore */
       }
     })();
     return () => {
       cancelled = true;
+      if (autoHide) clearTimeout(autoHide);
     };
   }, [inCallChrome, callMinimized]);
 
@@ -1975,119 +1982,8 @@ export default function HMSMeetingInterfaceScreen() {
           </Modal>
 
           {/* Prejoin: HMS Room Kit owns the back chevron — no GrabDocs overlay (it blocked Join Now). */}
-
-          {/* In-call only: logo tap = minimize. Join-approval FAB top-right when pending. */}
-          {inCallChrome && !callMinimized ? (
-            <Modal
-              visible
-              transparent
-              animationType="none"
-              statusBarTranslucent
-              onRequestClose={minimizeToMeetingList}
-            >
-              <View style={styles.inCallFabOverlay} pointerEvents="box-none">
-                {/* Invisible hit target over GrabDocs logo (top-left). */}
-                <TouchableOpacity
-                  style={[
-                    styles.logoMinimizeHit,
-                    { top: Math.max(insets.top, 12) + 2 },
-                  ]}
-                  onPress={minimizeToMeetingList}
-                  activeOpacity={1}
-                  accessibilityLabel="Minimize meeting"
-                  accessibilityHint="Returns to the meeting list without leaving the call"
-                />
-                {showMinimizeTip ? (
-                  <View
-                    style={[
-                      styles.minimizeTipBanner,
-                      { top: Math.max(insets.top, 12) + 52 },
-                    ]}
-                    pointerEvents="box-none"
-                  >
-                    <Text style={styles.minimizeTipText}>
-                      Tap the GrabDocs logo to return to meeting list. The call stays connected.
-                    </Text>
-                    <TouchableOpacity
-                      onPress={dismissMinimizeTip}
-                      hitSlop={10}
-                      accessibilityLabel="Dismiss tip"
-                    >
-                      <Ionicons name="close" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-                {canApproveJoinRequests &&
-                bannerJoinRequest &&
-                !callMinimized ? (
-                  <View
-                    style={[
-                      styles.minimizeTipBanner,
-                      styles.joinApprovalBanner,
-                      {
-                        top:
-                          Math.max(insets.top, 12) +
-                          52 +
-                          (showMinimizeTip ? 64 : 0),
-                      },
-                    ]}
-                    pointerEvents="box-none"
-                  >
-                    <Text style={styles.minimizeTipText} numberOfLines={2}>
-                      {joinRequestDisplayName(bannerJoinRequest)} wants to join
-                      {bannerJoinMoreCount > 0
-                        ? `  ·  +${bannerJoinMoreCount} more`
-                        : ''}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.joinApproveButton}
-                      onPress={approveBannerJoinRequest}
-                      disabled={approvingJoinRequestId != null}
-                      activeOpacity={0.85}
-                      accessibilityLabel="Approve join request"
-                    >
-                      <Text style={styles.joinApproveButtonText}>
-                        {approvingJoinRequestId === bannerJoinRequest.id
-                          ? '…'
-                          : 'Approve'}
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={dismissJoinApprovalBanner}
-                      hitSlop={10}
-                      accessibilityLabel="Dismiss join request banner"
-                    >
-                      <Ionicons name="close" size={18} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-                {canManageJoinRequests &&
-                pendingJoinRequestCount > 0 &&
-                !showJoinRequestsModal ? (
-                  <View
-                    style={[
-                      styles.inCallFabRow,
-                      { paddingTop: Math.max(insets.top, 12) + 8 },
-                    ]}
-                  >
-                    <TouchableOpacity
-                      style={styles.joinApprovalFab}
-                      onPress={() => setShowJoinRequestsModal(true)}
-                      activeOpacity={0.85}
-                      accessibilityLabel="Join request approvals"
-                    >
-                      <Ionicons name="people" size={22} color="#fff" />
-                      <View style={styles.joinApprovalBadge}>
-                        <Text style={styles.joinApprovalBadgeText}>
-                          {pendingJoinRequestCount > 9 ? '9+' : String(pendingJoinRequestCount)}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </View>
-            </Modal>
-          ) : null}
+          {/* In-call logo/tip chrome is an absolute sibling over HMSPrebuilt — NOT a Modal.
+              A transparent Modal window was eating all touches after join. */}
 
           <JoinRequestsManageModal
             visible={showJoinRequestsModal}
@@ -2291,6 +2187,110 @@ export default function HMSMeetingInterfaceScreen() {
                       // The component will automatically join when mounted with valid token/roomCode
                       // We use a timeout to detect if join fails silently
                     />
+                    {/* Absolute overlay (not Modal): logo minimize + tip. box-none so HMS stays tappable. */}
+                    {inCallChrome && !callMinimized ? (
+                      <View style={styles.inCallFabOverlay} pointerEvents="box-none">
+                        <TouchableOpacity
+                          style={[
+                            styles.logoMinimizeHit,
+                            { top: Math.max(insets.top, 12) + 2 },
+                          ]}
+                          onPress={minimizeToMeetingList}
+                          activeOpacity={1}
+                          accessibilityLabel="Minimize meeting"
+                          accessibilityHint="Returns to the meeting list without leaving the call"
+                        />
+                        {showMinimizeTip ? (
+                          <View
+                            style={[
+                              styles.minimizeTipBanner,
+                              { top: Math.max(insets.top, 12) + 52 },
+                            ]}
+                            pointerEvents="auto"
+                          >
+                            <Text style={styles.minimizeTipText}>
+                              Tap the GrabDocs logo to return to meeting list. The call stays connected.
+                            </Text>
+                            <TouchableOpacity
+                              onPress={dismissMinimizeTip}
+                              hitSlop={10}
+                              accessibilityLabel="Dismiss tip"
+                            >
+                              <Ionicons name="close" size={18} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                        {canApproveJoinRequests && bannerJoinRequest ? (
+                          <View
+                            style={[
+                              styles.minimizeTipBanner,
+                              styles.joinApprovalBanner,
+                              {
+                                top:
+                                  Math.max(insets.top, 12) +
+                                  52 +
+                                  (showMinimizeTip ? 64 : 0),
+                              },
+                            ]}
+                            pointerEvents="auto"
+                          >
+                            <Text style={styles.minimizeTipText} numberOfLines={2}>
+                              {joinRequestDisplayName(bannerJoinRequest)} wants to join
+                              {bannerJoinMoreCount > 0
+                                ? `  ·  +${bannerJoinMoreCount} more`
+                                : ''}
+                            </Text>
+                            <TouchableOpacity
+                              style={styles.joinApproveButton}
+                              onPress={approveBannerJoinRequest}
+                              disabled={approvingJoinRequestId != null}
+                              activeOpacity={0.85}
+                              accessibilityLabel="Approve join request"
+                            >
+                              <Text style={styles.joinApproveButtonText}>
+                                {approvingJoinRequestId === bannerJoinRequest.id
+                                  ? '…'
+                                  : 'Approve'}
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={dismissJoinApprovalBanner}
+                              hitSlop={10}
+                              accessibilityLabel="Dismiss join request banner"
+                            >
+                              <Ionicons name="close" size={18} color="#fff" />
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                        {canManageJoinRequests &&
+                        pendingJoinRequestCount > 0 &&
+                        !showJoinRequestsModal ? (
+                          <View
+                            style={[
+                              styles.inCallFabRow,
+                              { paddingTop: Math.max(insets.top, 12) + 8 },
+                            ]}
+                            pointerEvents="box-none"
+                          >
+                            <TouchableOpacity
+                              style={styles.joinApprovalFab}
+                              onPress={() => setShowJoinRequestsModal(true)}
+                              activeOpacity={0.85}
+                              accessibilityLabel="Join request approvals"
+                            >
+                              <Ionicons name="people" size={22} color="#fff" />
+                              <View style={styles.joinApprovalBadge}>
+                                <Text style={styles.joinApprovalBadgeText}>
+                                  {pendingJoinRequestCount > 9
+                                    ? '9+'
+                                    : String(pendingJoinRequestCount)}
+                                </Text>
+                              </View>
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                 )}
               </HMSErrorBoundary>
@@ -2563,16 +2563,19 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
-  // Network overlay styles
+  // Absolute over HMS — never a full-screen Modal (Modal ate all call controls).
   inCallFabOverlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    elevation: 20,
   },
   logoMinimizeHit: {
     position: 'absolute',
     left: 8,
     width: 132,
     height: 44,
-    zIndex: 2,
+    zIndex: 22,
+    elevation: 22,
   },
   minimizeTipBanner: {
     position: 'absolute',
@@ -2585,7 +2588,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    zIndex: 3,
+    zIndex: 23,
+    elevation: 23,
   },
   minimizeTipText: {
     flex: 1,
