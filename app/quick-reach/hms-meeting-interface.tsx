@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
-import { CommonActions, useIsFocused, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
+import { CommonActions, StackActions, useIsFocused, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
@@ -262,6 +262,8 @@ export default function HMSMeetingInterfaceScreen() {
    * State twin hides in-call Modals so they do not float over the list (RN Modal is root-level).
    */
   const isMinimizingAwayRef = useRef(false);
+  /** True once this instance registered itself as the live call (setLiveReachMeeting). */
+  const ownsLiveMeetingRef = useRef(false);
   const [callMinimized, setCallMinimized] = useState(false);
   const [showMinimizeTip, setShowMinimizeTip] = useState(false);
   const [exitAllowed, setExitAllowed] = useState(false);
@@ -293,6 +295,16 @@ export default function HMSMeetingInterfaceScreen() {
 
   /** Leave API only after confirm — no ActiveParticipant row exists before that. */
   const leaveConfirmedReachSession = useCallback(async () => {
+    // Snapshot before any await. Callers clear presenceConfirmedRef immediately
+    // so the screen can close; reading the ref later skipped the leave API and
+    // left the meeting active.
+    // Heartbeat can create the participant row before confirm succeeds. Leave
+    // must still run in that case or the meeting stays active after exit.
+    const shouldNotify =
+      (presenceConfirmedRef.current || inHmsRoomRef.current) && !!meetingId;
+    const roomId = roomIdRef.current ?? undefined;
+    const guestId = guestIdRef.current ?? undefined;
+    const id = meetingId ? String(meetingId).trim() : '';
     // Always drop local "I'm in this call" markers so list status=active cannot block
     // joining another meeting after this leave.
     try {
@@ -301,11 +313,11 @@ export default function HMSMeetingInterfaceScreen() {
       /* ignore */
     }
     clearLiveReachMeeting(meetingId);
-    if (!presenceConfirmedRef.current || !meetingId) return;
+    if (!shouldNotify || !id) return;
     try {
-      await apiClient.leaveReachMeeting(String(meetingId).trim(), {
-        roomId: roomIdRef.current ?? undefined,
-        guestId: guestIdRef.current ?? undefined,
+      await apiClient.leaveReachMeeting(id, {
+        roomId,
+        guestId,
       });
     } catch {
       /* ignore */
@@ -325,12 +337,14 @@ export default function HMSMeetingInterfaceScreen() {
       /* ignore */
     }
     clearLiveReachMeeting(meetingId);
-    await Promise.race([
-      leaveConfirmedReachSession(),
-      new Promise((resolve) => setTimeout(resolve, 4000)),
-    ]);
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+    const leaving = leaveConfirmedReachSession();
     presenceConfirmedRef.current = false;
     inHmsRoomRef.current = false;
+    void leaving;
     exitMeetingScreen(() => router.replace('/(tabs)' as any));
   }, [router, leaveConfirmedReachSession, meetingId, exitMeetingScreen]);
 
@@ -579,7 +593,25 @@ export default function HMSMeetingInterfaceScreen() {
       const liveRoute = resumeLiveReachMeetingRoute(meetingId);
       if (liveRoute) {
         joinInitStartedRef.current = true;
-        router.navigate(liveRoute as any);
+        // This is a duplicate HMS screen. Pop back to the earlier one that owns the call;
+        // navigating by name would resolve to this (current) screen and stay here.
+        const stackState = navigation.getState();
+        const selfIndex = stackState?.routes.findIndex((r) => r.key === route.key) ?? -1;
+        let liveIndex = -1;
+        if (stackState && selfIndex > 0) {
+          for (let i = selfIndex - 1; i >= 0; i--) {
+            if (stackState.routes[i].name === route.name) {
+              liveIndex = i;
+              break;
+            }
+          }
+        }
+        if (liveIndex >= 0) {
+          const popCount = selfIndex - liveIndex;
+          exitMeetingScreen(() => navigation.dispatch(StackActions.pop(popCount)));
+        } else {
+          router.dismissTo(liveRoute as any);
+        }
         const failSafe = setTimeout(() => {
           if (!isMountedRef.current) return;
           // Still mounted without a token → navigate did not reveal the live screen.
@@ -991,11 +1023,14 @@ export default function HMSMeetingInterfaceScreen() {
   // - In-call: push the list ON TOP of HMS so WebRTC stays mounted; return via Active card.
   // Native iOS edge-swipe cannot do this safely (peek → bounce → leave loop). Gesture is
   // disabled while in-call; Android back + in-call chevron call this instead.
+  const isScreenFocused = useIsFocused();
   const goBackToApp = useCallback(() => {
     // Minimize as soon as we're in the HMS room (inHmsRoom), not only after GrabDocs confirm.
     if (presenceConfirmed || inHmsRoom) {
-      // Already minimized — ignore duplicate back presses while list is on top.
-      if (isMinimizingAwayRef.current || callMinimized) return;
+      // List is on top — ignore back/logo while this screen is covered.
+      // Do not also require callMinimized; that state can stay true after return and
+      // swallow the next logo tap.
+      if (!isScreenFocused || isMinimizingAwayRef.current) return;
       isMinimizingAwayRef.current = true;
       setCallMinimized(true);
       // Keep liveReachMeetingMounted true — this screen stays under the stack.
@@ -1013,12 +1048,11 @@ export default function HMSMeetingInterfaceScreen() {
     }
     // HMS prejoin / not yet in room — leave this screen.
     exitMeetingScreen(() => router.replace(meetingExitPath as any));
-  }, [router, presenceConfirmed, inHmsRoom, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, callMinimized]);
+  }, [router, presenceConfirmed, inHmsRoom, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, isScreenFocused]);
 
   // Returning to the call ends the minimized state. useIsFocused tracks nested focus
   // (root stack → quick-reach → this screen); the screen's own 'focus' event can be missed
   // when the user went list → Home and came back, leaving the logo overlay hidden.
-  const isScreenFocused = useIsFocused();
   useEffect(() => {
     if (!isScreenFocused) return;
     isMinimizingAwayRef.current = false;
@@ -1260,12 +1294,14 @@ export default function HMSMeetingInterfaceScreen() {
       }
       if (!q.has('meetingId') && meetingId) q.set('meetingId', String(meetingId));
       setLiveReachMeeting(id, `/quick-reach/hms-meeting-interface?${q.toString()}`);
+      ownsLiveMeetingRef.current = true;
     }
   }, [authToken, meetingId, presenceConfirmed, resolvedStorageMeetingId, params]);
 
   useEffect(() => {
     return () => {
-      setLiveReachMeetingMounted(false);
+      // A duplicate screen that popped itself must not mark the real call as unmounted.
+      if (ownsLiveMeetingRef.current) setLiveReachMeetingMounted(false);
     };
   }, []);
 
@@ -1639,13 +1675,10 @@ export default function HMSMeetingInterfaceScreen() {
           /* ignore */
         }
         clearLiveReachMeeting(meetingId);
-        // Don't sit on the HMS leave spinner if the leave request stalls.
-        await Promise.race([
-          leaveConfirmedReachSession(),
-          new Promise((resolve) => setTimeout(resolve, 4000)),
-        ]);
+        const leaving = leaveConfirmedReachSession();
         presenceConfirmedRef.current = false;
         inHmsRoomRef.current = false;
+        void leaving;
         setPresenceConfirmed(false);
         setInHmsRoom(false);
       } catch (error: any) {
@@ -1931,8 +1964,9 @@ export default function HMSMeetingInterfaceScreen() {
           )}
 
           {/* Join stuck overlay — Modal keeps HMS mounted (unmounting causes peer.leave client request). */}
+          {joinStuckExhausted && !!joinConfig && !hmsError && !presenceConfirmed ? (
           <Modal
-            visible={joinStuckExhausted && !!joinConfig && !hmsError && !presenceConfirmed}
+            visible
             transparent
             animationType="fade"
             statusBarTranslucent
@@ -1968,10 +2002,12 @@ export default function HMSMeetingInterfaceScreen() {
               </View>
             </View>
           </Modal>
+          ) : null}
 
           {/* In-meeting event banners (recording started, peer joined) — must be dismissed by tapping OK */}
+          {bannerQueue.length > 0 && !!joinConfig && !hmsError && !callMinimized ? (
           <Modal
-            visible={bannerQueue.length > 0 && !!joinConfig && !hmsError && !callMinimized}
+            visible
             transparent
             animationType="fade"
             statusBarTranslucent
@@ -2008,11 +2044,13 @@ export default function HMSMeetingInterfaceScreen() {
               )}
             </View>
           </Modal>
+          ) : null}
 
           {/* Prejoin: HMS Room Kit owns the back chevron — no GrabDocs overlay (it blocked Join Now). */}
           {/* In-call logo/tip chrome is an absolute sibling over HMSPrebuilt — NOT a Modal.
               A transparent Modal window was eating all touches after join. */}
 
+          {showJoinRequestsModal ? (
           <JoinRequestsManageModal
             visible={showJoinRequestsModal}
             videoCallId={roomId}
@@ -2023,10 +2061,12 @@ export default function HMSMeetingInterfaceScreen() {
               if (count === 0) setPendingJoinRequests([]);
             }}
           />
+          ) : null}
 
           {/* HMS reconnect overlay — only when media session is reconnecting (not backend /health). */}
+          {(isNetworkDown || showReconnected) && !!joinConfig && !!presenceConfirmed && !hmsError && !callMinimized ? (
           <Modal
-            visible={(isNetworkDown || showReconnected) && !!joinConfig && !!presenceConfirmed && !hmsError && !callMinimized}
+            visible
             transparent
             animationType="fade"
             statusBarTranslucent
@@ -2051,6 +2091,7 @@ export default function HMSMeetingInterfaceScreen() {
               </View>
             </View>
           </Modal>
+          ) : null}
 
           <SafeAreaView style={styles.container} edges={['top']}>
             <View style={styles.meetingContentWrapper}>
@@ -2158,16 +2199,11 @@ export default function HMSMeetingInterfaceScreen() {
                       options={hmsProps.options}
                       autoEnterPipMode={Platform.OS !== 'web'}
                       pipConfig={Platform.OS !== 'web' ? { aspectRatio: [1, 1] } : undefined}
-                      onLeave={async () => {
+                      onLeave={() => {
                         setIsLoading(false);
 
                         // Same-meeting deep link / remount — do not delete presence or leave the call.
                         if (shouldSkipHmsLeave()) {
-                          return;
-                        }
-
-                        // Already leaving (list leave icon / explicit leave navigation).
-                        if (isNavigatingAwayRef.current) {
                           return;
                         }
 
@@ -2176,39 +2212,27 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Prejoin cancel (HMS back) — never joined; no leave API.
-                        if (!presenceConfirmed) {
-                          if (!isNavigatingAwayRef.current) {
-                            exitMeetingScreen(() => router.replace(meetingExitPath as any));
-                          }
-                          return;
-                        }
-
-                        // Explicit Leave (HMS UI) or real disconnect (host ended / kicked).
+                        // Explicit Leave / End, prejoin cancel, or host ended the room.
+                        // Navigate immediately. Waiting on the leave API (or on HMS leave())
+                        // is what left this screen spinning.
                         isNavigatingAwayRef.current = true;
                         if (pipFallbackTimerRef.current) {
                           clearTimeout(pipFallbackTimerRef.current);
                           pipFallbackTimerRef.current = null;
                         }
+                        if (heartbeatIntervalRef.current) {
+                          clearInterval(heartbeatIntervalRef.current);
+                          heartbeatIntervalRef.current = null;
+                        }
                         dismissMeetingNotification();
-                        try {
-                          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-                        } catch {
-                          /* ignore */
-                        }
-                        clearLiveReachMeeting(meetingId);
-                        try {
-                          await Promise.race([
-                            leaveConfirmedReachSession(),
-                            new Promise((resolve) => setTimeout(resolve, 4000)),
-                          ]);
-                        } catch (error: any) {
-                          console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
-                        }
+                        const leaving = leaveConfirmedReachSession();
                         presenceConfirmedRef.current = false;
                         inHmsRoomRef.current = false;
                         setPresenceConfirmed(false);
                         setInHmsRoom(false);
+                        void leaving.catch((error: any) => {
+                          console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
+                        });
 
                         if (!isMountedRef.current) return;
                         exitMeetingScreen(() => router.replace(meetingExitPath as any));
@@ -2219,7 +2243,7 @@ export default function HMSMeetingInterfaceScreen() {
                       // We use a timeout to detect if join fails silently
                     />
                     {/* Absolute overlay (not Modal): logo minimize + tip. box-none so HMS stays tappable. */}
-                    {inCallChrome && !callMinimized ? (
+                    {inCallChrome && isScreenFocused ? (
                       <View style={styles.inCallFabOverlay} pointerEvents="box-none">
                         <TouchableOpacity
                           style={styles.logoMinimizeHit}

@@ -240,8 +240,12 @@ export default function JoinRequestsManageModal({
     [colors]
   );
 
+  // Don't keep a hidden Modal mounted. On Android it stays in the window after this
+  // screen is covered and shown again, and swallows every tap.
+  if (!visible) return null;
+
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
       <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
         <TouchableOpacity style={styles.sheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>

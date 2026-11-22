@@ -245,8 +245,8 @@ export default function JoinMeetingScreen() {
     if (liveRoute) {
       hasNavigatedRef.current = true;
       clearPersistedWaiting();
-      // navigate pops to the already-mounted HMS screen; replace would push a duplicate.
-      router.navigate(liveRoute as any);
+      // dismissTo pops to the already-mounted HMS screen; navigate/replace would push a duplicate.
+      router.dismissTo(liveRoute as any);
       return;
     }
 
@@ -318,8 +318,8 @@ export default function JoinMeetingScreen() {
         if (liveRoute) {
           hasNavigatedRef.current = true;
           clearPersistedWaiting();
-          // navigate pops to the already-mounted HMS screen; replace would push a duplicate.
-          router.navigate(liveRoute as any);
+          // dismissTo pops to the already-mounted HMS screen; navigate/replace would push a duplicate.
+          router.dismissTo(liveRoute as any);
           return;
         }
 
@@ -391,8 +391,8 @@ export default function JoinMeetingScreen() {
     hasNavigatedRef.current = true;
     clearPersistedWaiting();
     if (liveRoute) {
-      // navigate pops to the already-mounted HMS screen; replace would push a duplicate.
-      router.navigate(liveRoute as any);
+      // dismissTo pops to the already-mounted HMS screen; navigate/replace would push a duplicate.
+      router.dismissTo(liveRoute as any);
       return true;
     }
     const q = new URLSearchParams({ meetingId: meetingId.trim() });

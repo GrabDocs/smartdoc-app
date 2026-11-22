@@ -364,6 +364,40 @@ index 92fe974..79377db 100644
        <HandIcon />
      </PressableIcon>
    );
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx
+index e54b30c..b649dd1 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx
+@@ -1,5 +1,6 @@
+ import * as React from 'react';
+-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
++import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { useSelector } from 'react-redux';
+ 
+ import { LeaveIcon } from '../Icons';
+@@ -56,6 +57,12 @@ export const LeaveRoomBottomSheet: React.FC<LeaveRoomBottomSheetProps> = () => {
+     },
+   }));
+ 
++  const insets = useSafeAreaInsets();
++  // Edge-to-edge Android often reports 0 for the 3-button bar, which then
++  // covers End Session. Same minimum clearance as the meeting controls.
++  const bottomOffsetSpace =
++    Platform.OS === 'android' ? Math.max(insets.bottom, 48) : 0;
++
+   const leavePopCloseAction = React.useRef(ModalTypes.DEFAULT);
+ 
+   const { modalVisibleType, handleModalVisibleType } = useModalType();
+@@ -107,7 +114,7 @@ export const LeaveRoomBottomSheet: React.FC<LeaveRoomBottomSheetProps> = () => {
+   return (
+     <BottomSheet
+       isVisible={modalVisibleType === ModalTypes.LEAVE_ROOM}
+-      bottomOffsetSpace={0}
++      bottomOffsetSpace={bottomOffsetSpace}
+       dismissModal={onPopupDismiss}
+       onModalHide={handlePopupHide}
+     >
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx
 index 4f4fc8a..4b0f9ac 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/components/MeetingScreenContent.tsx
@@ -614,7 +648,7 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..8d1752f 100644
+index 4d107f0..d1dec87 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 @@ -1,176 +1,180 @@
@@ -819,6 +853,15 @@ index 4d107f0..8d1752f 100644
 +    useCanPublishVideo,
 +    useHMSActions,
 +} from './hooks-sdk';
++import {
++    selectChatLayoutConfig,
++    selectConferencingScreenConfig,
++    selectIsHLSViewer,
++    selectLayoutConfigForRole,
++    selectShouldGoLive,
++    selectVideoTileLayoutConfig,
++} from './hooks-util-selectors';
++import { getRoomLayout } from './modules/HMSManager';
  import {
 -  createPeerTrackNodeUniqueId,
 -  degradeOrRestorePeerTrackNodes,
@@ -828,15 +871,6 @@ index 4d107f0..8d1752f 100644
 -  removePeerTrackNodesWithTrack,
 -  replacePeerTrackNodes,
 -  replacePeerTrackNodesWithTrack,
-+    selectChatLayoutConfig,
-+    selectConferencingScreenConfig,
-+    selectIsHLSViewer,
-+    selectLayoutConfigForRole,
-+    selectShouldGoLive,
-+    selectVideoTileLayoutConfig,
-+} from './hooks-util-selectors';
-+import { getRoomLayout } from './modules/HMSManager';
-+import {
 +    createPeerTrackNodeUniqueId,
 +    degradeOrRestorePeerTrackNodes,
 +    peerTrackNodeExistForPeer,
@@ -1017,6 +1051,139 @@ index 4d107f0..8d1752f 100644
      numerator,
      denominator,
      autoEnterPipMode,
+@@ -2258,6 +2280,27 @@ export const useShouldGoLive = () => {
+   return shouldGoLive;
+ };
+ 
++/** Native leave/endRoom can hang after 100ms has already accepted the leave. */
++const HMS_ROOM_EXIT_TIMEOUT_MS = 2500;
++
++function withHmsExitTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
++  return new Promise((resolve, reject) => {
++    const timer = setTimeout(() => {
++      reject(new Error('HMS room exit timed out'));
++    }, ms);
++    promise.then(
++      (value) => {
++        clearTimeout(timer);
++        resolve(value);
++      },
++      (error) => {
++        clearTimeout(timer);
++        reject(error);
++      }
++    );
++  });
++}
++
+ export const useLeaveMethods = () => {
+   const navigation = useContext(NavigationContext);
+   const hmsInstance = useHMSInstance();
+@@ -2266,29 +2309,10 @@ export const useLeaveMethods = () => {
+ 
+   const destroy = useCallback(
+     (reason: Parameters<OnLeaveHandler>[0]) => {
+-      try {
+-        const s = hmsInstance.destroy();
+-        console.log('Destroy Success: ', s);
+-        // TODOS:
+-        // - If show `Meeting_Ended` is true, show Meeting screen by setting state to MEETING_ENDED
+-        //    - Reset Redux States
+-        //    - HMSInstance will not be available now
+-        //    - When your presses "Re Join" Action button, restart process from root component
+-        //    - When your presses "Done" Action button
+-        //        - If we have callback fn, call it
+-        //        - Otherwise try our best to navigate away from current screen
+-        //
+-        // - No screen to show
+-        //    - No need to reset redux state?
+-        //    - HMSInstance will be available till this point
+-        //    - If we have callback fn, call it
+-        //    - Otherwise try our best to navigate away from current screen
+-        //    - When we are navigated away from screen, HMSInstance will be not available
+-
+-        // dispatch(clearMessageData());
+-        // dispatch(clearPeerData());
+-        // dispatch(clearHmsReference());
+-
++      let notified = false;
++      const notifyLeft = () => {
++        if (notified) return;
++        notified = true;
+         const onLeave = reduxStore.getState().user.onLeave;
+ 
+         if (typeof onLeave === 'function') {
+@@ -2305,15 +2329,18 @@ export const useLeaveMethods = () => {
+           // Otherwise default action is to show "Meeting Ended" screen
+           dispatch(changeMeetingState(MeetingState.MEETING_ENDED));
+         }
++      };
++
++      try {
++        const s = hmsInstance.destroy();
++        console.log('Destroy Success: ', s);
++        notifyLeft();
+         hmsInstance.setAlwaysScreenOn(false);
+       } catch (e) {
+         console.log(`Destroy HMS instance Error: ${e}`);
+-        Toast.showWithGravity(
+-          `Destroy HMS instance Error: ${e}`,
+-          Toast.LONG,
+-          Toast.TOP
+-        );
+-        return Promise.reject(e);
++        // Still tell the app to leave. A failed destroy used to skip onLeave
++        // and leave the End/Leave button spinning on the meeting screen.
++        notifyLeft();
+       }
+     },
+     [hmsInstance]
+@@ -2327,12 +2354,20 @@ export const useLeaveMethods = () => {
+         });
+       }
+       try {
+-        const d = await hmsInstance.leave();
++        const d = await withHmsExitTimeout(
++          hmsInstance.leave(),
++          HMS_ROOM_EXIT_TIMEOUT_MS
++        );
+         console.log('Leave Success: ', d);
+-        await destroy(reason);
+       } catch (e) {
+         console.log(`Leave Room Error: ${e}`);
+-        Toast.showWithGravity(`Leave Room Error: ${e}`, Toast.LONG, Toast.TOP);
++      }
++      // Always continue. leave() often never resolves on iOS after 100ms
++      // has already recorded peer.leave, so onLeave never ran.
++      try {
++        await destroy(reason);
++      } catch (e) {
++        console.log(`Destroy after leave Error: ${e}`);
+       }
+     },
+     [destroy, hmsInstance]
+@@ -2355,12 +2390,19 @@ export const useLeaveMethods = () => {
+   const endRoom = useCallback(
+     async (reason: OnLeaveReason) => {
+       try {
+-        const d = await hmsInstance.endRoom('Host ended the room');
++        const d = await withHmsExitTimeout(
++          hmsInstance.endRoom('Host ended the room'),
++          HMS_ROOM_EXIT_TIMEOUT_MS
++        );
+         console.log('EndRoom Success: ', d);
+-        await destroy(reason);
+       } catch (e) {
+         console.log('EndRoom Error: ', e);
+       }
++      try {
++        await destroy(reason);
++      } catch (e) {
++        console.log(`Destroy after endRoom Error: ${e}`);
++      }
+     },
+     [destroy, hmsInstance]
+   );
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/emojiReactions.ts
 new file mode 100644
 index 0000000..638b2de

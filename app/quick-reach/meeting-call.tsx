@@ -1045,7 +1045,8 @@ export default function MeetingCallScreen() {
         const liveRoute = resumeLiveReachMeetingRoute(meeting.meetingId);
         if (liveRoute) {
           // Pop back to the already-mounted HMS screen (do not remount / rejoin).
-          router.navigate(liveRoute as any);
+          // navigate would push a second HMS screen with no in-call chrome.
+          router.dismissTo(liveRoute as any);
           return;
         }
         navigateToMeetingScreen({
@@ -1141,7 +1142,7 @@ export default function MeetingCallScreen() {
       const liveRoute = resumeLiveReachMeetingRoute(savedMeetingId);
       if (liveRoute) {
         setShowJoinModal(false);
-        router.navigate(liveRoute as any);
+        router.dismissTo(liveRoute as any);
         return;
       }
     }
