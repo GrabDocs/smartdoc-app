@@ -3,8 +3,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
-    Modal,
     Platform,
     ScrollView,
     StyleSheet,
@@ -18,6 +18,7 @@ import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
 import AppHeaderIcon from '../../components/AppHeaderIcon';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
+import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
@@ -92,6 +93,7 @@ export default function CreateMeetingScreen() {
   const [workspaces, setWorkspaces] = useState<MeetingWorkspaceOption[]>([]);
   const [workspaceId, setWorkspaceId] = useState<number | null>(null);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
+  const [workspacePickerNonce, setWorkspacePickerNonce] = useState(0);
 
   useEffect(() => {
     const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
@@ -429,32 +431,6 @@ export default function CreateMeetingScreen() {
       color: colors.text,
       marginRight: 8,
     },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      justifyContent: 'flex-end',
-    },
-    modalSheet: {
-      backgroundColor: colors.card,
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      maxHeight: '70%',
-      paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    },
-    modalSheetHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    modalSheetTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.text,
-    },
     workspaceOption: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -651,7 +627,11 @@ export default function CreateMeetingScreen() {
               <Text style={dynamicStyles.label}>Workspace</Text>
               <TouchableOpacity
                 style={dynamicStyles.workspacePicker}
-                onPress={() => setShowWorkspacePicker(true)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setWorkspacePickerNonce((n) => n + 1);
+                  setShowWorkspacePicker(true);
+                }}
                 activeOpacity={0.7}
               >
                 <Text style={dynamicStyles.workspacePickerText} numberOfLines={1}>
@@ -784,55 +764,6 @@ export default function CreateMeetingScreen() {
           </View>
         </ScrollView>
 
-        <Modal
-          visible={showWorkspacePicker}
-          animationType="fade"
-          transparent
-          onRequestClose={() => setShowWorkspacePicker(false)}
-        >
-          <TouchableOpacity
-            style={dynamicStyles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowWorkspacePicker(false)}
-          >
-            <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={dynamicStyles.modalSheetHeader}>
-                <Text style={dynamicStyles.modalSheetTitle}>Select Workspace</Text>
-                <TouchableOpacity onPress={() => setShowWorkspacePicker(false)}>
-                  <Ionicons name="close" size={22} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-              <ScrollView>
-                <TouchableOpacity
-                  style={dynamicStyles.workspaceOption}
-                  onPress={() => {
-                    setWorkspaceId(null);
-                    setShowWorkspacePicker(false);
-                  }}
-                >
-                  <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
-                  {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
-                </TouchableOpacity>
-                {workspaces.map((ws) => (
-                  <TouchableOpacity
-                    key={ws.id}
-                    style={dynamicStyles.workspaceOption}
-                    onPress={() => {
-                      setWorkspaceId(ws.id);
-                      setShowWorkspacePicker(false);
-                    }}
-                  >
-                    <Text style={dynamicStyles.workspaceOptionText}>
-                      {ws.name}{ws.is_personal ? ' (Default)' : ''}
-                    </Text>
-                    {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
-
         {/* Action Buttons */}
         <View style={dynamicStyles.actionButtons}>
           <TouchableOpacity 
@@ -853,6 +784,44 @@ export default function CreateMeetingScreen() {
           </FeedbackTouchable>
         </View>
       </KeyboardAvoidingView>
+
+      <MinimizableBottomSheet
+        visible={showWorkspacePicker}
+        minimizable={false}
+        expandNonce={workspacePickerNonce}
+        onClose={() => setShowWorkspacePicker(false)}
+        title="Select Workspace"
+        heightRatio={0.55}
+        paddingBottom={12}
+      >
+        <ScrollView keyboardShouldPersistTaps="handled">
+          <TouchableOpacity
+            style={dynamicStyles.workspaceOption}
+            onPress={() => {
+              setWorkspaceId(null);
+              setShowWorkspacePicker(false);
+            }}
+          >
+            <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
+            {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+          </TouchableOpacity>
+          {workspaces.map((ws) => (
+            <TouchableOpacity
+              key={ws.id}
+              style={dynamicStyles.workspaceOption}
+              onPress={() => {
+                setWorkspaceId(ws.id);
+                setShowWorkspacePicker(false);
+              }}
+            >
+              <Text style={dynamicStyles.workspaceOptionText}>
+                {ws.name}{ws.is_personal ? ' (Default)' : ''}
+              </Text>
+              {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </MinimizableBottomSheet>
     </SafeAreaView>
   );
 }

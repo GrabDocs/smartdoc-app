@@ -6589,7 +6589,9 @@ class ApiService {
       console.log('Using endpoint: /api/v1/video/room/' + meetingId + '/end');
       
       const body = forceEnd ? { force: true } : {};
-      const response = await this.client.post(`/api/v1/video/room/${meetingId}/end`, body);
+      const response = await this.client.post(`/api/v1/video/room/${meetingId}/end`, body, {
+        timeout: 15000,
+      });
       console.log('End meeting response:', response.data);
       return response.data;
     } catch (error: any) {
@@ -6606,6 +6608,10 @@ class ApiService {
           message: 'Meeting ended successfully (room was not found in backend)',
           data: { meetingId },
         };
+      }
+
+      if (error.code === 'ECONNABORTED' || /timeout/i.test(String(error.message || ''))) {
+        throw error;
       }
 
       // 400 with active participants: backend requires confirmation before force-ending
@@ -6763,10 +6769,10 @@ class ApiService {
     if (options?.guestId && options.roomId) {
       await this.client.post(`/api/v1/video/room/${options.roomId}/leave`, {
         guest_id: options.guestId,
-      });
+      }, { timeout: 12000 });
       return;
     }
-    await this.client.post(`/api/v1/mobile/meetings/${trimmedId}/leave`);
+    await this.client.post(`/api/v1/mobile/meetings/${trimmedId}/leave`, {}, { timeout: 12000 });
   }
 
   // ==================== MEETING ASSETS & WEBHOOKS ====================

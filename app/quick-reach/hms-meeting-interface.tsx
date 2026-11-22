@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
-import { CommonActions, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
+import { CommonActions, useIsFocused, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
@@ -265,6 +265,7 @@ export default function HMSMeetingInterfaceScreen() {
   const [callMinimized, setCallMinimized] = useState(false);
   const [showMinimizeTip, setShowMinimizeTip] = useState(false);
   const [exitAllowed, setExitAllowed] = useState(false);
+  const [exitNonce, setExitNonce] = useState(0);
   const pendingExitRef = useRef<(() => void) | null>(null);
 
   /** Lift the swipe/back guard, then run the navigation once React has re-rendered. */
@@ -272,6 +273,8 @@ export default function HMSMeetingInterfaceScreen() {
     isNavigatingAwayRef.current = true;
     pendingExitRef.current = navigate;
     setExitAllowed(true);
+    // Bump even when exitAllowed is already true, or a second leave never navigates.
+    setExitNonce((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -279,7 +282,7 @@ export default function HMSMeetingInterfaceScreen() {
     const navigate = pendingExitRef.current;
     pendingExitRef.current = null;
     navigate();
-  }, [exitAllowed]);
+  }, [exitAllowed, exitNonce]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -322,7 +325,10 @@ export default function HMSMeetingInterfaceScreen() {
       /* ignore */
     }
     clearLiveReachMeeting(meetingId);
-    await leaveConfirmedReachSession();
+    await Promise.race([
+      leaveConfirmedReachSession(),
+      new Promise((resolve) => setTimeout(resolve, 4000)),
+    ]);
     presenceConfirmedRef.current = false;
     inHmsRoomRef.current = false;
     exitMeetingScreen(() => router.replace('/(tabs)' as any));
@@ -1009,16 +1015,17 @@ export default function HMSMeetingInterfaceScreen() {
     exitMeetingScreen(() => router.replace(meetingExitPath as any));
   }, [router, presenceConfirmed, inHmsRoom, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, callMinimized]);
 
-  // Returning to the call (Active card pops back here) ends the minimized state.
+  // Returning to the call ends the minimized state. useIsFocused tracks nested focus
+  // (root stack → quick-reach → this screen); the screen's own 'focus' event can be missed
+  // when the user went list → Home and came back, leaving the logo overlay hidden.
+  const isScreenFocused = useIsFocused();
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
-      isMinimizingAwayRef.current = false;
-      setCallMinimized(false);
-      // User is back in the call UI — clear the "tap to return" notification.
-      dismissMeetingNotification();
-    });
-    return unsubscribe;
-  }, [navigation, dismissMeetingNotification]);
+    if (!isScreenFocused) return;
+    isMinimizingAwayRef.current = false;
+    setCallMinimized(false);
+    // User is back in the call UI — clear the "tap to return" notification.
+    dismissMeetingNotification();
+  }, [isScreenFocused, dismissMeetingNotification]);
 
   // HMS on screen (prejoin or in-call). Logo tip / minimize chrome only after Join.
   const hmsScreenActive = Boolean(joinConfig && authToken && !hmsError);
@@ -1632,7 +1639,11 @@ export default function HMSMeetingInterfaceScreen() {
           /* ignore */
         }
         clearLiveReachMeeting(meetingId);
-        await leaveConfirmedReachSession();
+        // Don't sit on the HMS leave spinner if the leave request stalls.
+        await Promise.race([
+          leaveConfirmedReachSession(),
+          new Promise((resolve) => setTimeout(resolve, 4000)),
+        ]);
         presenceConfirmedRef.current = false;
         inHmsRoomRef.current = false;
         setPresenceConfirmed(false);
@@ -1697,7 +1708,7 @@ export default function HMSMeetingInterfaceScreen() {
           canonicalizeReachMeetingId(resolvedStorageMeetingId || meetingId) ||
           canonicalizeReachMeetingId(meetingId);
         if (!target || !mine || target !== mine) return;
-        if (!presenceConfirmedRef.current) return;
+        // Also tear down a stuck prejoin (presence never confirmed) so End returns to the list.
         void performLeaveMeeting({ stayOnList: true });
       },
     );
@@ -2187,7 +2198,10 @@ export default function HMSMeetingInterfaceScreen() {
                         }
                         clearLiveReachMeeting(meetingId);
                         try {
-                          await leaveConfirmedReachSession();
+                          await Promise.race([
+                            leaveConfirmedReachSession(),
+                            new Promise((resolve) => setTimeout(resolve, 4000)),
+                          ]);
                         } catch (error: any) {
                           console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
                         }

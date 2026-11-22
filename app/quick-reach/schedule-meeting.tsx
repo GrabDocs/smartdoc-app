@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
+    Keyboard,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -17,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import ClientsButton from '../../components/clients/ClientsButton';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
 import { setItemClients } from '../../services/clientsApi';
@@ -103,10 +105,12 @@ export default function ScheduleMeetingScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
+  const [durationPickerNonce, setDurationPickerNonce] = useState(0);
   const [featuresExpanded, setFeaturesExpanded] = useState(false);
   const [workspaces, setWorkspaces] = useState<MeetingWorkspaceOption[]>([]);
   const [workspaceId, setWorkspaceId] = useState<number | null>(null);
   const [showWorkspacePicker, setShowWorkspacePicker] = useState(false);
+  const [workspacePickerNonce, setWorkspacePickerNonce] = useState(0);
 
   useEffect(() => {
     const raw = Array.isArray(clientIdParam) ? clientIdParam[0] : clientIdParam;
@@ -554,27 +558,6 @@ export default function ScheduleMeetingScreen() {
       color: colors.text,
       marginRight: 8,
     },
-    modalSheet: {
-      backgroundColor: colors.card,
-      borderTopLeftRadius: 16,
-      borderTopRightRadius: 16,
-      maxHeight: '70%',
-      paddingBottom: Platform.OS === 'ios' ? 28 : 16,
-    },
-    modalSheetHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    modalSheetTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: colors.text,
-    },
     workspaceOption: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -821,7 +804,12 @@ export default function ScheduleMeetingScreen() {
               <Text style={dynamicStyles.label}>Workspace</Text>
               <TouchableOpacity
                 style={dynamicStyles.workspacePicker}
-                onPress={() => setShowWorkspacePicker(true)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowDurationPicker(false);
+                  setWorkspacePickerNonce((n) => n + 1);
+                  setShowWorkspacePicker(true);
+                }}
                 activeOpacity={0.7}
               >
                 <Text style={dynamicStyles.workspacePickerText} numberOfLines={1}>
@@ -885,7 +873,12 @@ export default function ScheduleMeetingScreen() {
               <Text style={dynamicStyles.label}>Duration (minutes)</Text>
               <TouchableOpacity
                 style={dynamicStyles.datePickerContainer}
-                onPress={() => setShowDurationPicker(true)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setShowWorkspacePicker(false);
+                  setDurationPickerNonce((n) => n + 1);
+                  setShowDurationPicker(true);
+                }}
                 activeOpacity={0.7}
               >
                 <Text style={dynamicStyles.datePickerLabel}>
@@ -1017,55 +1010,6 @@ export default function ScheduleMeetingScreen() {
             )}
           </View>
         </ScrollView>
-
-        <Modal
-          visible={showWorkspacePicker}
-          animationType="fade"
-          transparent
-          onRequestClose={() => setShowWorkspacePicker(false)}
-        >
-          <TouchableOpacity
-            style={dynamicStyles.modalOverlay}
-            activeOpacity={1}
-            onPress={() => setShowWorkspacePicker(false)}
-          >
-            <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-              <View style={dynamicStyles.modalSheetHeader}>
-                <Text style={dynamicStyles.modalSheetTitle}>Select Workspace</Text>
-                <TouchableOpacity onPress={() => setShowWorkspacePicker(false)}>
-                  <Ionicons name="close" size={22} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-              <ScrollView>
-                <TouchableOpacity
-                  style={dynamicStyles.workspaceOption}
-                  onPress={() => {
-                    setWorkspaceId(null);
-                    setShowWorkspacePicker(false);
-                  }}
-                >
-                  <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
-                  {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
-                </TouchableOpacity>
-                {workspaces.map((ws) => (
-                  <TouchableOpacity
-                    key={ws.id}
-                    style={dynamicStyles.workspaceOption}
-                    onPress={() => {
-                      setWorkspaceId(ws.id);
-                      setShowWorkspacePicker(false);
-                    }}
-                  >
-                    <Text style={dynamicStyles.workspaceOptionText}>
-                      {ws.name}{ws.is_personal ? ' (Default)' : ''}
-                    </Text>
-                    {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </Modal>
       </KeyboardAvoidingView>
 
       {/* Date picker (iOS); Android uses imperative API */}
@@ -1157,44 +1101,71 @@ export default function ScheduleMeetingScreen() {
         </Modal>
       ) : null}
 
-      <Modal
-        visible={showDurationPicker}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setShowDurationPicker(false)}
+      <MinimizableBottomSheet
+        visible={showWorkspacePicker}
+        minimizable={false}
+        expandNonce={workspacePickerNonce}
+        onClose={() => setShowWorkspacePicker(false)}
+        title="Select Workspace"
+        heightRatio={0.55}
+        paddingBottom={12}
       >
-        <TouchableOpacity
-          style={dynamicStyles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowDurationPicker(false)}
-        >
-          <TouchableOpacity style={dynamicStyles.modalSheet} activeOpacity={1} onPress={(e) => e.stopPropagation()}>
-            <View style={dynamicStyles.modalSheetHeader}>
-              <Text style={dynamicStyles.modalSheetTitle}>Duration (minutes)</Text>
-              <TouchableOpacity onPress={() => setShowDurationPicker(false)}>
-                <Ionicons name="close" size={22} color={colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView>
-              {MEETING_DURATION_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={dynamicStyles.workspaceOption}
-                  onPress={() => {
-                    setDurationMinutes(opt.value);
-                    setShowDurationPicker(false);
-                  }}
-                >
-                  <Text style={dynamicStyles.workspaceOptionText}>{opt.label}</Text>
-                  {durationMinutes === opt.value && (
-                    <Ionicons name="checkmark" size={18} color="#007AFF" />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+        <ScrollView keyboardShouldPersistTaps="handled">
+          <TouchableOpacity
+            style={dynamicStyles.workspaceOption}
+            onPress={() => {
+              setWorkspaceId(null);
+              setShowWorkspacePicker(false);
+            }}
+          >
+            <Text style={dynamicStyles.workspaceOptionText}>Personal Meeting</Text>
+            {workspaceId == null && <Ionicons name="checkmark" size={18} color="#007AFF" />}
           </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
+          {workspaces.map((ws) => (
+            <TouchableOpacity
+              key={ws.id}
+              style={dynamicStyles.workspaceOption}
+              onPress={() => {
+                setWorkspaceId(ws.id);
+                setShowWorkspacePicker(false);
+              }}
+            >
+              <Text style={dynamicStyles.workspaceOptionText}>
+                {ws.name}{ws.is_personal ? ' (Default)' : ''}
+              </Text>
+              {workspaceId === ws.id && <Ionicons name="checkmark" size={18} color="#007AFF" />}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </MinimizableBottomSheet>
+
+      <MinimizableBottomSheet
+        visible={showDurationPicker}
+        minimizable={false}
+        expandNonce={durationPickerNonce}
+        onClose={() => setShowDurationPicker(false)}
+        title="Duration"
+        heightRatio={0.52}
+        paddingBottom={12}
+      >
+        <ScrollView keyboardShouldPersistTaps="handled">
+          {MEETING_DURATION_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt.value}
+              style={dynamicStyles.workspaceOption}
+              onPress={() => {
+                setDurationMinutes(opt.value);
+                setShowDurationPicker(false);
+              }}
+            >
+              <Text style={dynamicStyles.workspaceOptionText}>{opt.label}</Text>
+              {durationMinutes === opt.value && (
+                <Ionicons name="checkmark" size={18} color="#007AFF" />
+              )}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </MinimizableBottomSheet>
     </SafeAreaView>
   );
 }

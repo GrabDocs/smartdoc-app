@@ -1185,6 +1185,23 @@ export default function MeetingCallScreen() {
               AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
               clearLiveReachMeeting(meeting.meetingId || meeting.id);
               setInCallMeetingId('');
+              const mid = canonicalizeReachMeetingId(meeting.meetingId || meeting.id);
+              if (mid) {
+                // Pop the buried call screen so End lands back on the list.
+                DeviceEventEmitter.emit(LEAVE_REACH_MEETING_EVENT, { meetingId: mid });
+              }
+            };
+            const recoverIfTimedOut = (err: any) => {
+              const timedOut =
+                err?.code === 'ECONNABORTED' || /timeout/i.test(String(err?.message || ''));
+              if (!timedOut) return false;
+              clearCurrentMeetingKey();
+              loadMeetings();
+              Alert.alert(
+                'Ending meeting',
+                'The server took too long to answer. You are back on the meeting list.',
+              );
+              return true;
             };
             try {
               const response = await apiClient.endMeeting(roomId);
@@ -1225,7 +1242,9 @@ export default function MeetingCallScreen() {
                             }
                           } catch (err: any) {
                             console.error('Force end meeting failed:', err);
-                            Alert.alert('Error', err?.message || 'Failed to end meeting');
+                            if (!recoverIfTimedOut(err)) {
+                              Alert.alert('Error', err?.message || 'Failed to end meeting');
+                            }
                           } finally {
                             setActionBusyKey(null);
                           }
@@ -1246,7 +1265,9 @@ export default function MeetingCallScreen() {
                     }
                   } catch (err: any) {
                     console.error('Force end meeting failed:', err);
-                    Alert.alert('Error', err?.message || 'Failed to end meeting');
+                    if (!recoverIfTimedOut(err)) {
+                      Alert.alert('Error', err?.message || 'Failed to end meeting');
+                    }
                   }
                 }
                 return;
@@ -1254,7 +1275,9 @@ export default function MeetingCallScreen() {
               Alert.alert('Error', (response as any).message || 'Failed to end meeting');
             } catch (error: any) {
               console.error('Failed to end meeting:', error);
-              Alert.alert('Error', error?.message || 'Failed to end meeting');
+              if (!recoverIfTimedOut(error)) {
+                Alert.alert('Error', error?.message || 'Failed to end meeting');
+              }
             } finally {
               setActionBusyKey(null);
             }
