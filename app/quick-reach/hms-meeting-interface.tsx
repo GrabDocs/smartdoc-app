@@ -1022,26 +1022,14 @@ export default function HMSMeetingInterfaceScreen() {
   /** Past HMS Join only — never show logo tip / in-call overlays on prejoin. */
   const inCallChrome = Boolean(hmsScreenActive && inHmsRoom);
 
-  // Keep swipe-back off for the whole meeting route (prejoin + in-call). When this is the only
-  // screen in the quick-reach stack (join-meeting replace, deep link, workspace, notification),
-  // iOS routes the edge-swipe to the ROOT stack and pops the whole group — so the parent
-  // `quick-reach` route must be locked too while HMS is mounted (including minimized).
+  // Keep swipe-back off for the whole meeting route (prejoin + in-call). The parent
+  // `quick-reach` route is locked from app/_layout.tsx (route-based, first frame) because a
+  // disabled nested swipe on iOS falls through to the parent and pops the whole group.
   useLayoutEffect(() => {
-    const parent = navigation.getParent() as any;
     navigation.setOptions({
       gestureEnabled: false,
       fullScreenGestureEnabled: false,
     } as any);
-    parent?.setOptions({
-      gestureEnabled: false,
-      fullScreenGestureEnabled: false,
-    });
-    return () => {
-      parent?.setOptions({
-        gestureEnabled: true,
-        fullScreenGestureEnabled: false,
-      });
-    };
   }, [navigation]);
 
   // Tip each join until logo minimize once — resets for each OTA (new Updates.updateId).

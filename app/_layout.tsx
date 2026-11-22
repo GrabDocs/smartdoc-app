@@ -707,7 +707,18 @@ function RootLayoutNav() {
           {/* Documents tab lives under (tabs)/documents — no root app/documents */}
           <Stack.Screen name="forms" options={{ headerShown: false }} />
           <Stack.Screen name="calendar" options={{ headerShown: false }} />
-          <Stack.Screen name="quick-reach" options={{ headerShown: false, freezeOnBlur: false }} />
+          <Stack.Screen
+            name="quick-reach"
+            options={{
+              headerShown: false,
+              freezeOnBlur: false,
+              // iOS: a disabled swipe on the nested HMS screen falls through to this parent
+              // route and pops the whole quick-reach group, killing the call. Lock it from
+              // the first frame the meeting route is active (prejoin + in-call).
+              gestureEnabled: !isMeetingScreen,
+              fullScreenGestureEnabled: false,
+            }}
+          />
           <Stack.Screen name="join-meeting" options={{ headerShown: false }} />
           <Stack.Screen name="incoming-import" options={{ headerShown: false }} />
           <Stack.Screen name="meeting/[id]" options={{ headerShown: false }} />
