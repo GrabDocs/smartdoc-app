@@ -215,8 +215,10 @@ export default function HMSMeetingInterfaceScreen() {
   /**
    * True while the user has minimized the live call to the list (HMS stays mounted underneath).
    * Stays true until this screen is focused again — never reset on a timer.
+   * State twin hides in-call Modals so they do not float over the list (RN Modal is root-level).
    */
   const isMinimizingAwayRef = useRef(false);
+  const [callMinimized, setCallMinimized] = useState(false);
   const [exitAllowed, setExitAllowed] = useState(false);
   const pendingExitRef = useRef<(() => void) | null>(null);
 
@@ -874,13 +876,17 @@ export default function HMSMeetingInterfaceScreen() {
     }
   }, [meetingId, title, userName]);
 
-  // Back / swipe:
+  // Back / minimize:
   // - Prejoin: leave the route (no live session yet).
-  // - In-call: push the exit screen ON TOP of HMS so WebRTC stays mounted; user returns via
-  //   the Active meeting card (router.navigate pops back to this screen). Never replace/unmount.
+  // - In-call: push the list ON TOP of HMS so WebRTC stays mounted; return via Active card.
+  // Native iOS edge-swipe cannot do this safely (peek → bounce → leave loop). Gesture is
+  // disabled while in-call; Android back + in-call chevron call this instead.
   const goBackToApp = useCallback(() => {
     if (presenceConfirmed) {
+      // Already minimized — ignore duplicate back presses while list is on top.
+      if (isMinimizingAwayRef.current || callMinimized) return;
       isMinimizingAwayRef.current = true;
+      setCallMinimized(true);
       // Keep liveReachMeetingMounted true — this screen stays under the stack.
       void showMeetingNotification();
       // Seed the list with Live Meetings immediately (avoids a Recent/ended-only flash).
@@ -895,15 +901,25 @@ export default function HMSMeetingInterfaceScreen() {
       return;
     }
     exitMeetingScreen(() => router.replace(meetingExitPath as any));
-  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen]);
+  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, callMinimized]);
 
   // Returning to the call (Active card pops back here) ends the minimized state.
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       isMinimizingAwayRef.current = false;
+      setCallMinimized(false);
     });
     return unsubscribe;
   }, [navigation]);
+
+  // In-call: disable native swipe so iOS cannot peek/pop this screen (that flicker tore down HMS).
+  // Prejoin: keep swipe enabled for cancel.
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: !presenceConfirmed,
+      fullScreenGestureEnabled: !presenceConfirmed,
+    } as any);
+  }, [navigation, presenceConfirmed]);
 
   const showPrejoinBack = !presenceConfirmed && !!meetingId;
 
@@ -917,11 +933,8 @@ export default function HMSMeetingInterfaceScreen() {
     return () => subscription.remove();
   }, [meetingId, goBackToApp]);
 
-  // Route swipe-back to the meeting list (prejoin cancel or in-call minimize).
-  // usePreventRemove sets preventNativeDismiss on iOS, so the native swipe snaps back instead of
-  // popping this screen (a plain beforeRemove listener cannot stop the native gesture — the old
-  // list flashed and HMS unmounted, which ran the leave path).
-  usePreventRemove(!!meetingId && !exitAllowed, () => {
+  // Prejoin only: intercept swipe/back cancel. In-call gesture is off (see setOptions above).
+  usePreventRemove(!!meetingId && !presenceConfirmed && !exitAllowed, () => {
     if (isNavigatingAwayRef.current) return;
     goBackToApp();
   });
@@ -1671,7 +1684,7 @@ export default function HMSMeetingInterfaceScreen() {
 
           {/* In-meeting event banners (recording started, peer joined) — must be dismissed by tapping OK */}
           <Modal
-            visible={bannerQueue.length > 0 && !!joinConfig && !hmsError}
+            visible={bannerQueue.length > 0 && !!joinConfig && !hmsError && !callMinimized}
             transparent
             animationType="fade"
             statusBarTranslucent
@@ -1709,9 +1722,25 @@ export default function HMSMeetingInterfaceScreen() {
             </View>
           </Modal>
 
+          {/* In-call minimize: edge swipe is disabled; chevron pushes list without leaving HMS. */}
+          {presenceConfirmed && !hmsError && !callMinimized ? (
+            <Modal
+              visible
+              transparent
+              animationType="none"
+              statusBarTranslucent
+              onRequestClose={goBackToApp}
+            >
+              <View style={styles.minimizeOverlay} pointerEvents="box-none">
+                <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
+              </View>
+            </Modal>
+          ) : null}
+
           {/* Host: pending join requests FAB above HMS native UI (only when pending) */}
           {canManageJoinRequests &&
           presenceConfirmed &&
+          !callMinimized &&
           !hmsError &&
           pendingJoinRequestCount > 0 &&
           !showJoinRequestsModal ? (
@@ -1749,7 +1778,7 @@ export default function HMSMeetingInterfaceScreen() {
 
           {/* HMS reconnect overlay — only when media session is reconnecting (not backend /health). */}
           <Modal
-            visible={(isNetworkDown || showReconnected) && !!joinConfig && !!presenceConfirmed && !hmsError}
+            visible={(isNetworkDown || showReconnected) && !!joinConfig && !!presenceConfirmed && !hmsError && !callMinimized}
             transparent
             animationType="fade"
             statusBarTranslucent
@@ -1897,8 +1926,8 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Swipe no longer unmounts HMS, so onLeave here is an explicit HMS leave or a
-                        // real disconnect (host ended the room, removed from call).
+                        // Explicit Leave (HMS UI) or real disconnect (host ended / kicked).
+                        // Never treat in-app minimize as leave — that path must not reach here.
                         try {
                           await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
                         } catch {
@@ -1914,7 +1943,7 @@ export default function HMSMeetingInterfaceScreen() {
                         if (!isMountedRef.current) return;
 
                         if (isMinimizingAwayRef.current) {
-                          // User is on the list — drop this hidden call screen without moving them.
+                          // User is already on the list — drop this hidden call screen only.
                           const routeKey = route.key;
                           exitMeetingScreen(() =>
                             navigation.dispatch((state: any) => {
@@ -2200,6 +2229,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   // Network overlay styles
+  minimizeOverlay: {
+    flex: 1,
+  },
   joinApprovalFabOverlay: {
     flex: 1,
     justifyContent: 'flex-start',
