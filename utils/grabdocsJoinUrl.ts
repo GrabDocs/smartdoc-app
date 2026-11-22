@@ -77,7 +77,8 @@ export function navigateGrabDocsJoinFromUrl(
   const r = options?.router ?? expoRouter;
   const liveRoute = resumeLiveReachMeetingRoute(mid);
   if (liveRoute) {
-    r.replace(liveRoute as any);
+    // navigate pops to the already-mounted HMS screen; replace would push a duplicate.
+    r.navigate(liveRoute as any);
     return true;
   }
   const params: Record<string, string> = { meeting_id: mid };

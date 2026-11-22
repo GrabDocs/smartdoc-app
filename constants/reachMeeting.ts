@@ -1,6 +1,12 @@
 /** AsyncStorage key: set while user is connected to a Reach (HMS) call; cleared on leave/end. */
 export const REACH_CURRENT_MEETING_KEY = 'reach_current_meeting_id';
 
+/**
+ * DeviceEventEmitter: list asks the mounted HMS screen to leave without returning first.
+ * Payload: `{ meetingId: string }`.
+ */
+export const LEAVE_REACH_MEETING_EVENT = 'grabdocs:leave_reach_meeting';
+
 /** AsyncStorage key: this device's guest id for a meeting, so a signed-out rejoin reuses its row. */
 export function reachGuestIdStorageKey(meetingId: unknown): string {
   return `reach_guest_id:${canonicalizeReachMeetingId(meetingId)}`;

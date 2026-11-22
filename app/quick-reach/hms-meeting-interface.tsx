@@ -6,6 +6,7 @@ import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
 import { CommonActions, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useLimitError } from '../../contexts/LimitErrorContext';
@@ -26,6 +27,7 @@ import {
     AppState,
     AppStateStatus,
     BackHandler,
+    DeviceEventEmitter,
     Linking,
     Modal,
     NativeModules,
@@ -42,12 +44,14 @@ import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsMa
 import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
   REACH_CURRENT_MEETING_KEY,
+  LEAVE_REACH_MEETING_EVENT,
   canonicalizeReachMeetingId,
   reachGuestIdStorageKey,
   setLiveReachMeeting,
   setLiveReachMeetingMounted,
   clearLiveReachMeeting,
   isLiveReachMeetingMounted,
+  resumeLiveReachMeetingRoute,
   shouldSkipHmsLeave,
 } from '../../constants/reachMeeting';
 import { apiClient } from '../../services/api';
@@ -64,8 +68,42 @@ import { useAuth } from '../context/auth';
 import AppBackButton from '../../components/AppBackButton';
 
 const MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
-/** Shown once: tap GrabDocs logo to minimize (edge swipe is disabled in-call). */
-const REACH_MINIMIZE_TIP_SEEN_KEY = 'reach_minimize_logo_tip_seen';
+/**
+ * Tip “used” flag — scoped per OTA updateId so a new update shows the tip again until
+ * the user minimizes via the logo once on that build.
+ */
+function reachMinimizeLogoUsedKey(): string {
+  const updateId =
+    (Updates.isEnabled && Updates.updateId) ||
+    Updates.runtimeVersion ||
+    'dev';
+  return `reach_minimize_logo_used:${updateId}`;
+}
+
+type InCallJoinRequest = {
+  id: number;
+  participant_name?: string | null;
+  participant_email?: string | null;
+  user?: {
+    username?: string;
+    email?: string;
+    firstName?: string;
+    lastName?: string;
+  } | null;
+};
+
+function joinRequestDisplayName(req: InCallJoinRequest): string {
+  const u = req.user;
+  if (u) {
+    const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+    if (full) return full;
+    if (u.username) return u.username;
+    if (u.email) return u.email;
+  }
+  if (req.participant_name?.trim()) return req.participant_name.trim();
+  if (req.participant_email?.trim()) return req.participant_email.trim();
+  return 'Guest';
+}
 
 // HMS package - enabled for local testing
 // All HMS functionality is handled via backend API calls
@@ -313,6 +351,10 @@ export default function HMSMeetingInterfaceScreen() {
   const inHmsRoomRef = useRef(false);
   const [showJoinRequestsModal, setShowJoinRequestsModal] = useState(false);
   const [pendingJoinRequestCount, setPendingJoinRequestCount] = useState(0);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<InCallJoinRequest[]>([]);
+  const [dismissedJoinRequestIds, setDismissedJoinRequestIds] = useState<number[]>([]);
+  const [approvingJoinRequestId, setApprovingJoinRequestId] = useState<number | null>(null);
+  const [canApproveJoinRequests, setCanApproveJoinRequests] = useState(false);
   const [canManageJoinRequests, setCanManageJoinRequests] = useState(false);
 
   useEffect(() => {
@@ -513,11 +555,31 @@ export default function HMSMeetingInterfaceScreen() {
   useEffect(() => {
     if (authLoading) return;
     if (joinInitStartedRef.current) return;
+
+    // Another HMS instance already owns this live call (minimized under the stack).
+    // A fresh mount has no authToken — never fall through to an empty catch-all UI.
+    // Pop back to the live screen; if that fails, re-join as recovery.
     if (isLiveReachMeetingMounted(meetingId)) {
+      const liveRoute = resumeLiveReachMeetingRoute(meetingId);
+      if (liveRoute) {
+        joinInitStartedRef.current = true;
+        router.navigate(liveRoute as any);
+        const failSafe = setTimeout(() => {
+          if (!isMountedRef.current) return;
+          // Still mounted without a token → navigate did not reveal the live screen.
+          void initializePrebuiltInterface();
+        }, 500);
+        return () => {
+          clearTimeout(failSafe);
+          // Strict Mode re-runs effects; allow the second pass to recover if needed.
+          joinInitStartedRef.current = false;
+        };
+      }
       joinInitStartedRef.current = true;
-      setIsLoading(false);
+      void initializePrebuiltInterface();
       return;
     }
+
     joinInitStartedRef.current = true;
     void initializePrebuiltInterface();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot after auth is ready
@@ -771,11 +833,13 @@ export default function HMSMeetingInterfaceScreen() {
     };
   }, [roomId, joinConfig, presenceConfirmed, applyRecordingSample]);
 
-  // Host join-approval: poll pending requests while in-call (web Prebuilt parity).
+  // In-call join approval: poll pending requests for anyone connected in the meeting.
   useEffect(() => {
     if (!roomId || !presenceConfirmed || !user?.id || !meetingId) {
+      setCanApproveJoinRequests(false);
       setCanManageJoinRequests(false);
       setPendingJoinRequestCount(0);
+      setPendingJoinRequests([]);
       return;
     }
     let cancelled = false;
@@ -800,21 +864,33 @@ export default function HMSMeetingInterfaceScreen() {
         }
         if (!approvalEnabled) {
           if (!cancelled) {
+            setCanApproveJoinRequests(false);
             setCanManageJoinRequests(false);
             setPendingJoinRequestCount(0);
+            setPendingJoinRequests([]);
           }
           return;
         }
         const res = await apiClient.getJoinRequests(roomId);
         if (cancelled) return;
-        setCanManageJoinRequests(true);
-        const list = Array.isArray(res?.join_requests) ? res.join_requests : [];
+        const list = Array.isArray(res?.join_requests)
+          ? (res.join_requests as InCallJoinRequest[])
+          : [];
+        setCanApproveJoinRequests(res?.can_approve !== false);
+        setCanManageJoinRequests(!!res?.can_manage);
+        setPendingJoinRequests(list);
         setPendingJoinRequestCount(list.length);
+        // Drop dismissals for requests that are no longer pending.
+        setDismissedJoinRequestIds((prev) =>
+          prev.filter((id) => list.some((r) => r.id === id)),
+        );
       } catch {
         if (cancelled) return;
-        // 403 / errors: user cannot manage (invitee) — hide UI
+        // 403 / errors: not yet an active participant (or unauthorized)
+        setCanApproveJoinRequests(false);
         setCanManageJoinRequests(false);
         setPendingJoinRequestCount(0);
+        setPendingJoinRequests([]);
       }
     };
     poll();
@@ -893,7 +969,8 @@ export default function HMSMeetingInterfaceScreen() {
   // Native iOS edge-swipe cannot do this safely (peek → bounce → leave loop). Gesture is
   // disabled while in-call; Android back + in-call chevron call this instead.
   const goBackToApp = useCallback(() => {
-    if (presenceConfirmed) {
+    // Minimize as soon as we're in the HMS room (inHmsRoom), not only after GrabDocs confirm.
+    if (presenceConfirmed || inHmsRoom) {
       // Already minimized — ignore duplicate back presses while list is on top.
       if (isMinimizingAwayRef.current || callMinimized) return;
       isMinimizingAwayRef.current = true;
@@ -911,8 +988,9 @@ export default function HMSMeetingInterfaceScreen() {
       router.push(`${exit}${sep}${q.toString()}` as any);
       return;
     }
+    // HMS prejoin / not yet in room — leave this screen.
     exitMeetingScreen(() => router.replace(meetingExitPath as any));
-  }, [router, presenceConfirmed, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, callMinimized]);
+  }, [router, presenceConfirmed, inHmsRoom, meetingExitPath, showMeetingNotification, meetingId, title, exitMeetingScreen, callMinimized]);
 
   // Returning to the call (Active card pops back here) ends the minimized state.
   useEffect(() => {
@@ -923,26 +1001,30 @@ export default function HMSMeetingInterfaceScreen() {
     return unsubscribe;
   }, [navigation]);
 
-  // In-call: disable native swipe so iOS cannot peek/pop this screen (that flicker tore down HMS).
-  // Prejoin: keep swipe enabled for cancel.
+  // HMS on screen (prejoin or in-call): disable native swipe so iOS cannot peek/pop WebRTC.
+  // Prejoin cancel uses the back chevron; in-call minimize uses the logo hit target.
+  const hmsScreenActive = Boolean(joinConfig && authToken && !hmsError);
+  /** Past HMS Join — logo minimize + tip (not only after GrabDocs confirm, which can lag ~20s). */
+  const inCallChrome = Boolean(hmsScreenActive && (inHmsRoom || presenceConfirmed));
+
   useEffect(() => {
     navigation.setOptions({
-      gestureEnabled: !presenceConfirmed,
-      fullScreenGestureEnabled: !presenceConfirmed,
+      gestureEnabled: !hmsScreenActive,
+      fullScreenGestureEnabled: !hmsScreenActive,
     } as any);
-  }, [navigation, presenceConfirmed]);
+  }, [navigation, hmsScreenActive]);
 
-  // One-time tip: edge swipe won't minimize — tap the GrabDocs logo instead.
+  // Tip each join until logo minimize once — resets for each OTA (new Updates.updateId).
   useEffect(() => {
-    if (!presenceConfirmed || callMinimized) {
+    if (!inCallChrome || callMinimized) {
       setShowMinimizeTip(false);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        const seen = await AsyncStorage.getItem(REACH_MINIMIZE_TIP_SEEN_KEY);
-        if (!cancelled && !seen) setShowMinimizeTip(true);
+        const used = await AsyncStorage.getItem(reachMinimizeLogoUsedKey());
+        if (!cancelled && !used) setShowMinimizeTip(true);
       } catch {
         /* ignore */
       }
@@ -950,17 +1032,53 @@ export default function HMSMeetingInterfaceScreen() {
     return () => {
       cancelled = true;
     };
-  }, [presenceConfirmed, callMinimized]);
+  }, [inCallChrome, callMinimized]);
 
   const dismissMinimizeTip = useCallback(() => {
     setShowMinimizeTip(false);
-    AsyncStorage.setItem(REACH_MINIMIZE_TIP_SEEN_KEY, '1').catch(() => {});
   }, []);
 
   const minimizeToMeetingList = useCallback(() => {
-    dismissMinimizeTip();
+    setShowMinimizeTip(false);
+    // Only count real in-call logo minimizes (not prejoin cancel).
+    if (inHmsRoomRef.current || presenceConfirmedRef.current) {
+      AsyncStorage.setItem(reachMinimizeLogoUsedKey(), '1').catch(() => {});
+    }
     goBackToApp();
-  }, [dismissMinimizeTip, goBackToApp]);
+  }, [goBackToApp]);
+
+  const visibleJoinRequests = pendingJoinRequests.filter(
+    (r) => !dismissedJoinRequestIds.includes(r.id),
+  );
+  const bannerJoinRequest = visibleJoinRequests[0] ?? null;
+  const bannerJoinMoreCount = Math.max(0, visibleJoinRequests.length - 1);
+
+  const dismissJoinApprovalBanner = useCallback(() => {
+    if (!bannerJoinRequest) return;
+    setDismissedJoinRequestIds((prev) =>
+      prev.includes(bannerJoinRequest.id) ? prev : [...prev, bannerJoinRequest.id],
+    );
+  }, [bannerJoinRequest]);
+
+  const approveBannerJoinRequest = useCallback(async () => {
+    if (!roomId || !bannerJoinRequest || approvingJoinRequestId != null) return;
+    const requestId = bannerJoinRequest.id;
+    setApprovingJoinRequestId(requestId);
+    try {
+      await apiClient.approveJoinRequest(roomId, requestId);
+      // Success or already_processed — advance silently (no toast).
+      setPendingJoinRequests((prev) => {
+        const next = prev.filter((r) => r.id !== requestId);
+        setPendingJoinRequestCount(next.length);
+        return next;
+      });
+      setDismissedJoinRequestIds((prev) => prev.filter((id) => id !== requestId));
+    } catch {
+      // Quiet — leave queue; next poll corrects state.
+    } finally {
+      setApprovingJoinRequestId(null);
+    }
+  }, [roomId, bannerJoinRequest, approvingJoinRequestId]);
 
   useEffect(() => {
     if (Platform.OS !== 'android' || !meetingId) return;
@@ -972,8 +1090,8 @@ export default function HMSMeetingInterfaceScreen() {
     return () => subscription.remove();
   }, [meetingId, minimizeToMeetingList]);
 
-  // Prejoin only: intercept swipe/back cancel. In-call gesture is off (see setOptions above).
-  usePreventRemove(!!meetingId && !presenceConfirmed && !exitAllowed, () => {
+  // If a remove still somehow starts (prejoin), route it through goBackToApp.
+  usePreventRemove(!!meetingId && !hmsScreenActive && !exitAllowed, () => {
     if (isNavigatingAwayRef.current) return;
     goBackToApp();
   });
@@ -1367,6 +1485,7 @@ export default function HMSMeetingInterfaceScreen() {
   }, []);
 
   // Fallback confirm when useHMSPeerUpdates never fires (common for solo joiners on Room Kit).
+  // Keep these modest: too early can confirm while still on HMS prejoin; too late blocks logo minimize.
   useEffect(() => {
     if (!joinConfig || !authToken || presenceConfirmed || Platform.OS === 'web') return;
 
@@ -1376,9 +1495,9 @@ export default function HMSMeetingInterfaceScreen() {
       void handleHmsEnteredForPresenceConfirm();
     };
 
-    const t1 = setTimeout(attemptFallbackConfirm, 20000);
-    const t2 = setTimeout(attemptFallbackConfirm, 40000);
-    const t3 = setTimeout(attemptFallbackConfirm, 65000);
+    const t1 = setTimeout(attemptFallbackConfirm, 4000);
+    const t2 = setTimeout(attemptFallbackConfirm, 10000);
+    const t3 = setTimeout(attemptFallbackConfirm, 20000);
 
     return () => {
       clearTimeout(t1);
@@ -1386,6 +1505,20 @@ export default function HMSMeetingInterfaceScreen() {
       clearTimeout(t3);
     };
   }, [joinConfig, authToken, presenceConfirmed, handleHmsEnteredForPresenceConfirm]);
+
+  // Local peer name from Room Kit usually means we're past Join — unlock logo minimize immediately.
+  const handleLocalPeerNameWithRoom = useCallback(
+    (name: string) => {
+      handleLocalPeerName(name);
+      if (!inHmsRoomRef.current) {
+        setInHmsRoom(true);
+      }
+      if (!presenceConfirmedRef.current && !presenceConfirmSentRef.current) {
+        void handleHmsEnteredForPresenceConfirm();
+      }
+    },
+    [handleLocalPeerName, handleHmsEnteredForPresenceConfirm]
+  );
 
   // Prejoin preview and post-join media both need a play-and-record session.
   useEffect(() => {
@@ -1429,43 +1562,86 @@ export default function HMSMeetingInterfaceScreen() {
     });
   }, [meetingId, user?.id, handleHmsEnteredForPresenceConfirm]);
 
+  /** Tear down presence + HMS route. stayOnList=true when leaving from the Reach list icon. */
+  const performLeaveMeeting = useCallback(
+    async (opts?: { stayOnList?: boolean }) => {
+      try {
+        if (heartbeatIntervalRef.current) {
+          clearInterval(heartbeatIntervalRef.current);
+          heartbeatIntervalRef.current = null;
+        }
+        try {
+          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
+        } catch {
+          /* ignore */
+        }
+        clearLiveReachMeeting(meetingId);
+        await leaveConfirmedReachSession();
+      } catch (error: any) {
+        console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
+      }
+
+      if (opts?.stayOnList) {
+        // User is already on the list — remove this HMS screen from the stack only.
+        const routeKey = route.key;
+        exitMeetingScreen(() =>
+          navigation.dispatch((state: any) => {
+            const routes = state.routes.filter((r: any) => r.key !== routeKey);
+            return CommonActions.reset({
+              ...state,
+              routes,
+              index: Math.max(0, routes.length - 1),
+            });
+          }),
+        );
+        return;
+      }
+      exitMeetingScreen(() => router.replace(meetingExitPath as any));
+    },
+    [
+      meetingId,
+      leaveConfirmedReachSession,
+      exitMeetingScreen,
+      route.key,
+      navigation,
+      router,
+      meetingExitPath,
+    ],
+  );
+
   const handleLeaveMeeting = async () => {
     Alert.alert(
       'Leave Meeting',
       'Are you sure you want to leave the meeting?',
       [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Leave', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              // Stop heartbeat immediately
-              if (heartbeatIntervalRef.current) {
-                clearInterval(heartbeatIntervalRef.current);
-                heartbeatIntervalRef.current = null;
-              }
-
-              try {
-                await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-              } catch {
-                /* ignore */
-              }
-              clearLiveReachMeeting(meetingId);
-              // Call backend to leave meeting (clears ActiveParticipant table)
-              await leaveConfirmedReachSession();
-            } catch (error: any) {
-              // Log error but don't block navigation - user is leaving anyway
-              console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
-              console.error('⚠️ [LEAVE] Continuing with navigation despite error');
-            }
-            // Navigate back to origin (Reach list, or Calendar when joined from calendar)
-            exitMeetingScreen(() => router.replace(meetingExitPath as any));
-          }
-        }
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () => {
+            void performLeaveMeeting();
+          },
+        },
       ]
     );
   };
+
+  // Leave from Reach list (videocam → leave icon) without returning to the call UI first.
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener(
+      LEAVE_REACH_MEETING_EVENT,
+      (payload: { meetingId?: string } | undefined) => {
+        const target = canonicalizeReachMeetingId(payload?.meetingId);
+        const mine =
+          canonicalizeReachMeetingId(resolvedStorageMeetingId || meetingId) ||
+          canonicalizeReachMeetingId(meetingId);
+        if (!target || !mine || target !== mine) return;
+        if (!presenceConfirmedRef.current) return;
+        void performLeaveMeeting({ stayOnList: true });
+      },
+    );
+    return () => sub.remove();
+  }, [meetingId, resolvedStorageMeetingId, performLeaveMeeting]);
 
   // Check if meetingId is missing
   if (!meetingId) {
@@ -1670,7 +1846,7 @@ export default function HMSMeetingInterfaceScreen() {
             enabled={!!joinConfig && !!authToken && !hmsError}
             joinCompleted={presenceConfirmed}
             onEnteredRoom={handleHmsEnteredForPresenceConfirm}
-            onLocalPeerName={handleLocalPeerName}
+            onLocalPeerName={handleLocalPeerNameWithRoom}
             onConnectionStuck={handleConnectionStuck}
           />
           <MeetingHmsReconnectBridge
@@ -1761,8 +1937,23 @@ export default function HMSMeetingInterfaceScreen() {
             </View>
           </Modal>
 
-          {/* In-call: logo tap = minimize (swipe disabled). Join-approval FAB top-right when pending. */}
-          {presenceConfirmed && !hmsError && !callMinimized ? (
+          {/* HMS prejoin: swipe is off — show cancel chevron until we're actually in the room. */}
+          {hmsScreenActive && !inCallChrome && !callMinimized ? (
+            <Modal
+              visible
+              transparent
+              animationType="none"
+              statusBarTranslucent
+              onRequestClose={goBackToApp}
+            >
+              <View style={styles.inCallFabOverlay} pointerEvents="box-none">
+                <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
+              </View>
+            </Modal>
+          ) : null}
+
+          {/* In-call: logo tap = minimize. Join-approval FAB top-right when pending. */}
+          {inCallChrome && !callMinimized ? (
             <Modal
               visible
               transparent
@@ -1791,12 +1982,56 @@ export default function HMSMeetingInterfaceScreen() {
                     pointerEvents="box-none"
                   >
                     <Text style={styles.minimizeTipText}>
-                      Tap the GrabDocs logo to return to meetings. The call stays connected.
+                      Tap the GrabDocs logo to return to meeting list. The call stays connected.
                     </Text>
                     <TouchableOpacity
                       onPress={dismissMinimizeTip}
                       hitSlop={10}
                       accessibilityLabel="Dismiss tip"
+                    >
+                      <Ionicons name="close" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+                {canApproveJoinRequests &&
+                bannerJoinRequest &&
+                !callMinimized ? (
+                  <View
+                    style={[
+                      styles.minimizeTipBanner,
+                      styles.joinApprovalBanner,
+                      {
+                        top:
+                          Math.max(insets.top, 12) +
+                          52 +
+                          (showMinimizeTip ? 64 : 0),
+                      },
+                    ]}
+                    pointerEvents="box-none"
+                  >
+                    <Text style={styles.minimizeTipText} numberOfLines={2}>
+                      {joinRequestDisplayName(bannerJoinRequest)} wants to join
+                      {bannerJoinMoreCount > 0
+                        ? `  ·  +${bannerJoinMoreCount} more`
+                        : ''}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.joinApproveButton}
+                      onPress={approveBannerJoinRequest}
+                      disabled={approvingJoinRequestId != null}
+                      activeOpacity={0.85}
+                      accessibilityLabel="Approve join request"
+                    >
+                      <Text style={styles.joinApproveButtonText}>
+                        {approvingJoinRequestId === bannerJoinRequest.id
+                          ? '…'
+                          : 'Approve'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={dismissJoinApprovalBanner}
+                      hitSlop={10}
+                      accessibilityLabel="Dismiss join request banner"
                     >
                       <Ionicons name="close" size={18} color="#fff" />
                     </TouchableOpacity>
@@ -1835,7 +2070,10 @@ export default function HMSMeetingInterfaceScreen() {
             videoCallId={roomId}
             onClose={() => setShowJoinRequestsModal(false)}
             pollWhileVisible
-            onCountChange={setPendingJoinRequestCount}
+            onCountChange={(count) => {
+              setPendingJoinRequestCount(count);
+              if (count === 0) setPendingJoinRequests([]);
+            }}
           />
 
           {/* HMS reconnect overlay — only when media session is reconnecting (not backend /health). */}
@@ -1980,6 +2218,11 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
+                        // Already leaving (list leave icon / explicit leave navigation).
+                        if (isNavigatingAwayRef.current) {
+                          return;
+                        }
+
                         // Swipe/back minimize — stay in the call; do not clear presence or hit leave API.
                         if (isMinimizingAwayRef.current) {
                           return;
@@ -2058,52 +2301,61 @@ export default function HMSMeetingInterfaceScreen() {
     );
   }
 
-  // Development mode fallback
+  // HMS native module unavailable (Expo Go / failed import) — not a production join failure.
+  if (!HMSPrebuilt) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.developmentContainer}>
+          <Text style={styles.developmentTitle}>GrabDocs Meeting</Text>
+          <Text style={styles.developmentSubtitle}>Meeting Unavailable</Text>
+
+          <View style={styles.meetingInfo}>
+            <Text style={styles.meetingInfoLabel}>Meeting ID:</Text>
+            <Text style={styles.meetingInfoValue}>{meetingId}</Text>
+
+            <Text style={styles.meetingInfoLabel}>Title:</Text>
+            <Text style={styles.meetingInfoValue}>{title || 'Meeting'}</Text>
+          </View>
+
+          <View style={styles.developmentMessage}>
+            <Text style={styles.developmentText}>
+              The meeting interface could not load on this build. Please update the app or reinstall,
+              then try joining again.
+            </Text>
+            <Text style={[styles.developmentText, { marginTop: 12 }]}>
+              Meeting ID: {meetingId}
+            </Text>
+          </View>
+
+          <TouchableOpacity style={styles.leaveButton} onPress={handleLeaveMeeting}>
+            <Text style={styles.leaveButtonText}>Leave Meeting</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Token missing after load finished — recover by re-joining instead of a dead-end screen.
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.developmentContainer}>
-        <Text style={styles.developmentTitle}>GrabDocs Meeting</Text>
-        <Text style={styles.developmentSubtitle}>Development Mode</Text>
-        
-        <View style={styles.meetingInfo}>
-          <Text style={styles.meetingInfoLabel}>Meeting ID:</Text>
-          <Text style={styles.meetingInfoValue}>{meetingId}</Text>
-          
-          <Text style={styles.meetingInfoLabel}>Title:</Text>
-          <Text style={styles.meetingInfoValue}>{title || 'Meeting'}</Text>
-          
-          <Text style={styles.meetingInfoLabel}>User:</Text>
-          <Text style={styles.meetingInfoValue}>{getHmsDisplayUserName(userName, user, meetingIdForDisplay)}</Text>
-        </View>
-
-        <View style={styles.developmentMessage}>
-          <Text style={styles.developmentText}>
-            The GrabDocs Meeting Interface requires a development build (not Expo Go).
-          </Text>
-          <Text style={styles.developmentText}>
-            To test with an existing meeting:
-          </Text>
-          <Text style={[styles.developmentText, { marginTop: 12, fontWeight: '600' }]}>
-            1. Install: npm install @100mslive/react-native-hms
-          </Text>
-          <Text style={[styles.developmentText, { fontWeight: '600' }]}>
-            2. Create dev build: npx expo run:android or npx expo run:ios
-          </Text>
-          <Text style={[styles.developmentText, { fontWeight: '600' }]}>
-            3. Ensure backend HMS endpoints are configured
-          </Text>
-          <Text style={[styles.developmentText, { marginTop: 12 }]}>
-            Meeting ID: {meetingId}
-          </Text>
-          {authToken && (
-            <Text style={[styles.developmentText, { marginTop: 8, fontSize: 12 }]}>
-              Auth token generated ✓
-            </Text>
-          )}
-        </View>
-
-        <TouchableOpacity style={styles.leaveButton} onPress={handleLeaveMeeting}>
-          <Text style={styles.leaveButtonText}>Leave Meeting</Text>
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorTitle}>GrabDocs Meeting</Text>
+        <Text style={styles.errorMessage}>
+          Could not connect to this meeting. Please try joining again.
+        </Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => {
+            joinInitStartedRef.current = false;
+            setIsLoading(true);
+            setError(null);
+            void initializePrebuiltInterface();
+          }}
+        >
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.backButton} onPress={goToAppHome}>
+          <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -2307,6 +2559,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '500',
+  },
+  joinApprovalBanner: {
+    zIndex: 4,
+  },
+  joinApproveButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: '#22C55E',
+  },
+  joinApproveButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
   },
   inCallFabRow: {
     flexDirection: 'row',

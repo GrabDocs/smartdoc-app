@@ -41,6 +41,7 @@ import {
   isLiveReachMeetingMounted,
   isUserInReachMeeting,
   clearLiveReachMeeting,
+  LEAVE_REACH_MEETING_EVENT,
   resumeLiveReachMeetingRoute,
 } from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
@@ -830,6 +831,35 @@ export default function MeetingCallScreen() {
       }
     }, [isAuthenticated, hasLoadedOnce, loadMeetings])
   );
+
+  /** Leave the in-call meeting from the list without returning to HMS first. */
+  const leaveMeetingFromList = useCallback((meeting: Meeting) => {
+    const mid = canonicalizeReachMeetingId(meeting.meetingId || meeting.id);
+    if (!mid || !isUserInReachMeeting(mid)) return;
+    Alert.alert(
+      'Leave Meeting',
+      'Are you sure you want to leave the meeting?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: () => {
+            // HMS screen owns leave API + presence clear + stack teardown.
+            DeviceEventEmitter.emit(LEAVE_REACH_MEETING_EVENT, { meetingId: mid });
+            // Optimistic badge flip only — join gate still uses mounted HMS until leave finishes.
+            setInCallMeetingId((prev) =>
+              normalizeMeetingIdForMerge(prev) === normalizeMeetingIdForMerge(mid) ? '' : prev
+            );
+            setTimeout(() => {
+              setInCallMeetingId(getLiveReachMeetingId());
+              void loadMeetings({ silent: true });
+            }, 800);
+          },
+        },
+      ]
+    );
+  }, [loadMeetings]);
 
   /** One-at-a-time gate: only block when HMS is actually mounted for a different meeting. */
   const assertCanJoinAnotherMeeting = useCallback(async (targetMeetingId: string): Promise<boolean> => {
@@ -2029,6 +2059,9 @@ export default function MeetingCallScreen() {
             text: userInThisCall ? 'Return to Meeting' : 'Join Meeting',
             onPress: () => { if (!isJoining) joinMeeting(item); },
           },
+          ...(userInThisCall
+            ? [{ text: 'Leave Meeting', style: 'destructive' as const, onPress: () => leaveMeetingFromList(item) }]
+            : []),
           { text: 'View Assets', onPress: () => viewMeetingAssets(item) },
           ...(canEnd ? [{ text: 'End Meeting', style: 'destructive' as const, onPress: () => endMeeting(item) }] : []),
           ...(canDelete
@@ -2065,18 +2098,34 @@ export default function MeetingCallScreen() {
       </View>
 
       <View style={dynamicStyles.meetingActions}>
-        <FeedbackTouchable
-          style={[dynamicStyles.actionIcon, isJoining && { opacity: 0.5 }]}
-          disabled={isJoining}
-          spinnerColor="#007AFF"
-          onPress={(e) => {
-            e.stopPropagation();
-            if (isJoining) return;
-            return joinMeeting(item);
-          }}
-        >
-          <Ionicons name="videocam" size={20} color="#007AFF" />
-        </FeedbackTouchable>
+        {userInThisCall ? (
+          <FeedbackTouchable
+            style={dynamicStyles.actionIcon}
+            accessibilityLabel="Leave meeting"
+            disabled={actionBusyKey != null}
+            spinnerColor="#FF3B30"
+            onPress={(e) => {
+              e.stopPropagation();
+              leaveMeetingFromList(item);
+            }}
+          >
+            <Ionicons name="exit-outline" size={20} color="#FF3B30" />
+          </FeedbackTouchable>
+        ) : (
+          <FeedbackTouchable
+            style={[dynamicStyles.actionIcon, isJoining && { opacity: 0.5 }]}
+            accessibilityLabel="Join meeting"
+            disabled={isJoining}
+            spinnerColor="#007AFF"
+            onPress={(e) => {
+              e.stopPropagation();
+              if (isJoining) return;
+              return joinMeeting(item);
+            }}
+          >
+            <Ionicons name="videocam" size={20} color="#007AFF" />
+          </FeedbackTouchable>
+        )}
         
         <FeedbackTouchable
           style={dynamicStyles.actionIcon}

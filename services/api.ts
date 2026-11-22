@@ -4606,7 +4606,14 @@ class ApiService {
 
   async getJoinRequests(
     videoCallId: number,
-  ): Promise<ApiResponse & { join_requests?: any[] }> {
+  ): Promise<
+    ApiResponse & {
+      join_requests?: any[];
+      can_manage?: boolean;
+      can_approve?: boolean;
+      total_pending?: number;
+    }
+  > {
     try {
       const response = await this.client.get(MOBILE_ENDPOINTS.JOIN_REQUEST_LIST(videoCallId));
       return response.data;
@@ -4619,7 +4626,10 @@ class ApiService {
     }
   }
 
-  async approveJoinRequest(videoCallId: number, joinRequestId: number): Promise<ApiResponse> {
+  async approveJoinRequest(
+    videoCallId: number,
+    joinRequestId: number,
+  ): Promise<ApiResponse & { already_processed?: boolean }> {
     try {
       const response = await this.client.post(
         MOBILE_ENDPOINTS.JOIN_REQUEST_APPROVE(videoCallId, joinRequestId),
