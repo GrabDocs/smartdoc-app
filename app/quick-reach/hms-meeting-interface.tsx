@@ -313,13 +313,19 @@ export default function HMSMeetingInterfaceScreen() {
     }
     clearLiveReachMeeting(meetingId);
     if (!shouldNotify || !id) return;
-    try {
-      await apiClient.leaveReachMeeting(id, {
+    const postLeave = () =>
+      apiClient.leaveReachMeeting(id, {
         roomId,
         guestId,
       });
+    try {
+      await postLeave();
     } catch {
-      /* ignore */
+      try {
+        await postLeave();
+      } catch {
+        /* ignore */
+      }
     }
     // Leave burns server-side JoinRequest; drop any local wait/approval state too.
     AsyncStorage.removeItem('join_approval_waiting').catch(() => {});
