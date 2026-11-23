@@ -1690,9 +1690,9 @@ export default function HMSMeetingInterfaceScreen() {
         heartbeatIntervalRef.current = null;
       }
 
-      // Unmount HMSPrebuilt immediately. Room Kit destroy() can crash the next
-      // Prebuilt render ("Cannot read property 'state' of null") if we stay mounted
-      // while awaiting /leave — that painted the HMS Error screen on End Meeting.
+      // Unmount HMSPrebuilt immediately so Room Kit's HMSContainer cleanup can
+      // clearStore() (singleton redux). A hanging leave() used to block that reset
+      // and the next join remounted a destroyed SDK until the app was force-quit.
       presenceConfirmedRef.current = false;
       inHmsRoomRef.current = false;
       setPresenceConfirmed(false);
@@ -1700,9 +1700,12 @@ export default function HMSMeetingInterfaceScreen() {
       setHmsError(null);
       setAuthToken(null);
       setJoinConfig(null);
+      setHmsMountKey((k) => k + 1);
+      joinInitStartedRef.current = false;
       clearLiveReachMeeting(meetingId);
       ownsLiveMeetingRef.current = false;
       AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+      void restoreHmsCallAudioMode();
 
       // Navigate first; finish GrabDocs /leave in the background.
       if (opts?.stayOnList) {

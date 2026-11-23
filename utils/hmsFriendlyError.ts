@@ -18,9 +18,13 @@ export function getFriendlyHmsErrorMessage(rawMessage: string, code?: string | n
     return "GrabDocs can't use the microphone because another call or app is using audio on this device. End the phone call (or other audio), then try joining again.";
   }
 
-  // Seen after End/Leave (destroy while Prebuilt still mounted) or a stale nav stack.
-  if (/cannot read propert(y|ies) ['"]?state['"]? of null/i.test(raw)) {
-    return 'Something went wrong with the meeting screen. Go back to the meeting list. If it keeps happening, fully close GrabDocs and reopen it.';
+  // Seen when Room Kit remounts after leave without clearing its singleton store,
+  // or after a corrupted navigation stack (minimize → Home).
+  if (
+    /cannot read propert(y|ies) ['"]?state['"]? of null/i.test(raw) ||
+    /hms instance not available/i.test(raw)
+  ) {
+    return 'Something went wrong opening the meeting. Go back and try joining again. If it keeps happening, fully close GrabDocs and reopen it.';
   }
 
   return raw;

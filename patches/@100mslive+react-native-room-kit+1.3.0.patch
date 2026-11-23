@@ -1,3 +1,44 @@
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/HMSContainer.tsx b/node_modules/@100mslive/react-native-room-kit/src/HMSContainer.tsx
+index 7d711de..d7d2457 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/HMSContainer.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/HMSContainer.tsx
+@@ -14,18 +14,27 @@ export const HMSContainer = () => {
+ 
+   React.useEffect(() => {
+     if (hmsInstance) {
+-      const cleanup = async () => {
+-        const userExited =
+-          store.getState().app.meetingState === MeetingState.EXITED;
+-        if (!userExited) {
+-          await hmsInstance.leave();
+-          await hmsInstance.destroy();
++      return () => {
++        const meetingState = store.getState().app.meetingState;
++        const instance = hmsInstance;
++        // GrabDocs: never await leave()/destroy() here. After minimize/return those
++        // promises often hang forever, so clearStore() never ran and the next
++        // HMSPrebuilt remount reused a destroyed SDK → "Cannot read property
++        // 'state' of null" until the app process was killed.
++        if (meetingState !== MeetingState.EXITED && instance) {
++          Promise.resolve()
++            .then(() => instance.leave())
++            .catch(() => {})
++            .finally(() => {
++              try {
++                instance.destroy();
++              } catch {
++                // already destroyed
++              }
++            });
+         }
+         dispatch(clearStore());
+       };
+-      return () => {
+-        cleanup();
+-      };
+     }
+   }, [hmsInstance, store]);
+ 
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
 index 8085154..540f357 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
@@ -733,7 +774,7 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..23edf28 100644
+index 4d107f0..fbb8990 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 @@ -1,176 +1,180 @@
@@ -1162,7 +1203,7 @@ index 4d107f0..23edf28 100644
  export const useLeaveMethods = () => {
    const navigation = useContext(NavigationContext);
    const hmsInstance = useHMSInstance();
-@@ -2266,33 +2307,16 @@ export const useLeaveMethods = () => {
+@@ -2266,33 +2307,13 @@ export const useLeaveMethods = () => {
  
    const destroy = useCallback(
      (reason: Parameters<OnLeaveHandler>[0]) => {
@@ -1197,21 +1238,19 @@ index 4d107f0..23edf28 100644
  
          if (typeof onLeave === 'function') {
 -          dispatch(changeMeetingState(MeetingState.EXITED));
-+          // Do NOT dispatch EXITED here. EXITED renders an empty View (blank
-+          // screen) while the app awaits /leave + navigate. Keep the last
-+          // meeting frame until the host unmounts the prebuilt.
            onLeave(reason);
          } else if (
            navigation &&
-@@ -2305,15 +2329,18 @@ export const useLeaveMethods = () => {
+@@ -2305,18 +2326,22 @@ export const useLeaveMethods = () => {
            // Otherwise default action is to show "Meeting Ended" screen
            dispatch(changeMeetingState(MeetingState.MEETING_ENDED));
          }
 +      };
 +
-+      // Notify the host app BEFORE destroy. destroy() can leave the native bridge
-+      // in a state where the next Prebuilt render throws (e.g. reading .state of
-+      // null). The app unmounts / navigates away in onLeave so that crash never paints.
++      // Mark EXITED before notifying the host. HMSContainer unmount cleanup skips
++      // leave/destroy when EXITED (avoids a second hanging leave). The host's
++      // onLeave unmounts Prebuilt immediately so EXITED never paints a blank frame.
++      dispatch(changeMeetingState(MeetingState.EXITED));
 +      notifyLeft();
 +      try {
 +        const s = hmsInstance.destroy();
@@ -1227,8 +1266,12 @@ index 4d107f0..23edf28 100644
 -        return Promise.reject(e);
        }
      },
-     [hmsInstance]
-@@ -2326,13 +2353,12 @@ export const useLeaveMethods = () => {
+-    [hmsInstance]
++    [dispatch, hmsInstance, navigation, reduxStore]
+   );
+ 
+   const leave = useCallback(
+@@ -2326,13 +2351,12 @@ export const useLeaveMethods = () => {
            console.log('Stop HLS Streaming Error: ', error);
          });
        }
@@ -1245,7 +1288,7 @@ index 4d107f0..23edf28 100644
        }
      },
      [destroy, hmsInstance]
-@@ -2340,7 +2366,7 @@ export const useLeaveMethods = () => {
+@@ -2340,7 +2364,7 @@ export const useLeaveMethods = () => {
  
    const prebuiltCleanUp = useCallback(async () => {
      try {
@@ -1254,7 +1297,7 @@ index 4d107f0..23edf28 100644
        await hmsInstance.destroy();
        dispatch(clearStore());
      } catch (error) {
-@@ -2354,12 +2380,14 @@ export const useLeaveMethods = () => {
+@@ -2354,12 +2378,14 @@ export const useLeaveMethods = () => {
  
    const endRoom = useCallback(
      async (reason: OnLeaveReason) => {
