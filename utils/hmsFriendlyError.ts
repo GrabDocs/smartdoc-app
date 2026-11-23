@@ -15,7 +15,7 @@ export function getFriendlyHmsErrorMessage(rawMessage: string, code?: string | n
     (/\[code:\s*3015/i.test(raw) && /publish/i.test(raw));
 
   if (isAudioSessionFailure) {
-    return "GrabDocs can't use the microphone because another call or app is using audio on this device. End the phone call (or other audio), then try joining again.";
+    return 'The microphone is still in use. If you are on a phone call, end it first. If you just left a GrabDocs meeting, go back and join again.';
   }
 
   // Seen when Room Kit remounts after leave without clearing its singleton store,

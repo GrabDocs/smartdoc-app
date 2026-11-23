@@ -1394,7 +1394,7 @@ index 0000000..638b2de
 +}
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
 new file mode 100644
-index 0000000..75b3a3e
+index 0000000..c32da34
 --- /dev/null
 +++ b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
 @@ -0,0 +1,36 @@
@@ -1423,7 +1423,7 @@ index 0000000..75b3a3e
 +    return {
 +      title: "Can't start meeting audio",
 +      message:
-+        "GrabDocs can't use the microphone because another call or app is using audio on this device. End the phone call (or other audio), then try joining again.",
++        "The microphone is still in use. If you are on a phone call, end it first. If you just left a GrabDocs meeting, go back and join again.",
 +    };
 +  }
 +

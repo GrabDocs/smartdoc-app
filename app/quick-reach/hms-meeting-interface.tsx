@@ -58,7 +58,11 @@ import {
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiClient } from '../../services/api';
 import { errorLogger } from '../../services/errorLogger';
-import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
+import {
+  releaseHmsCallAudioMode,
+  restoreHmsCallAudioMode,
+  waitForHmsAudioReleased,
+} from '../../utils/hmsAudioSession';
 import { getFriendlyHmsErrorMessage } from '../../utils/hmsFriendlyError';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import {
@@ -1344,6 +1348,10 @@ export default function HMSMeetingInterfaceScreen() {
         return;
       }
 
+      // Previous leave may still hold an exclusive expo-av session. Drop it
+      // before preview, or iOS reports 3015 even with no phone call.
+      await waitForHmsAudioReleased();
+
       // Same as web: get token via join-by-id (one join path for both web and mobile).
       // Signed-out users with no typed name send '' (not 'Guest') so preview stays editable
       // and confirm/heartbeat can be updated once they type a name.
@@ -1632,11 +1640,8 @@ export default function HMSMeetingInterfaceScreen() {
     [handleLocalPeerName]
   );
 
-  // Prejoin preview and post-join media both need a play-and-record session.
-  useEffect(() => {
-    if (!authToken || Platform.OS === 'web') return;
-    void restoreHmsCallAudioMode();
-  }, [authToken, presenceConfirmed]);
+  // Do not set expo-av play-and-record here. HMS owns the session for preview
+  // and the call. Forcing DoNotMix before preview blocks the next join (3015).
 
   const retryHmsConnect = useCallback(() => {
     if (hmsRetryTimerRef.current) {
@@ -1705,7 +1710,7 @@ export default function HMSMeetingInterfaceScreen() {
       clearLiveReachMeeting(meetingId);
       ownsLiveMeetingRef.current = false;
       AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
-      void restoreHmsCallAudioMode();
+      void releaseHmsCallAudioMode();
 
       // Navigate first; finish GrabDocs /leave in the background.
       if (opts?.stayOnList) {
