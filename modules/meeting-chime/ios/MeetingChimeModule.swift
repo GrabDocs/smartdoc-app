@@ -1,4 +1,5 @@
 import AudioToolbox
+import AVFoundation
 import ExpoModulesCore
 
 /// System sounds (unlike AVAudioPlayer / expo-av) are muted by the Ring/Silent switch and
@@ -14,6 +15,30 @@ public class MeetingChimeModule: Module {
       guard let id = self.loadSoundId() else { return false }
       AudioServicesPlaySystemSound(id)
       return true
+    }
+
+    // expo-av never calls setActive(false) (expo/expo#15873), so a previous recording
+    // or call leaves AVAudioSession exclusive and HMS preview fails with error 3015.
+    Function("deactivateAudioSession") { () -> Bool in
+      Self.onMain {
+        do {
+          try AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+          return true
+        } catch {
+          return false
+        }
+      }
+    }
+
+    Function("reactivateAudioSession") { () -> Bool in
+      Self.onMain {
+        do {
+          try AVAudioSession.sharedInstance().setActive(true)
+          return true
+        } catch {
+          return false
+        }
+      }
     }
 
     OnDestroy {
@@ -32,6 +57,13 @@ public class MeetingChimeModule: Module {
     guard status == kAudioServicesNoError, id != 0 else { return nil }
     soundId = id
     return id
+  }
+
+  private static func onMain<T>(_ work: () -> T) -> T {
+    if Thread.isMainThread {
+      return work()
+    }
+    return DispatchQueue.main.sync(execute: work)
   }
 
   private static func chimeURL() -> URL? {

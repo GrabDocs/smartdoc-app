@@ -40,7 +40,7 @@ index 7d711de..d7d2457 100644
    }, [hmsInstance, store]);
  
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
-index 8085154..540f357 100644
+index 8085154..81aafe1 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
 +++ b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
 @@ -9,6 +9,7 @@ import {
@@ -55,14 +55,61 @@ index 8085154..540f357 100644
    updateLocalPeerTrackNode,
  } from './redux/actions';
  import { createPeerTrackNode, getRandomUserId } from './utils/functions';
-+import { getFriendlyHmsErrorAlert } from './utils/friendlyHmsError';
++import { getFriendlyHmsErrorAlert, isHmsAudioSessionFailure } from './utils/friendlyHmsError';
  import { OnLeaveReason, TerminalExceptionCodes } from './utils/types';
  import type { PeerTrackNode } from './utils/types';
  import { Meeting } from './components/Meeting';
-@@ -105,9 +107,10 @@ export const HMSRoomSetup = () => {
+@@ -79,6 +81,9 @@ type PreviewData = {
+   previewTracks: HMSTrack[];
+ };
+ 
++/** One silent iOS remount per join. A fresh HMSRoomSetup resets this; a retry remount does not. */
++let iosAudioRetryConsumed = false;
++
+ export const HMSRoomSetup = () => {
+   const ignoreHLSStreamPromise = useRef(false);
+   const didInitMeetingAction = useRef(false);
+@@ -95,6 +100,32 @@ export const HMSRoomSetup = () => {
+   const [loading, setLoading] = useState(false);
+ 
+   const isHLSViewer = useIsHLSViewer();
++  const audioErrorSeenRef = useRef(false);
++
++  useEffect(() => {
++    const g = global as { grabdocsResetAudioRetry?: boolean };
++    // Set by the meeting screen before the first preview of a join.
++    // A 3015 remount does not set it, so the second failure still alerts.
++    if (g.grabdocsResetAudioRetry) {
++      g.grabdocsResetAudioRetry = false;
++      iosAudioRetryConsumed = false;
++    }
++    audioErrorSeenRef.current = false;
++  }, []);
++
++  // First 3015 on iOS: ask the app to release the session and remount preview.
++  // A second failure (or Android) still shows the alert.
++  const suppressIosAudioSessionAlert = useCallback((error: any) => {
++    if (Platform.OS !== 'ios' || !isHmsAudioSessionFailure(error)) return false;
++    if (audioErrorSeenRef.current) return true;
++    audioErrorSeenRef.current = true;
++    if (!iosAudioRetryConsumed) {
++      iosAudioRetryConsumed = true;
++      DeviceEventEmitter.emit('grabdocs:hms_audio_session_failed');
++      return true;
++    }
++    return false;
++  }, []);
+ 
+   const joinMeeting = useCallback(async () => {
+     try {
+@@ -105,9 +136,14 @@ export const HMSRoomSetup = () => {
        hmsInstance.join(hmsConfig);
        await hmsInstance.setAlwaysScreenOn(true);
      } catch (error: any) {
++      if (suppressIosAudioSessionAlert(error)) {
++        setLoading(false);
++        return;
++      }
 +      const friendly = getFriendlyHmsErrorAlert(error);
        Alert.alert(
 -        error.code,
@@ -72,10 +119,23 @@ index 8085154..540f357 100644
          [
            {
              text: 'Leave',
-@@ -129,9 +132,10 @@ export const HMSRoomSetup = () => {
+@@ -120,7 +156,7 @@ export const HMSRoomSetup = () => {
+         { cancelable: false }
+       );
+     }
+-  }, [getConfig, hmsInstance]);
++  }, [getConfig, hmsInstance, suppressIosAudioSessionAlert]);
+ 
+   const previewMeeting = useCallback(async () => {
+     try {
+@@ -129,9 +165,14 @@ export const HMSRoomSetup = () => {
        // TODO: handle case when promise returned from `getConfig()` is resolved when Root component has been unmounted
        hmsInstance.preview(hmsConfig);
      } catch (error: any) {
++      if (suppressIosAudioSessionAlert(error)) {
++        setLoading(false);
++        return;
++      }
 +      const friendly = getFriendlyHmsErrorAlert(error);
        Alert.alert(
 -        error.code,
@@ -85,9 +145,23 @@ index 8085154..540f357 100644
          [
            {
              text: 'Leave',
-@@ -206,9 +210,10 @@ export const HMSRoomSetup = () => {
+@@ -144,7 +185,7 @@ export const HMSRoomSetup = () => {
+         { cancelable: false }
+       );
+     }
+-  }, [getConfig, hmsInstance]);
++  }, [getConfig, hmsInstance, suppressIosAudioSessionAlert]);
+ 
+   const startHLSStreaming = useCallback(async () => {
+     dispatch(changeStartingHLSStream(true));
+@@ -205,10 +246,15 @@ export const HMSRoomSetup = () => {
+       } else {
          setLoading(false);
  
++        if (suppressIosAudioSessionAlert(error)) {
++          return;
++        }
++
          if (terminalError) {
 +          const friendly = getFriendlyHmsErrorAlert(error);
            Alert.alert(
@@ -98,7 +172,7 @@ index 8085154..540f357 100644
              [
                {
                  text: 'Leave',
-@@ -225,8 +230,9 @@ export const HMSRoomSetup = () => {
+@@ -225,8 +271,9 @@ export const HMSRoomSetup = () => {
              { cancelable: false }
            );
          } else {
@@ -109,7 +183,16 @@ index 8085154..540f357 100644
              Toast.LONG,
              Toast.TOP
            );
-@@ -363,6 +369,9 @@ export const HMSRoomSetup = () => {
+@@ -242,7 +289,7 @@ export const HMSRoomSetup = () => {
+     return () => {
+       hmsInstance.removeEventListener(HMSUpdateListenerActions.ON_ERROR);
+     };
+-  }, [previewing, meetingJoined, hmsInstance]);
++  }, [previewing, meetingJoined, hmsInstance, suppressIosAudioSessionAlert]);
+ 
+   // HMS Preview Listener
+   useEffect(() => {
+@@ -363,6 +410,9 @@ export const HMSRoomSetup = () => {
          startHLSStreaming();
        }
        dispatch(changeMeetingState(MeetingState.IN_MEETING));
@@ -119,6 +202,102 @@ index 8085154..540f357 100644
      };
  
      hmsInstance.addEventListener(
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/BottomSheet.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/BottomSheet.tsx
+index 4d1384c..06830a3 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/BottomSheet.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/BottomSheet.tsx
+@@ -15,6 +15,7 @@ import type {
+   TouchableOpacityProps,
+   ViewStyle,
+ } from 'react-native';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ 
+ import { CloseIcon } from '../Icons';
+ import {
+@@ -46,9 +47,19 @@ export const BottomSheet: React.FC<BottomSheetProps> & {
+   style,
+   children,
+   containerStyle,
+-  bottomOffsetSpace = 32,
++  bottomOffsetSpace,
+   ...resetProps
+ }) => {
++  const insets = useSafeAreaInsets();
++  // Edge-to-edge Android often reports 0 for the 3-button bar. Default clearance
++  // matches Leave / End Session. Explicit 0 still disables the spacer (Polls/VB).
++  const resolvedBottomOffset =
++    typeof bottomOffsetSpace === 'number'
++      ? bottomOffsetSpace
++      : Platform.OS === 'android'
++        ? Math.max(insets.bottom, 48)
++        : 32;
++
+   const { background_dim: backgroundDimColor } = useHMSRoomColorPalette();
+ 
+   const containerStyles = useHMSRoomStyle((theme) => ({
+@@ -96,8 +107,8 @@ export const BottomSheet: React.FC<BottomSheetProps> & {
+         ]}
+       >
+         {children}
+-        {typeof bottomOffsetSpace === 'number' && bottomOffsetSpace > 0 ? (
+-          <View style={{ height: bottomOffsetSpace, width: '100%' }} />
++        {resolvedBottomOffset > 0 ? (
++          <View style={{ height: resolvedBottomOffset, width: '100%' }} />
+         ) : null}
+       </Container>
+     </Modal>
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/ChatAndParticipants/ChatAndParticipantsBottomSheet.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/ChatAndParticipants/ChatAndParticipantsBottomSheet.tsx
+index 0c21e0d..e76fa47 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/ChatAndParticipants/ChatAndParticipantsBottomSheet.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/ChatAndParticipants/ChatAndParticipantsBottomSheet.tsx
+@@ -30,6 +30,8 @@ export const ChatAndParticipantsBottomSheet = () => {
+       dismissModal={closeChatWindow}
+       isVisible={modalVisible}
+       avoidKeyboard={true}
++      // Omit bottomOffsetSpace so Android uses BottomSheet default
++      // (max(safeArea, 48)) and the chat composer clears the nav bar.
+       containerStyle={[
+         styles.bottomSheet,
+         hmsRoomStyles.contentContainer,
+@@ -37,7 +39,6 @@ export const ChatAndParticipantsBottomSheet = () => {
+           marginTop: isLandscapeOrientation ? 0 : headerHeight,
+         },
+       ]}
+-      bottomOffsetSpace={0}
+     >
+       <ChatAndParticipantsView />
+     </BottomSheet>
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/EndRoomModal.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/EndRoomModal.tsx
+index 07209df..1ab5845 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/EndRoomModal.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/EndRoomModal.tsx
+@@ -1,4 +1,6 @@
+ import * as React from 'react';
++import { Platform } from 'react-native';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ 
+ import { ModalTypes } from '../utils/types';
+ import { BottomSheet } from './BottomSheet';
+@@ -9,6 +11,11 @@ interface EndRoomModalProps {}
+ 
+ export const EndRoomModal: React.FC<EndRoomModalProps> = () => {
+   const { modalVisibleType, handleModalVisibleType } = useModalType();
++  const insets = useSafeAreaInsets();
++  // Same clearance as LeaveRoomBottomSheet — edge-to-edge Android often
++  // reports 0 for the 3-button bar, which covers End Session / End Stream.
++  const bottomOffsetSpace =
++    Platform.OS === 'android' ? Math.max(insets.bottom, 48) : 0;
+ 
+   const dismissModal = () => handleModalVisibleType(ModalTypes.DEFAULT);
+ 
+@@ -16,6 +23,7 @@ export const EndRoomModal: React.FC<EndRoomModalProps> = () => {
+     <BottomSheet
+       dismissModal={dismissModal}
+       isVisible={modalVisibleType === ModalTypes.END_ROOM}
++      bottomOffsetSpace={bottomOffsetSpace}
+     >
+       <EndRoomModalContent dismissModal={dismissModal} />
+     </BottomSheet>
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/FlyingEmoji.tsx
 new file mode 100644
 index 0000000..89f5c5a
@@ -463,6 +642,37 @@ index 92fe974..79377db 100644
        <HandIcon />
      </PressableIcon>
    );
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/HMSRoomOptions.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/HMSRoomOptions.tsx
+index fcd3f55..d4f59a1 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/HMSRoomOptions.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/HMSRoomOptions.tsx
+@@ -1,5 +1,6 @@
+ import * as React from 'react';
+-import { View } from 'react-native';
++import { Platform, View } from 'react-native';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ import { HMSAudioMixingMode, HMSAudioMode } from '@100mslive/react-native-hms';
+ 
+ import { PressableIcon } from './PressableIcon';
+@@ -33,6 +34,10 @@ export const HMSRoomOptions: React.FC<HMSRoomOptionsProps> = () => {
+     modalVisibleType: modalVisible,
+     handleModalVisibleType: setModalVisible,
+   } = useModalType();
++  const insets = useSafeAreaInsets();
++  // Same clearance as LeaveRoomBottomSheet / EndRoomModal.
++  const androidNavOffset =
++    Platform.OS === 'android' ? Math.max(insets.bottom, 48) : undefined;
+   const [isAudioShared, setIsAudioShared] = React.useState(false);
+   const [audioMode, setAudioMode] = React.useState<HMSAudioMode>(
+     HMSAudioMode.MODE_NORMAL
+@@ -96,6 +101,7 @@ export const HMSRoomOptions: React.FC<HMSRoomOptionsProps> = () => {
+       <BottomSheet
+         isVisible={modalVisible === ModalTypes.STOP_RECORDING}
+         dismissModal={dismissModal}
++        bottomOffsetSpace={androidNavOffset}
+       >
+         <StopRecordingModalContent dismissModal={dismissModal} />
+       </BottomSheet>
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx
 index 738cee6..95323bf 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx
@@ -1394,32 +1604,39 @@ index 0000000..638b2de
 +}
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
 new file mode 100644
-index 0000000..c32da34
+index 0000000..d6727e3
 --- /dev/null
 +++ b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,43 @@
 +/**
 + * GrabDocs: map raw HMS / iOS AVAudioSession errors to user-facing copy.
 + * Room Kit alerts otherwise show opaque codes like "3015".
 + */
++export function isHmsAudioSessionFailure(error: {
++  code?: number | string | null;
++  description?: string | null;
++  message?: string | null;
++} | null | undefined): boolean {
++  const code = error?.code == null ? '' : String(error.code);
++  const raw = `${error?.description ?? ''} ${error?.message ?? ''}`;
++  // 3015 PUBLISH. 561017449 is '!pri' (InsufficientPriority): another session still owns the mic.
++  return (
++    code === '3015' ||
++    /audio session activation failure/i.test(raw) ||
++    /session activation failed/i.test(raw) ||
++    /561017449/.test(raw) ||
++    /cannotinterruptothers/i.test(raw) ||
++    (/\[code:\s*3015/i.test(raw) && /publish/i.test(raw))
++  );
++}
++
 +export function getFriendlyHmsErrorAlert(error: {
 +  code?: number | string | null;
 +  description?: string | null;
 +  message?: string | null;
 +}): { title: string; message: string } {
 +  const code = error?.code == null ? '' : String(error.code);
-+  const raw = `${error?.description ?? ''} ${error?.message ?? ''}`;
-+
-+  // 3015 PUBLISH + NSOSStatus 561017449 (CannotInterruptOthers): phone call / other audio owns the session.
-+  const isAudioSessionFailure =
-+    code === '3015' ||
-+    /audio session activation failure/i.test(raw) ||
-+    /session activation failed/i.test(raw) ||
-+    /561017449/.test(raw) ||
-+    /cannotinterruptothers/i.test(raw) ||
-+    (/\[code:\s*3015/i.test(raw) && /publish/i.test(raw));
-+
-+  if (isAudioSessionFailure) {
++  if (isHmsAudioSessionFailure(error)) {
 +    return {
 +      title: "Can't start meeting audio",
 +      message:

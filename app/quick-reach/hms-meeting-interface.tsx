@@ -42,6 +42,7 @@ import { MeetingHmsReconnectBridge } from '../../components/quick-reach/MeetingH
 import { MeetingPresenceConfirmBridge } from '../../components/quick-reach/MeetingPresenceConfirmBridge';
 import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
+  HMS_AUDIO_SESSION_FAILED_EVENT,
   HMS_ROOM_JOINED_EVENT,
   LEAVE_REACH_MEETING_EVENT,
   REACH_CURRENT_MEETING_KEY,
@@ -58,7 +59,12 @@ import {
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiClient } from '../../services/api';
 import { errorLogger } from '../../services/errorLogger';
-import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
+import {
+  prepareIosAudioForHmsPreview,
+  releaseIosAudioSessionForHms,
+  restoreHmsCallAudioMode,
+  scheduleIosAudioReleaseAfterHmsLeave,
+} from '../../utils/hmsAudioSession';
 import { getFriendlyHmsErrorMessage } from '../../utils/hmsFriendlyError';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import {
@@ -331,6 +337,40 @@ export default function HMSMeetingInterfaceScreen() {
     AsyncStorage.removeItem('join_approval_waiting').catch(() => {});
   }, [meetingId]);
 
+  /**
+   * Host End Session — same GrabDocs /end used by the Reach list.
+   * Room Kit's native endRoom is best-effort only; without this, End Session
+   * only ran /leave and removed the host while everyone else stayed in the call.
+   */
+  const endConfirmedReachSession = useCallback(async () => {
+    const roomId = roomIdRef.current;
+    const id = meetingId ? String(meetingId).trim() : '';
+    try {
+      await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
+    } catch {
+      /* ignore */
+    }
+    clearLiveReachMeeting(meetingId);
+    AsyncStorage.removeItem('join_approval_waiting').catch(() => {});
+    const endId = roomId != null ? String(roomId) : id;
+    if (!endId) return;
+    try {
+      // force=true: End Session UI already confirmed ending for everyone.
+      await apiClient.endMeeting(endId, true);
+    } catch (error: any) {
+      console.error('⚠️ [END] Error calling end endpoint:', error);
+      // Fall back to leave so at least this device clears presence.
+      try {
+        await apiClient.leaveReachMeeting(id || endId, {
+          roomId: roomId ?? undefined,
+          guestId: guestIdRef.current ?? undefined,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [meetingId]);
+
   const goToAppHome = useCallback(async () => {
     // Stop sticky meeting notification immediately; leave API still needs presenceConfirmedRef.
     isNavigatingAwayRef.current = true;
@@ -357,6 +397,8 @@ export default function HMSMeetingInterfaceScreen() {
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [hmsError, setHmsError] = useState<string | null>(null);
   const [permissionsGranted, setPermissionsGranted] = useState<boolean | null>(null);
+  // iOS: HMS preview must not mount until the shared audio session is free.
+  const [iosAudioReady, setIosAudioReady] = useState(Platform.OS !== 'ios');
   const [joinConfig, setJoinConfig] = useState<any>(null);
   const [roomId, setRoomId] = useState<number | null>(null);
   const [hmsMountKey, setHmsMountKey] = useState(0);
@@ -1261,9 +1303,9 @@ export default function HMSMeetingInterfaceScreen() {
           pipFallbackTimerRef.current = null;
         }
         dismissMeetingNotification();
-        // Prejoin or in-call: restore play-and-record after OS / other-app interruptions.
-        // Do not remount HMS — that drops active calls.
-        if (authToken && meetingId) {
+        // iOS: only after the call is up. During preview this races HMS and raises error 3015.
+        // Android: same speakerphone mode as before, including prejoin.
+        if (authToken && meetingId && (Platform.OS === 'android' || presenceConfirmedRef.current)) {
           void restoreHmsCallAudioMode();
         }
       }
@@ -1638,11 +1680,49 @@ export default function HMSMeetingInterfaceScreen() {
     [handleLocalPeerName]
   );
 
-  // Prejoin preview and post-join media both need a play-and-record session.
+  // Android still sets speakerphone mode when the token exists. iOS must not:
+  // expo-av's PlayAndRecord session is what makes HMS preview fail with 3015.
   useEffect(() => {
-    if (!authToken || Platform.OS === 'web') return;
+    if (!authToken || Platform.OS !== 'android') return;
     void restoreHmsCallAudioMode();
   }, [authToken, presenceConfirmed]);
+
+  // Free the iOS audio session after mic permission, before HMS preview.
+  // expo-av setAudioModeAsync here used to race 100ms and raise "Can't start meeting audio".
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    if (permissionsGranted !== true || !authToken) {
+      setIosAudioReady(false);
+      return;
+    }
+    let cancelled = false;
+    setIosAudioReady(false);
+    void prepareIosAudioForHmsPreview().then(() => {
+      if (cancelled) return;
+      (global as { grabdocsResetAudioRetry?: boolean }).grabdocsResetAudioRetry = true;
+      setIosAudioReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [permissionsGranted, authToken]);
+
+  // First 3015: unmount preview, drop the session, mount once more. A second failure still alerts.
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const sub = DeviceEventEmitter.addListener(HMS_AUDIO_SESSION_FAILED_EVENT, () => {
+      void (async () => {
+        if (!isMountedRef.current || isNavigatingAwayRef.current) return;
+        // Unmount before setActive(false). The audio unit has to stop or iOS keeps the session.
+        setIosAudioReady(false);
+        await new Promise((resolve) => setTimeout(resolve, 450));
+        await releaseIosAudioSessionForHms();
+        if (!isMountedRef.current || isNavigatingAwayRef.current) return;
+        setIosAudioReady(true);
+      })();
+    });
+    return () => sub.remove();
+  }, []);
 
   const retryHmsConnect = useCallback(() => {
     if (hmsRetryTimerRef.current) {
@@ -1682,7 +1762,7 @@ export default function HMSMeetingInterfaceScreen() {
 
   /** Tear down presence + HMS route. stayOnList=true when leaving from the Reach list icon. */
   const performLeaveMeeting = useCallback(
-    async (opts?: { stayOnList?: boolean }) => {
+    async (opts?: { stayOnList?: boolean; endForEveryone?: boolean }) => {
       // Block AppState/PiP from re-posting "Tap to return".
       isNavigatingAwayRef.current = true;
       if (pipFallbackTimerRef.current) {
@@ -1696,9 +1776,11 @@ export default function HMSMeetingInterfaceScreen() {
         heartbeatIntervalRef.current = null;
       }
 
-      // Snapshot presence before clearing it. leaveConfirmedReachSession reads the
-      // ref synchronously; clearing first skips /leave and the user stays in the room.
-      const leaving = leaveConfirmedReachSession();
+      // Snapshot presence before clearing it. leave/end helpers read the ref
+      // synchronously; clearing first would skip the API call.
+      const leaving = opts?.endForEveryone
+        ? endConfirmedReachSession()
+        : leaveConfirmedReachSession();
       isMinimizingAwayRef.current = false;
 
       // Unmount HMSPrebuilt immediately so Room Kit's HMSContainer cleanup can
@@ -1711,6 +1793,8 @@ export default function HMSMeetingInterfaceScreen() {
       setHmsError(null);
       setAuthToken(null);
       setJoinConfig(null);
+      setIosAudioReady(Platform.OS !== 'ios');
+      scheduleIosAudioReleaseAfterHmsLeave();
       setHmsMountKey((k) => k + 1);
       joinInitStartedRef.current = false;
       clearLiveReachMeeting(meetingId);
@@ -1762,12 +1846,13 @@ export default function HMSMeetingInterfaceScreen() {
       try {
         await leaving;
       } catch (error: any) {
-        console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
+        console.error('⚠️ [LEAVE] Error calling leave/end endpoint:', error);
       }
     },
     [
       meetingId,
       leaveConfirmedReachSession,
+      endConfirmedReachSession,
       dismissMeetingNotification,
       exitMeetingScreen,
       route.key,
@@ -1918,6 +2003,19 @@ export default function HMSMeetingInterfaceScreen() {
           <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
           <View style={styles.loadingContainer}>
             <Text style={styles.loadingText}>Waiting for camera permission...</Text>
+          </View>
+        </SafeAreaView>
+      );
+    }
+
+    // Mic permission can dismiss while iOS still owns the audio session. Mounting
+    // HMS in that window is the "Can't start meeting audio" popup (error 3015).
+    if (Platform.OS === 'ios' && !iosAudioReady) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <PrejoinBackButton onPress={goBackToApp} topInset={insets.top} />
+          <View style={styles.loadingContainer}>
+            <Text style={styles.loadingText}>Starting meeting...</Text>
           </View>
         </SafeAreaView>
       );
@@ -2309,6 +2407,13 @@ export default function HMSMeetingInterfaceScreen() {
                         // Prejoin cancel (HMS back) — never joined; no leave API.
                         if (!presenceConfirmedRef.current) {
                           exitMeetingScreen(() => router.replace(meetingExitPath as any));
+                          return;
+                        }
+
+                        // End Session (host): GrabDocs /end so everyone is disconnected.
+                        // Plain Leave / kicked / network: /leave for this device only.
+                        if (reason === 'room_ended') {
+                          void performLeaveMeeting({ endForEveryone: true });
                           return;
                         }
 

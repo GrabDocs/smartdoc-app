@@ -8,6 +8,12 @@ export const REACH_MEETING_NOTIFICATION_ID = 'grabdocs_meeting_minimized';
 export const HMS_ROOM_JOINED_EVENT = 'grabdocs:hms_room_joined';
 
 /**
+ * DeviceEventEmitter: Room Kit hit iOS AVAudioSession error 3015 before the room joined.
+ * The meeting screen releases the session and remounts preview once instead of alerting.
+ */
+export const HMS_AUDIO_SESSION_FAILED_EVENT = 'grabdocs:hms_audio_session_failed';
+
+/**
  * DeviceEventEmitter: list asks the mounted HMS screen to leave without returning first.
  * Payload: `{ meetingId: string }`.
  */
