@@ -733,7 +733,7 @@ index 9805ef5..a7a9d85 100644
        dispatch(setIsLocalVideoMutedState(enable));
        localVideoTrack.setMute(enable);
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
-index 4d107f0..a972689 100644
+index 4d107f0..23edf28 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 +++ b/node_modules/@100mslive/react-native-room-kit/src/hooks-util.ts
 @@ -1,176 +1,180 @@
@@ -1209,10 +1209,13 @@ index 4d107f0..a972689 100644
          }
 +      };
 +
++      // Notify the host app BEFORE destroy. destroy() can leave the native bridge
++      // in a state where the next Prebuilt render throws (e.g. reading .state of
++      // null). The app unmounts / navigates away in onLeave so that crash never paints.
++      notifyLeft();
 +      try {
 +        const s = hmsInstance.destroy();
 +        console.log('Destroy Success: ', s);
-+        notifyLeft();
          hmsInstance.setAlwaysScreenOn(false);
        } catch (e) {
          console.log(`Destroy HMS instance Error: ${e}`);
@@ -1222,9 +1225,6 @@ index 4d107f0..a972689 100644
 -          Toast.TOP
 -        );
 -        return Promise.reject(e);
-+        // Still tell the app to leave. A failed destroy used to skip onLeave
-+        // and leave the End/Leave button spinning on the meeting screen.
-+        notifyLeft();
        }
      },
      [hmsInstance]

@@ -1677,51 +1677,60 @@ export default function HMSMeetingInterfaceScreen() {
   /** Tear down presence + HMS route. stayOnList=true when leaving from the Reach list icon. */
   const performLeaveMeeting = useCallback(
     async (opts?: { stayOnList?: boolean }) => {
-      try {
-        // Block AppState/PiP from re-posting "Tap to return" before leave API finishes.
-        // Keep presenceConfirmedRef true until leaveConfirmedReachSession runs.
-        isNavigatingAwayRef.current = true;
-        if (pipFallbackTimerRef.current) {
-          clearTimeout(pipFallbackTimerRef.current);
-          pipFallbackTimerRef.current = null;
-        }
-        dismissMeetingNotification();
+      // Block AppState/PiP from re-posting "Tap to return".
+      isNavigatingAwayRef.current = true;
+      if (pipFallbackTimerRef.current) {
+        clearTimeout(pipFallbackTimerRef.current);
+        pipFallbackTimerRef.current = null;
+      }
+      dismissMeetingNotification();
 
-        if (heartbeatIntervalRef.current) {
-          clearInterval(heartbeatIntervalRef.current);
-          heartbeatIntervalRef.current = null;
-        }
-        try {
-          await AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY);
-        } catch {
-          /* ignore */
-        }
-        clearLiveReachMeeting(meetingId);
-        await leaveConfirmedReachSession();
-        presenceConfirmedRef.current = false;
-        inHmsRoomRef.current = false;
-        setPresenceConfirmed(false);
-        setInHmsRoom(false);
-      } catch (error: any) {
-        console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
       }
 
+      // Unmount HMSPrebuilt immediately. Room Kit destroy() can crash the next
+      // Prebuilt render ("Cannot read property 'state' of null") if we stay mounted
+      // while awaiting /leave — that painted the HMS Error screen on End Meeting.
+      presenceConfirmedRef.current = false;
+      inHmsRoomRef.current = false;
+      setPresenceConfirmed(false);
+      setInHmsRoom(false);
+      setHmsError(null);
+      setAuthToken(null);
+      setJoinConfig(null);
+      clearLiveReachMeeting(meetingId);
+      ownsLiveMeetingRef.current = false;
+      AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
+
+      // Navigate first; finish GrabDocs /leave in the background.
       if (opts?.stayOnList) {
-        // User is already on the list — remove this HMS screen from the stack only.
         const routeKey = route.key;
         exitMeetingScreen(() =>
           navigation.dispatch((state: any) => {
-            const routes = state.routes.filter((r: any) => r.key !== routeKey);
+            const routes = (state.routes as any[]).filter((r) => r.key !== routeKey);
+            // Do not spread full state — stale native-stack history causes null-route crashes.
             return CommonActions.reset({
-              ...state,
-              routes,
               index: Math.max(0, routes.length - 1),
+              routes: routes.map((r) => ({
+                name: r.name,
+                key: r.key,
+                params: r.params,
+                ...(r.state != null ? { state: r.state } : {}),
+              })),
             });
           }),
         );
-        return;
+      } else {
+        exitMeetingScreen(() => router.replace(meetingExitPath as any));
       }
-      exitMeetingScreen(() => router.replace(meetingExitPath as any));
+
+      try {
+        await leaveConfirmedReachSession();
+      } catch (error: any) {
+        console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
+      }
     },
     [
       meetingId,
