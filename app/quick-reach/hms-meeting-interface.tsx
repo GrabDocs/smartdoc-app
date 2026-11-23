@@ -58,11 +58,7 @@ import {
 import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiClient } from '../../services/api';
 import { errorLogger } from '../../services/errorLogger';
-import {
-  releaseHmsCallAudioMode,
-  restoreHmsCallAudioMode,
-  waitForHmsAudioReleased,
-} from '../../utils/hmsAudioSession';
+import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
 import { getFriendlyHmsErrorMessage } from '../../utils/hmsFriendlyError';
 import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import {
@@ -1261,7 +1257,7 @@ export default function HMSMeetingInterfaceScreen() {
         dismissMeetingNotification();
         // Prejoin or in-call: restore play-and-record after OS / other-app interruptions.
         // Do not remount HMS — that drops active calls.
-        if (authToken && meetingId && presenceConfirmedRef.current) {
+        if (authToken && meetingId) {
           void restoreHmsCallAudioMode();
         }
       }
@@ -1347,10 +1343,6 @@ export default function HMSMeetingInterfaceScreen() {
         setIsLoading(false);
         return;
       }
-
-      // Previous leave may still hold an exclusive expo-av session. Drop it
-      // before preview, or iOS reports 3015 even with no phone call.
-      await waitForHmsAudioReleased();
 
       // Same as web: get token via join-by-id (one join path for both web and mobile).
       // Signed-out users with no typed name send '' (not 'Guest') so preview stays editable
@@ -1640,8 +1632,11 @@ export default function HMSMeetingInterfaceScreen() {
     [handleLocalPeerName]
   );
 
-  // Do not set expo-av play-and-record here. HMS owns the session for preview
-  // and the call. Forcing DoNotMix before preview blocks the next join (3015).
+  // Prejoin preview and post-join media both need a play-and-record session.
+  useEffect(() => {
+    if (!authToken || Platform.OS === 'web') return;
+    void restoreHmsCallAudioMode();
+  }, [authToken, presenceConfirmed]);
 
   const retryHmsConnect = useCallback(() => {
     if (hmsRetryTimerRef.current) {
@@ -1715,7 +1710,6 @@ export default function HMSMeetingInterfaceScreen() {
       clearLiveReachMeeting(meetingId);
       ownsLiveMeetingRef.current = false;
       AsyncStorage.removeItem(REACH_CURRENT_MEETING_KEY).catch(() => {});
-      void releaseHmsCallAudioMode();
 
       // Navigate first; finish GrabDocs /leave in the background.
       if (opts?.stayOnList) {
