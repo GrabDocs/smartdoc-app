@@ -1,5 +1,5 @@
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
-index 8085154..c66bd46 100644
+index 8085154..540f357 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
 +++ b/node_modules/@100mslive/react-native-room-kit/src/HMSRoomSetup.tsx
 @@ -9,6 +9,7 @@ import {
@@ -10,7 +10,65 @@ index 8085154..c66bd46 100644
    Keyboard,
    PermissionsAndroid,
    Platform,
-@@ -363,6 +364,9 @@ export const HMSRoomSetup = () => {
+@@ -36,6 +37,7 @@ import {
+   updateLocalPeerTrackNode,
+ } from './redux/actions';
+ import { createPeerTrackNode, getRandomUserId } from './utils/functions';
++import { getFriendlyHmsErrorAlert } from './utils/friendlyHmsError';
+ import { OnLeaveReason, TerminalExceptionCodes } from './utils/types';
+ import type { PeerTrackNode } from './utils/types';
+ import { Meeting } from './components/Meeting';
+@@ -105,9 +107,10 @@ export const HMSRoomSetup = () => {
+       hmsInstance.join(hmsConfig);
+       await hmsInstance.setAlwaysScreenOn(true);
+     } catch (error: any) {
++      const friendly = getFriendlyHmsErrorAlert(error);
+       Alert.alert(
+-        error.code,
+-        error.message,
++        friendly.title,
++        friendly.message,
+         [
+           {
+             text: 'Leave',
+@@ -129,9 +132,10 @@ export const HMSRoomSetup = () => {
+       // TODO: handle case when promise returned from `getConfig()` is resolved when Root component has been unmounted
+       hmsInstance.preview(hmsConfig);
+     } catch (error: any) {
++      const friendly = getFriendlyHmsErrorAlert(error);
+       Alert.alert(
+-        error.code,
+-        error.message,
++        friendly.title,
++        friendly.message,
+         [
+           {
+             text: 'Leave',
+@@ -206,9 +210,10 @@ export const HMSRoomSetup = () => {
+         setLoading(false);
+ 
+         if (terminalError) {
++          const friendly = getFriendlyHmsErrorAlert(error);
+           Alert.alert(
+-            error.code.toString(),
+-            error.description || 'Something went wrong',
++            friendly.title,
++            friendly.message,
+             [
+               {
+                 text: 'Leave',
+@@ -225,8 +230,9 @@ export const HMSRoomSetup = () => {
+             { cancelable: false }
+           );
+         } else {
++          const friendly = getFriendlyHmsErrorAlert(error);
+           Toast.showWithGravity(
+-            `${error?.code} ${error?.description}` || 'Something went wrong',
++            friendly.message || 'Something went wrong',
+             Toast.LONG,
+             Toast.TOP
+           );
+@@ -363,6 +369,9 @@ export const HMSRoomSetup = () => {
          startHLSStreaming();
        }
        dispatch(changeMeetingState(MeetingState.IN_MEETING));
@@ -364,6 +422,33 @@ index 92fe974..79377db 100644
        <HandIcon />
      </PressableIcon>
    );
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx
+index 738cee6..95323bf 100644
+--- a/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx
++++ b/node_modules/@100mslive/react-native-room-kit/src/components/HMSTerminalErrorNotification.tsx
+@@ -6,6 +6,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+ import { HMSNotification } from './HMSNotification';
+ import { AlertTriangleIcon } from '../Icons';
+ import { useHMSRoomStyleSheet, useLeaveMethods } from '../hooks-util';
++import { getFriendlyHmsErrorAlert } from '../utils/friendlyHmsError';
+ import { OnLeaveReason } from '../utils/types';
+ import { COLORS } from '../utils/theme';
+ 
+@@ -36,12 +37,13 @@ export const HMSTerminalErrorNotification: React.FC<
+   };
+ 
+   const tapGesture = Gesture.Tap();
++  const friendly = getFriendlyHmsErrorAlert(exception);
+ 
+   return (
+     <HMSNotification
+       id={id}
+       icon={<AlertTriangleIcon />}
+-      text={exception.description || 'Something went wrong!'}
++      text={friendly.message || 'Something went wrong!'}
+       dismissDelay={dismissDelay}
+       autoDismiss={autoDismiss}
+       cta={
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx b/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx
 index e54b30c..b649dd1 100644
 --- a/node_modules/@100mslive/react-native-room-kit/src/components/LeaveRoomBottomSheet.tsx
@@ -1263,6 +1348,48 @@ index 0000000..638b2de
 +    return { emojiId: body };
 +  }
 +  return null;
++}
+diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
+new file mode 100644
+index 0000000..75b3a3e
+--- /dev/null
++++ b/node_modules/@100mslive/react-native-room-kit/src/utils/friendlyHmsError.ts
+@@ -0,0 +1,36 @@
++/**
++ * GrabDocs: map raw HMS / iOS AVAudioSession errors to user-facing copy.
++ * Room Kit alerts otherwise show opaque codes like "3015".
++ */
++export function getFriendlyHmsErrorAlert(error: {
++  code?: number | string | null;
++  description?: string | null;
++  message?: string | null;
++}): { title: string; message: string } {
++  const code = error?.code == null ? '' : String(error.code);
++  const raw = `${error?.description ?? ''} ${error?.message ?? ''}`;
++
++  // 3015 PUBLISH + NSOSStatus 561017449 (CannotInterruptOthers): phone call / other audio owns the session.
++  const isAudioSessionFailure =
++    code === '3015' ||
++    /audio session activation failure/i.test(raw) ||
++    /session activation failed/i.test(raw) ||
++    /561017449/.test(raw) ||
++    /cannotinterruptothers/i.test(raw) ||
++    (/\[code:\s*3015/i.test(raw) && /publish/i.test(raw));
++
++  if (isAudioSessionFailure) {
++    return {
++      title: "Can't start meeting audio",
++      message:
++        "GrabDocs can't use the microphone because another call or app is using audio on this device. End the phone call (or other audio), then try joining again.",
++    };
++  }
++
++  return {
++    title: code || 'Meeting error',
++    message:
++      (error?.description || error?.message || '').trim() ||
++      'Something went wrong',
++  };
 +}
 diff --git a/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx b/node_modules/@100mslive/react-native-room-kit/src/utils/functions.tsx
 index e122cc8..2b9d3b9 100644

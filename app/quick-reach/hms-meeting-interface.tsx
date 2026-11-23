@@ -1,73 +1,74 @@
 // 100ms Prebuilt Interface Implementation
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions, StackActions, useIsFocused, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { Audio } from 'expo-av';
 import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
 import { activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
 import * as Notifications from 'expo-notifications';
-import * as Updates from 'expo-updates';
-import { CommonActions, StackActions, useIsFocused, useNavigation, usePreventRemove, useRoute } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useLimitError } from '../../contexts/LimitErrorContext';
-import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Updates from 'expo-updates';
 import React, {
-    Component,
-    ErrorInfo,
-    ReactNode,
-    useCallback,
-    useEffect,
-    useLayoutEffect,
-    useRef,
-    useState,
+  Component,
+  ErrorInfo,
+  ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
 } from 'react';
 import {
-    Alert,
-    AppState,
-    AppStateStatus,
-    BackHandler,
-    DeviceEventEmitter,
-    Linking,
-    Modal,
-    NativeModules,
-    Platform,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Alert,
+  AppState,
+  AppStateStatus,
+  BackHandler,
+  DeviceEventEmitter,
+  Linking,
+  Modal,
+  NativeModules,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { MeetingPresenceConfirmBridge } from '../../components/quick-reach/MeetingPresenceConfirmBridge';
-import { MeetingHmsReconnectBridge } from '../../components/quick-reach/MeetingHmsReconnectBridge';
+import AppBackButton from '../../components/AppBackButton';
 import JoinRequestsManageModal from '../../components/quick-reach/JoinRequestsManageModal';
+import { MeetingHmsReconnectBridge } from '../../components/quick-reach/MeetingHmsReconnectBridge';
+import { MeetingPresenceConfirmBridge } from '../../components/quick-reach/MeetingPresenceConfirmBridge';
 import { HMS_IOS_SCREENSHARE } from '../../constants/Config';
 import {
-  REACH_CURRENT_MEETING_KEY,
-  REACH_MEETING_NOTIFICATION_ID,
   HMS_ROOM_JOINED_EVENT,
   LEAVE_REACH_MEETING_EVENT,
+  REACH_CURRENT_MEETING_KEY,
+  REACH_MEETING_NOTIFICATION_ID,
   canonicalizeReachMeetingId,
-  reachGuestIdStorageKey,
-  setLiveReachMeeting,
-  setLiveReachMeetingMounted,
   clearLiveReachMeeting,
   isLiveReachMeetingMounted,
+  reachGuestIdStorageKey,
   resumeLiveReachMeetingRoute,
+  setLiveReachMeeting,
+  setLiveReachMeetingMounted,
   shouldSkipHmsLeave,
 } from '../../constants/reachMeeting';
+import { useLimitError } from '../../contexts/LimitErrorContext';
 import { apiClient } from '../../services/api';
 import { errorLogger } from '../../services/errorLogger';
-import { getHmsDisplayUserName, getHmsPrefillUserName, usableReachDisplayName } from '../../utils/reachDisplayName';
+import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
+import { getFriendlyHmsErrorMessage } from '../../utils/hmsFriendlyError';
+import { limitErrorFromCaught } from '../../utils/limitErrorUtils';
 import {
   isActiveMeetingConflict,
   needsJoinConfirm,
   parseJoinByIdResponse,
 } from '../../utils/meetingJoinPresence';
-import { restoreHmsCallAudioMode } from '../../utils/hmsAudioSession';
+import { getHmsPrefillUserName, usableReachDisplayName } from '../../utils/reachDisplayName';
 import { MeetingJoinSound } from '../components/MeetingJoinSound';
 import { useAuth } from '../context/auth';
-import AppBackButton from '../../components/AppBackButton';
 
 const MEETING_NOTIFICATION_ID = REACH_MEETING_NOTIFICATION_ID;
 /** Room Kit Header: paddingTop 8 + content 42 + paddingBottom 16 (Header.tsx HEADER_HEIGHT). */
@@ -1425,6 +1426,8 @@ export default function HMSMeetingInterfaceScreen() {
         setResolvedStorageMeetingId(forStorage);
         setAuthToken(token);
         const tokenParts = token.split('.');
+        // permissionsGranted in diagnostics is updated when the permission effect settles;
+        // at token time it is often still null (shown as Denied before — misleading).
         const joinConfigData = {
           token,
           tokenLength: token.length,
@@ -1439,7 +1442,7 @@ export default function HMSMeetingInterfaceScreen() {
           joinPhase: parsed.joinPhase,
           role: parsed.userRole ?? 'auto-determined-by-backend',
           platform: Platform.OS,
-          permissionsGranted: permissionsGranted,
+          permissionsGranted: permissionsGranted === true,
           timestamp: new Date().toISOString(),
         };
         setJoinConfig(joinConfigData);
@@ -2131,12 +2134,23 @@ export default function HMSMeetingInterfaceScreen() {
                     Room ID Length: {joinConfig.roomIdLength}{'\n'}
                     User Name: {joinConfig.userName}{'\n'}
                     Platform: {joinConfig.platform}{'\n'}
-                    Permissions: {joinConfig.permissionsGranted ? 'Granted' : 'Denied'}{'\n'}
+                    Permissions: {permissionsGranted === true ? 'Granted' : permissionsGranted === false ? 'Denied' : 'Pending'}{'\n'}
                     HMSPrebuilt: {HMSPrebuilt ? 'Available' : 'Not Available'}
                   </Text>
                 </View>
               )}
-              
+
+              <TouchableOpacity
+                style={styles.retryButton}
+                onPress={() => {
+                  setHmsError(null);
+                  joinInitStartedRef.current = false;
+                  setHmsMountKey((k) => k + 1);
+                  void initializePrebuiltInterface();
+                }}
+              >
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.backButton} onPress={goToAppHome}>
                 <Text style={styles.backButtonText}>Go Back</Text>
               </TouchableOpacity>
@@ -2152,10 +2166,17 @@ export default function HMSMeetingInterfaceScreen() {
                     /room not found/i.test(rawMessage) ||
                     /400\s*\[?INIT\]?/i.test(rawMessage) ||
                     /room.*not.*exist/i.test(rawMessage);
+                  const audioFriendly = getFriendlyHmsErrorMessage(rawMessage);
                   const friendlyMessage = isRoomNotFound
                     ? 'Meeting not started yet. Contact host'
-                    : rawMessage || 'Failed to join meeting. Please try again.';
+                    : audioFriendly !== rawMessage
+                      ? audioFriendly
+                      : rawMessage || 'Failed to join meeting. Please try again.';
                   setHmsError(friendlyMessage);
+                  // Do not keep a crashed screen as the "live" meeting — Reach would keep
+                  // returning here instead of allowing a fresh join.
+                  clearLiveReachMeeting(meetingId);
+                  ownsLiveMeetingRef.current = false;
                   errorLogger.logError(error, {
                     severity: 'error',
                     screenName: 'HMSMeetingInterface',
@@ -2241,14 +2262,9 @@ export default function HMSMeetingInterfaceScreen() {
                           return;
                         }
 
-                        // Same path as list Leave: await /leave, then unmount.
-                        // Room Kit must not sit on EXITED blank while this runs.
-                        void performLeaveMeeting().catch((error: any) => {
-                          console.error('⚠️ [LEAVE] performLeaveMeeting failed:', error);
-                          exitMeetingScreen(() =>
-                            router.replace(meetingExitPath as any),
-                          );
-                        });
+                        // Same path as list Leave: /leave then unmount. Native HMS leave
+                        // was already kicked off in the background by Room Kit.
+                        void performLeaveMeeting();
                       }}
                       style={hmsProps.style}
                       // Note: React Native HMSPrebuilt does NOT support onJoin callback

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { StackActions } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
-import { CommonActions } from '@react-navigation/native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -21,32 +21,32 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import { io, Socket } from 'socket.io-client';
-import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
-import { secureStorage } from '../../utils/storage';
-import { MEETING_STATUS_CHANGED_EVENT } from '../services/pushNotifications';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Toast from 'react-native-toast-message';
+import { io, Socket } from 'socket.io-client';
 import ClientContextStrip from '../../components/clients/ClientContextStrip';
 import { FeedbackTouchable } from '../../components/FeedbackTouchable';
+import { API_BASE_URL, STORAGE_KEYS } from '../../constants/Config';
+import {
+    canonicalizeReachMeetingId,
+    clearLiveReachMeeting,
+    getLiveReachMeetingId,
+    hasLiveReachMeetingMounted,
+    isLiveReachMeetingMounted,
+    isUserInReachMeeting,
+    LEAVE_REACH_MEETING_EVENT,
+    REACH_CURRENT_MEETING_KEY,
+    resumeLiveReachMeetingRoute,
+} from '../../constants/reachMeeting';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import { apiClient } from '../../services/api';
+import { isValidEmail } from '../../utils/emailValidation';
 import { parseMobileMeetingInfoResponse } from '../../utils/meetingJoinPresence';
 import { getReachParticipantDisplayName, sanitizeReachDisplayName } from '../../utils/reachDisplayName';
+import { secureStorage } from '../../utils/storage';
 import { formatMeetingTimeToLocal } from '../../utils/timeFormatting';
-import {
-  REACH_CURRENT_MEETING_KEY,
-  canonicalizeReachMeetingId,
-  getLiveReachMeetingId,
-  hasLiveReachMeetingMounted,
-  isLiveReachMeetingMounted,
-  isUserInReachMeeting,
-  clearLiveReachMeeting,
-  LEAVE_REACH_MEETING_EVENT,
-  resumeLiveReachMeetingRoute,
-} from '../../constants/reachMeeting';
 import { useAuth } from '../context/auth';
-import { isValidEmail } from '../../utils/emailValidation';
+import { MEETING_STATUS_CHANGED_EVENT } from '../services/pushNotifications';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
@@ -317,41 +317,15 @@ function isUpcomingMeeting(meeting: Meeting, now: Date): boolean {
   return startTime > now;
 }
 
-/** Recent list: last 30 days, then capped to 10 newest after sort/search. */
-const RECENT_MEETING_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const RECENT_MEETING_MAX_COUNT = 10;
-
-/** Best available timestamp for “how recent is this meeting”. */
-function meetingRecencyMs(meeting: Meeting): number {
-  return (
-    toMillis(meeting.endTime) ||
-    toMillis(meeting.startTime) ||
-    toMillis(meeting.scheduledAt) ||
-    toMillis(meeting.createdAt) ||
-    0
-  );
-}
-
-/**
- * Recent: ended (or past-scheduled, not live) within the last 30 days.
- * Older ended meetings are excluded even though status remains `ended`.
- */
+/** Recent: ended, or a scheduled meeting whose start time has passed and is not live. */
 function isRecentMeeting(meeting: Meeting, now: Date): boolean {
+  if (meeting.status === 'ended') return true;
   if (meeting.status === 'active') return false;
-  const nowMs = now.getTime();
-  const cutoff = nowMs - RECENT_MEETING_MAX_AGE_MS;
-
-  if (meeting.status === 'ended') {
-    const t = meetingRecencyMs(meeting);
-    return t > 0 && t >= cutoff && t <= nowMs;
-  }
-
   const scheduled = meetingScheduledIso(meeting);
   if (!scheduled) return false;
   const startTime = new Date(scheduled);
   if (isNaN(startTime.getTime())) return false;
-  const startMs = startTime.getTime();
-  return startMs <= nowMs && startMs >= cutoff;
+  return startTime <= now;
 }
 
 function sortMeetingsNewestFirst(meetings: Meeting[]): Meeting[] {
@@ -1038,19 +1012,17 @@ export default function MeetingCallScreen() {
       const parent = navigation.getParent();
       // Cover with Home first so trimming the buried stack does not flash the call UI.
       router.push('/(tabs)' as any);
+      // Prefer StackActions.pop over CommonActions.reset: spreading getState() into reset can
+      // leave a stale native-stack history whose missing routes later crash as
+      // "Cannot read property 'state' of null" when starting the next meeting.
       const parentState = parent?.getState?.() as
         | { routes: { name: string }[]; index: number }
         | undefined;
       if (parent && parentState?.routes?.length) {
         const hmsIdx = parentState.routes.findIndex((r) => r.name === 'hms-meeting-interface');
-        if (hmsIdx >= 0 && (hmsIdx < parentState.routes.length - 1 || parentState.index !== hmsIdx)) {
-          parent.dispatch(
-            CommonActions.reset({
-              ...parentState,
-              routes: parentState.routes.slice(0, hmsIdx + 1),
-              index: hmsIdx,
-            }),
-          );
+        const topIdx = parentState.index ?? parentState.routes.length - 1;
+        if (hmsIdx >= 0 && topIdx > hmsIdx) {
+          parent.dispatch(StackActions.pop(topIdx - hmsIdx));
         }
       }
       return;
@@ -2317,7 +2289,7 @@ export default function MeetingCallScreen() {
   const filteredRecentMeetings = useMemo(() => {
     const now = new Date();
     const recent = sortMeetingsNewestFirst(meetings.filter((m) => isRecentMeeting(m, now)));
-    return recent.filter((m) => meetingMatchesSearch(m, searchQuery)).slice(0, RECENT_MEETING_MAX_COUNT);
+    return recent.filter((m) => meetingMatchesSearch(m, searchQuery));
   }, [meetings, searchQuery]);
 
   const hasSearchQuery = searchQuery.trim().length > 0;
