@@ -1695,6 +1695,11 @@ export default function HMSMeetingInterfaceScreen() {
         heartbeatIntervalRef.current = null;
       }
 
+      // Snapshot presence before clearing it. leaveConfirmedReachSession reads the
+      // ref synchronously; clearing first skips /leave and the user stays in the room.
+      const leaving = leaveConfirmedReachSession();
+      isMinimizingAwayRef.current = false;
+
       // Unmount HMSPrebuilt immediately so Room Kit's HMSContainer cleanup can
       // clearStore() (singleton redux). A hanging leave() used to block that reset
       // and the next join remounted a destroyed SDK until the app was force-quit.
@@ -1731,11 +1736,31 @@ export default function HMSMeetingInterfaceScreen() {
           }),
         );
       } else {
-        exitMeetingScreen(() => router.replace(meetingExitPath as any));
+        exitMeetingScreen(() => {
+          const exit = String(meetingExitPath || DEFAULT_MEETING_EXIT_PATH);
+          const wantsList =
+            exit === DEFAULT_MEETING_EXIT_PATH ||
+            exit.startsWith('/quick-reach/meeting-call');
+          const state = navigation.getState();
+          const index = state?.index ?? -1;
+          const current = index >= 0 ? state?.routes[index] : undefined;
+          const below = index > 0 ? state?.routes[index - 1] : undefined;
+          // replace() after logo → list → Home → return can swap this screen for an
+          // empty history entry (black). The list is already underneath — pop to it.
+          if (
+            wantsList &&
+            current?.key === route.key &&
+            below?.name === 'meeting-call'
+          ) {
+            navigation.dispatch(StackActions.pop());
+            return;
+          }
+          router.replace(exit as any);
+        });
       }
 
       try {
-        await leaveConfirmedReachSession();
+        await leaving;
       } catch (error: any) {
         console.error('⚠️ [LEAVE] Error calling leave endpoint:', error);
       }
@@ -2255,21 +2280,29 @@ export default function HMSMeetingInterfaceScreen() {
                       options={hmsProps.options}
                       autoEnterPipMode={Platform.OS !== 'web'}
                       pipConfig={Platform.OS !== 'web' ? { aspectRatio: [1, 1] } : undefined}
-                      onLeave={() => {
+                      onLeave={(reason?: string) => {
                         setIsLoading(false);
-
-                        // Same-meeting deep link / remount — do not delete presence or leave the call.
-                        if (shouldSkipHmsLeave()) {
-                          return;
-                        }
-
-                        // Swipe/back minimize — stay in the call; do not clear presence or hit leave API.
-                        if (isMinimizingAwayRef.current) {
-                          return;
-                        }
 
                         // List Leave already ran performLeaveMeeting — do not double-leave.
                         if (isNavigatingAwayRef.current) {
+                          return;
+                        }
+
+                        // Room Kit sets meeting state to EXITED before this callback. EXITED
+                        // renders an empty black view. Returning here — the 8s skip armed by
+                        // resume-after-Home, or isMinimizingAwayRef stuck because focus never
+                        // updates after list → Home → return — leaves that black view up.
+                        // A real exit must always unmount and navigate.
+                        const explicitExit =
+                          reason === 'leave' ||
+                          reason === 'pip' ||
+                          reason === 'room_ended' ||
+                          reason === 'peer_kicked' ||
+                          reason === 'network_issues';
+                        if (
+                          !explicitExit &&
+                          (shouldSkipHmsLeave() || isMinimizingAwayRef.current)
+                        ) {
                           return;
                         }
 
