@@ -22,6 +22,7 @@ import AdaptiveListPickerModal from '../../components/AdaptiveListPickerModal';
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderTitle from '../../components/AppHeaderTitle';
 import GuestPreviewCalendar from '../../components/scheduling/GuestPreviewCalendar';
+import RescheduleReminderField from '../../components/scheduling/RescheduleReminderField';
 import ClientsButton from '../../components/clients/ClientsButton';
 import MinimizableBottomSheet from '../../components/MinimizableBottomSheet';
 import { createBookingShareAdapter } from '../../components/share/resourceAdapters';
@@ -277,6 +278,8 @@ type Signup = {
   guest_change_reason?: string | null;
   host_reschedule_request_reason?: string | null;
   host_reschedule_requested_at?: string | null;
+  host_reschedule_reminder_at?: string | null;
+  host_reschedule_reminder_sent_at?: string | null;
 };
 
 function slugFromName(name: string) {
@@ -372,8 +375,11 @@ export default function CalendarSchedulingScreen() {
     typeId: number;
     bookingId: number;
     guestName: string;
+    startTime: string;
   } | null>(null);
   const [requestRescheduleReason, setRequestRescheduleReason] = useState('');
+  const [requestRescheduleRemind, setRequestRescheduleRemind] = useState(false);
+  const [requestRescheduleReminderAt, setRequestRescheduleReminderAt] = useState<Date | null>(null);
   const [requestRescheduleLoading, setRequestRescheduleLoading] = useState(false);
   const [savingHours, setSavingHours] = useState(false);
   /** Popup so feedback is visible even when the form is scrolled past the top. */
@@ -1029,9 +1035,9 @@ export default function CalendarSchedulingScreen() {
   const selected = types.find((item) => item.id === selectedType) || null;
   const showTabs = eventsView === 'list';
   const title = eventsView === 'detail' ? (selected?.name || 'Event') : 'Scheduling';
-  // Newest event type first (last created at the top).
+  // Active event types first, newest within each group. Inactive types stay at the bottom.
   const listedTypes = useMemo(
-    () => [...types].sort((a, b) => b.id - a.id),
+    () => [...types].sort((a, b) => Number(!!b.active) - Number(!!a.active) || b.id - a.id),
     [types],
   );
 
@@ -1711,6 +1717,11 @@ export default function CalendarSchedulingScreen() {
                         {row.host_reschedule_requested_at
                           ? `\nRequest sent: ${new Date(row.host_reschedule_requested_at).toLocaleString()}`
                           : ''}
+                        {row.host_reschedule_reminder_sent_at
+                          ? `\nReminder sent: ${new Date(row.host_reschedule_reminder_sent_at).toLocaleString()}`
+                          : row.host_reschedule_reminder_at
+                            ? `\nReminder if they haven't rebooked: ${new Date(row.host_reschedule_reminder_at).toLocaleString()}`
+                            : ''}
                         {`\nReason: ${row.host_reschedule_request_reason}`}
                       </Text>
                     ) : null}
@@ -1727,8 +1738,11 @@ export default function CalendarSchedulingScreen() {
                             typeId: selected.id,
                             bookingId: row.id,
                             guestName: row.guest_name,
+                            startTime: row.start_time,
                           });
                           setRequestRescheduleReason('');
+                          setRequestRescheduleRemind(false);
+                          setRequestRescheduleReminderAt(null);
                         }}
                       >
                         <Text style={styles.link}>Request another time</Text>
@@ -1975,6 +1989,16 @@ export default function CalendarSchedulingScreen() {
               maxLength={2000}
               editable={!requestRescheduleLoading}
             />
+            <RescheduleReminderField
+              appointmentStart={requestRescheduleTarget?.startTime}
+              enabled={requestRescheduleRemind}
+              onEnabledChange={setRequestRescheduleRemind}
+              value={requestRescheduleReminderAt}
+              onChange={setRequestRescheduleReminderAt}
+              disabled={requestRescheduleLoading}
+              textColor={colors.text}
+              secondaryColor={colors.textSecondary}
+            />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 16 }}>
               <TouchableOpacity
                 disabled={requestRescheduleLoading}
@@ -1986,18 +2010,32 @@ export default function CalendarSchedulingScreen() {
                 disabled={requestRescheduleLoading || !requestRescheduleReason.trim()}
                 onPress={async () => {
                   if (!requestRescheduleTarget || requestRescheduleLoading) return;
+                  if (requestRescheduleRemind && !requestRescheduleReminderAt) {
+                    notify('Choose a time', 'Choose when to send the reminder.');
+                    return;
+                  }
                   setRequestRescheduleLoading(true);
                   try {
                     await bookingRequestReschedule(
                       requestRescheduleTarget.typeId,
                       requestRescheduleTarget.bookingId,
                       requestRescheduleReason.trim(),
+                      requestRescheduleRemind && requestRescheduleReminderAt
+                        ? requestRescheduleReminderAt.toISOString()
+                        : null,
                     );
                     const data = await bookingListSignups(requestRescheduleTarget.typeId);
                     setSignups(data.signups || []);
                     setRequestRescheduleTarget(null);
                     setRequestRescheduleReason('');
-                    notify('Request sent', 'The guest will get an email to choose another time.');
+                    setRequestRescheduleRemind(false);
+                    setRequestRescheduleReminderAt(null);
+                    notify(
+                      'Request sent',
+                      requestRescheduleRemind
+                        ? 'The guest will get an email now, and a reminder if they have not rebooked.'
+                        : 'The guest will get an email to choose another time.',
+                    );
                   } catch (error: any) {
                     notify(
                       'Could not send',

@@ -77,10 +77,14 @@ export async function bookingRequestReschedule(
   typeId: number,
   bookingId: number,
   reason: string,
+  reminderAt?: string | null,
 ) {
   const response = await client().post(
     `/api/v1/booking/event-types/${typeId}/bookings/${bookingId}/request-reschedule`,
-    { reason },
+    {
+      reason,
+      ...(reminderAt ? { reminder_at: reminderAt } : {}),
+    },
   );
   return response.data;
 }

@@ -49,6 +49,8 @@ export type CalendarEvent = {
     start_time?: string;
     host_reschedule_request_reason?: string | null;
     host_reschedule_requested_at?: string | null;
+    host_reschedule_reminder_at?: string | null;
+    host_reschedule_reminder_sent_at?: string | null;
   }>;
   linked_category_id?: number | null;
   linked_category_record_id?: number | null;

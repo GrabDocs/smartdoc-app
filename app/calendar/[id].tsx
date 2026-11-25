@@ -58,6 +58,7 @@ import { isDeviceOfflineForCalendar } from '../../utils/calendarOffline';
 import { navigateJoinMeeting } from '../../utils/calendarReachJoin';
 import { calendarDisplayLocation, formatEventWhen, formatUtcIsoForDevice } from '../../utils/calendarTime';
 import { bookingRequestReschedule } from '../../services/bookingApi';
+import RescheduleReminderField from '../../components/scheduling/RescheduleReminderField';
 
 import AppBackButton from '../../components/AppBackButton';
 import AppHeaderIcon, { appHeaderButtonStyle } from '../../components/AppHeaderIcon';
@@ -171,6 +172,8 @@ export default function CalendarEventDetailScreen() {
   const [requestRescheduleOpen, setRequestRescheduleOpen] = useState(false);
   const [requestRescheduleBookingId, setRequestRescheduleBookingId] = useState<number | null>(null);
   const [requestRescheduleReason, setRequestRescheduleReason] = useState('');
+  const [requestRescheduleRemind, setRequestRescheduleRemind] = useState(false);
+  const [requestRescheduleReminderAt, setRequestRescheduleReminderAt] = useState<Date | null>(null);
   const [noteBusy, setNoteBusy] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
   const [kbInset, setKbInset] = useState(0);
@@ -939,6 +942,8 @@ export default function CalendarEventDetailScreen() {
                   onPress={() => {
                     setRequestRescheduleBookingId(requestable[0]?.id ?? null);
                     setRequestRescheduleReason('');
+                    setRequestRescheduleRemind(false);
+                    setRequestRescheduleReminderAt(null);
                     setRequestRescheduleOpen(true);
                   }}
                 >
@@ -1159,6 +1164,19 @@ export default function CalendarEventDetailScreen() {
               maxLength={2000}
               editable={actionBusy !== 'request'}
             />
+            <RescheduleReminderField
+              appointmentStart={
+                (event.confirmed_bookings || []).find((row) => row.id === requestRescheduleBookingId)?.start_time
+                || event.start_time
+              }
+              enabled={requestRescheduleRemind}
+              onEnabledChange={setRequestRescheduleRemind}
+              value={requestRescheduleReminderAt}
+              onChange={setRequestRescheduleReminderAt}
+              disabled={actionBusy === 'request'}
+              textColor={colors.text}
+              secondaryColor={colors.textSecondary}
+            />
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 16, marginTop: 16 }}>
               <TouchableOpacity
                 disabled={actionBusy === 'request'}
@@ -1174,6 +1192,10 @@ export default function CalendarEventDetailScreen() {
                   const bookings = event.confirmed_bookings || [];
                   const booking = bookings.find((row) => row.id === requestRescheduleBookingId);
                   if (!booking || !requestRescheduleReason.trim()) return;
+                  if (requestRescheduleRemind && !requestRescheduleReminderAt) {
+                    Alert.alert('Choose a time', 'Choose when to send the reminder.');
+                    return;
+                  }
                   const startRaw = booking.start_time || event.start_time;
                   const startAt = startRaw ? Date.parse(startRaw) : NaN;
                   if (Number.isNaN(startAt) || startAt <= Date.now()) {
@@ -1186,11 +1208,22 @@ export default function CalendarEventDetailScreen() {
                       booking.event_type_id,
                       booking.id,
                       requestRescheduleReason.trim(),
+                      requestRescheduleRemind && requestRescheduleReminderAt
+                        ? requestRescheduleReminderAt.toISOString()
+                        : null,
                     );
+                    const reminded = requestRescheduleRemind;
                     setRequestRescheduleOpen(false);
                     setRequestRescheduleReason('');
+                    setRequestRescheduleRemind(false);
+                    setRequestRescheduleReminderAt(null);
                     await loadEvent();
-                    Alert.alert('Request sent', 'The guest will get an email to choose another time.');
+                    Alert.alert(
+                      'Request sent',
+                      reminded
+                        ? 'The guest will get an email now, and a reminder if they have not rebooked.'
+                        : 'The guest will get an email to choose another time.',
+                    );
                   } catch (e: any) {
                     Alert.alert(
                       'Could not send',
